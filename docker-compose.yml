@@ -1,0 +1,27 @@
+services:
+  planeador_ferias:
+    # Troca OWNER pelo teu utilizador do GitHub depois de o workflow publicar a imagem.
+    # Enquanto não houver imagem publicada, "docker compose up -d --build" constrói-a aqui.
+    image: ghcr.io/OWNER/planeador-ferias:latest
+    build: .
+    container_name: planeador_ferias
+    restart: unless-stopped
+    environment:
+      PLANNER_USER: ${PLANNER_USER:?define PLANNER_USER no ficheiro .env}
+      PLANNER_PASSWORD: ${PLANNER_PASSWORD:?define PLANNER_PASSWORD no ficheiro .env}
+    volumes:
+      - planner_data:/data
+    networks:
+      - caddy
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 64m
+
+volumes:
+  planner_data:
+
+networks:
+  # A rede Docker onde está o teu Caddy (vê o nome com "docker network ls").
+  caddy:
+    external: true
