@@ -4,7 +4,8 @@
 import { tr } from '../i18n.js';
 import { $, PXM, SNAP, parseISO, mlabel, durLabel, dayLabel, toast, announce } from '../util.js';
 import { S, T, pushHistory, dropHistory } from '../state.js';
-import { view, findBlock, moveTo, toTray } from '../trip.js';
+import { days, view, findBlock, moveTo, toTray, rangeLabel } from '../trip.js';
+import { absStart, slotAt, segments } from '../span.js';
 import { commit } from '../sync.js';
 import { render } from './board.js';
 import { openEditor } from './editor.js';
@@ -14,20 +15,25 @@ document.addEventListener('pointerdown', e=>{
   const el=e.target.closest('.blk'); if(!el || e.button>0 || !T()) return;
   const f=findBlock(el.dataset.id); if(!f) return;
   const isGrip=!!e.target.closest('.grip'); const r=el.getBoundingClientRect();
-  S.drag={id:el.dataset.id, el, pointerId:e.pointerId, type:e.pointerType, x0:e.clientX, y0:e.clientY, x:e.clientX, y:e.clientY, mode:isGrip?'resize':'move', active:false, offY:e.clientY-r.top, offX:e.clientX-r.left, w:r.width, locked:!!f.b.locked, timer:null};
+  S.drag={id:el.dataset.id, el, pointerId:e.pointerId, type:e.pointerType, x0:e.clientX, y0:e.clientY, x:e.clientX, y:e.clientY, mode:isGrip?'resize':'move', active:false, offY:e.clientY-r.top, offX:e.clientX-r.left, w:r.width, h:r.height, locked:!!f.b.locked, timer:null};
   if(isGrip && e.pointerType!=='mouse'){ e.preventDefault(); startDrag(); }
   else if(e.pointerType!=='mouse' && !isGrip){ S.drag.timer=setTimeout(()=>{ const drag=S.drag; if(drag && !drag.active && !drag.cancelled) startDrag(); },300); }
 });
+/* Minuto absoluto (desde a meia-noite do 1.º dia) na altura y de uma coluna. */
+function timeAt(t, col, y){ return days(t).indexOf(col.dataset.date)*1440 + view(t).T0 + (y-col.getBoundingClientRect().top)/PXM(); }
 function startDrag(){
   const drag=S.drag; if(!drag) return;
   if(drag.locked){ toast(tr('tLocked')); drag.cancelled=true; return; }
   drag.active=true; pushHistory(); document.body.classList.add('is-dragging');
-  const f=findBlock(drag.id);
+  const t=T(), f=findBlock(drag.id), col=drag.el.closest('.day-col');
   if(drag.mode==='move'){
+    // no quadro, o fantasma tem o tamanho do pedaço agarrado (uma atividade de 30 h não cabe no ecrã)
     const g=drag.el.cloneNode(true); g.classList.add('ghost'); g.classList.remove('flash');
-    const hp=f.b.len*PXM()-2; g.style.width=Math.max(drag.w,130)+'px'; g.style.height=hp+'px'; g.style.left='0'; g.style.top='0';
+    const hp=col ? drag.h : Math.min(f.b.len*PXM(), 160)-2; g.style.width=Math.max(drag.w,130)+'px'; g.style.height=hp+'px'; g.style.left='0'; g.style.top='0';
     document.body.appendChild(g); drag.ghost=g; drag.offY=Math.min(drag.offY,hp-4); drag.el.classList.add('dragging');
   }
+  // que minuto da atividade ficou debaixo do dedo ou do rato
+  drag.grab = col ? timeAt(t,col,drag.y0)-absStart(t,f.b) : drag.offY/PXM();
   if(navigator.vibrate && drag.type==='touch'){ try{ navigator.vibrate(12); }catch(e){} }
   updateDrag(); autoScroll();
 }
@@ -40,28 +46,38 @@ document.addEventListener('pointermove', e=>{
     return; }
   e.preventDefault(); updateDrag();
 },{passive:false});
-function clearTargets(){ document.querySelectorAll('.drop-target').forEach(x=>x.classList.remove('drop-target')); const p=document.querySelector('.preview'); if(p) p.remove(); }
+function clearTargets(){ document.querySelectorAll('.drop-target').forEach(x=>x.classList.remove('drop-target')); document.querySelectorAll('.preview').forEach(p=>p.remove()); }
+/* Contorno de onde a atividade vai ficar, em todas as colunas por onde passa. */
+function preview(t, ds, b, label, bad){
+  segments(t,b,ds.length).forEach((s,k)=>{
+    const col=document.querySelector(`.day-col[data-date="${ds[s.i]}"]`); if(!col) return;
+    const p=document.createElement('div'); p.className='preview'+(bad?' bad':'')+(s.cutTop?' cut-top':'')+(s.cutBot?' cut-bot':'');
+    p.style.top=(s.top*PXM())+'px'; p.style.height=((s.bot-s.top)*PXM())+'px';
+    if(!k) p.innerHTML=`<span>${label}</span>`; col.appendChild(p);
+  });
+}
 function updateDrag(){
   const drag=S.drag; if(!drag||!drag.active) return;
-  const t=T(), f=findBlock(drag.id); if(!f) return; const b=f.b, v=view(t);
+  const t=T(), f=findBlock(drag.id); if(!f) return; const b=f.b, v=view(t), ds=days(t);
   clearTargets(); drag.target=null;
+  const hit=document.elementFromPoint(drag.x,drag.y);
   if(drag.mode==='resize'){
-    const col=drag.el.closest('.day-col'); if(!col) return; const r=col.getBoundingClientRect();
-    let end=v.T0+Math.round((drag.y-r.top)/PXM()/SNAP)*SNAP; end=Math.max(b.start+SNAP, Math.min(v.T1,end));
-    drag.target={len:end-b.start};
-    const p=document.createElement('div'); p.className='preview'; p.style.top=((b.start-v.T0)*PXM())+'px'; p.style.height=((end-b.start)*PXM())+'px';
-    p.innerHTML=`<span>${mlabel(b.start)}–${mlabel(end)} · ${durLabel(end-b.start)}</span>`; col.appendChild(p); return;
+    // o fim pode ir para a coluna seguinte: a atividade passa a continuar no outro dia
+    const col=(hit&&hit.closest('.day-col'))||drag.el.closest('.day-col'); if(!col) return;
+    const j=ds.indexOf(col.dataset.date), A=absStart(t,b);
+    let end=j*1440+v.T0+Math.round((drag.y-col.getBoundingClientRect().top)/PXM()/SNAP)*SNAP; end=Math.max(A+SNAP, Math.min(j*1440+v.T1,end));
+    const nb={date:b.date, start:b.start, len:end-A}; drag.target={len:nb.len};
+    preview(t, ds, nb, `${rangeLabel(nb)} · ${durLabel(nb.len)}`, false); return;
   }
   drag.ghost.style.transform=`translate(${drag.x-Math.min(drag.offX,120)}px, ${drag.y-drag.offY}px) rotate(-1.2deg)`;
-  const hit=document.elementFromPoint(drag.x,drag.y); const col=hit&&hit.closest('.day-col'); const tray=hit&&hit.closest('#tray');
+  const col=hit&&hit.closest('.day-col'); const tray=hit&&hit.closest('#tray');
   if(col){
-    const date=col.dataset.date, r=col.getBoundingClientRect();
-    let s=v.T0+Math.round((drag.y-drag.offY-r.top)/PXM()/SNAP)*SNAP; s=Math.max(v.T0, Math.min(v.T1-b.len, s));
+    const raw=timeAt(t,col,drag.y)-drag.grab; const sl=slotAt(t, Math.round(raw/SNAP)*SNAP, ds.length);
+    const date=ds[sl.i], s=sl.start, nb={date, start:s, len:b.len};
     drag.target={date,start:s}; col.classList.add('drop-target');
     const wd=parseISO(date).getDay(); const dp=t.dayPlaces[date]||[];
     const clash=(b.weekdays&&b.weekdays.length&&!b.weekdays.includes(wd)) || (b.place&&dp.length&&!dp.includes(b.place));
-    const p=document.createElement('div'); p.className='preview'+(clash?' bad':''); p.style.top=((s-v.T0)*PXM())+'px'; p.style.height=(b.len*PXM())+'px';
-    p.innerHTML=`<span>${dayLabel(date)} · ${mlabel(s)}–${mlabel(s+b.len)}${clash?tr('seeWarnings'):''}</span>`; col.appendChild(p);
+    preview(t, ds, nb, `${dayLabel(date)} · ${rangeLabel(nb)}${clash?tr('seeWarnings'):''}`, clash);
   } else if(tray){ drag.target={tray:true}; tray.classList.add('drop-target'); }
 }
 function autoScroll(){

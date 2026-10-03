@@ -5,6 +5,7 @@ import { S, T, pushHistory } from '../state.js';
 import { days, view, placeName, findBlock, moveTo, toTray } from '../trip.js';
 import { catName, hasCat, autoCat, catOptions } from '../costs.js';
 import { TZ, secondTz } from '../tz.js';
+import { absStart, slotAt } from '../span.js';
 import { commit } from '../sync.js';
 import { closeSheets } from './sheets.js';
 
@@ -14,8 +15,10 @@ buildWdays();
 function fillSelects(){
   const t=T(); if(!t) return; const v=view(t); const ds=days(t);
   $('#f-day').innerHTML=`<option value="tray">${tr('unscheduled')}</option>`+ds.map(d=>`<option value="${d}">${dayLabel(d,true)}${(t.dayPlaces[d]||[]).length?' · '+(t.dayPlaces[d]).map(p=>short(placeName(p))).join(' → '):''}</option>`).join('');
-  let so=''; for(let m=v.T0; m<v.T1; m+=SNAP) so+=`<option value="${m}">${mlabel(m)}${m>=1440?tr('afterMidnight'):''}</option>`; $('#f-start').innerHTML=so;
-  let lo=''; for(let m=SNAP; m<=v.span; m+=SNAP) lo+=`<option value="${m}">${durLabel(m)}</option>`; $('#f-len').innerHTML=lo;
+  // qualquer hora do dia: o horário do quadro só decide o que se vê
+  const grp=(key,a,b)=>{ let o=''; for(let m=a; m<b; m+=SNAP) o+=`<option value="${m}">${mlabel(m)}${m>=1440?tr('afterMidnight'):''}</option>`; return o?`<optgroup label="${esc(tr(key))}">${o}</optgroup>`:''; };
+  $('#f-start').innerHTML=grp('startBefore',0,v.T0)+grp('startBoard',v.T0,v.T1)+grp('startAfter',v.T1,v.T0+1440);
+  let lo=''; for(let m=SNAP; m<=4320; m+=(m<1440?SNAP:30)) lo+=`<option value="${m}">${durLabel(m)}</option>`; $('#f-len').innerHTML=lo;
   $('#f-place').innerHTML=`<option value="">${tr('anywhere')}</option>`+t.places.map(p=>`<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('');
 }
 export function openEditor(id,isNew){
@@ -55,11 +58,11 @@ $('#f-lock').addEventListener('change',e=>edit(b=>{ if(e.target.checked) b.locke
 $('#f-pp').addEventListener('input',e=>edit(b=>{ const v=parseFloat(e.target.value); if(v>0) b.pp=v; else delete b.pp; }));
 $('#f-total').addEventListener('input',e=>edit(b=>{ const v=parseFloat(e.target.value); if(v>0) b.total=v; else delete b.total; }));
 $('#f-wdays').addEventListener('change',()=>edit(b=>{ const ws=[0,1,2,3,4,5,6].filter(w=>$('#f-wd-'+w).checked); if(ws.length&&ws.length<7) b.weekdays=ws; else delete b.weekdays; }));
-$('#f-len').addEventListener('change',e=>edit(b=>{ b.len=+e.target.value; const v=view(T()); if(b.start!=null && b.start+b.len>v.T1) b.start=Math.max(v.T0,v.T1-b.len); }));
-$('#f-start').addEventListener('change',e=>edit(b=>{ const v=view(T()); b.start=Math.min(+e.target.value, v.T1-b.len); }));
+$('#f-len').addEventListener('change',e=>edit(b=>{ b.len=+e.target.value; }));
+$('#f-start').addEventListener('change',e=>edit(b=>{ b.start=+e.target.value; }));
 $('#f-day').addEventListener('change',e=>edit((b,f)=>{ if(e.target.value==='tray') toTray(b.id); else moveTo(b.id,e.target.value, f.where==='tray'?Math.max(view(T()).T0,600):b.start); }));
 $('#f-dup').addEventListener('click',()=>{ const f=findBlock(S.editingId); if(!f) return; pushHistory(); const c=clone(f.b); c.id=newId('a'); delete c.locked; const t=T();
-  if(f.where==='tray') t.tray.push(c); else { c.start=Math.min(view(t).T1-c.len, f.b.start+f.b.len); t.blocks.push(c); } commit(); openEditor(c.id); toast(tr('tDupActivity')); });
+  if(f.where==='tray') t.tray.push(c); else { const ds=days(t), s=slotAt(t, absStart(t,f.b)+f.b.len, ds.length); c.date=ds[s.i]; c.start=s.start; t.blocks.push(c); } commit(); openEditor(c.id); toast(tr('tDupActivity')); });
 $('#f-tray').addEventListener('click',()=>{ edit(b=>toTray(b.id)); $('#editor').hidden=true; S.editingId=null; });
 $('#f-del').addEventListener('click',()=>{ $('#f-del-confirm').hidden=false; $('#f-del-yes').focus(); });
 $('#f-del-no').addEventListener('click',()=>{ $('#f-del-confirm').hidden=true; });

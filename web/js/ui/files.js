@@ -2,7 +2,8 @@
 import { tr } from '../i18n.js';
 import { $, pad, newId, CATS, STATUS, parseISO, mlabel, durLabel, dayLabel, toast } from '../util.js';
 import { S, T, setActive, pushHistory } from '../state.js';
-import { normTrip, days, view, placeName, blocksOf } from '../trip.js';
+import { normTrip, days, view, placeName, boardLayout } from '../trip.js';
+import { dayShift } from '../span.js';
 import { catName, blockCat, nPeople, costItems } from '../costs.js';
 import { commit } from '../sync.js';
 import { closeSheets } from './sheets.js';
@@ -27,15 +28,15 @@ $('#export').addEventListener('click', async ()=>{
   const MONL=tr('xMonths'), WDX=tr('xWeekdays');
   const aoa=[[''].concat(ds.map(d=>{ const x=parseISO(d); return tr('xDay',{d:x.getDate(), m:MONL[x.getMonth()], w:WDX[x.getDay()]}); }))];
   const rows=v.span/30; for(let r=0;r<rows;r++){ const row=[mlabel(v.T0+r*30)]; ds.forEach(()=>row.push('')); aoa.push(row); }
-  const merges=[]; const cell=b=>b.title+(b.pp?`\n${b.pp} ${tr('xPP')}`:'')+(b.total?`\n${b.total}`:'');
+  const merges=[], L=boardLayout(t,ds); const cell=b=>b.title+(b.pp?`\n${b.pp} ${tr('xPP')}`:'')+(b.total?`\n${b.total}`:'');
   ds.forEach((d,ci)=>{ let g=null; const flush=()=>{ if(!g) return; aoa[g.r0+1][ci+1]=g.tx.join('\n'+tr('xAnd')+'\n'); if(g.r1-g.r0>1) merges.push({s:{r:g.r0+1,c:ci+1},e:{r:g.r1,c:ci+1}}); g=null; };
-    for(const b of blocksOf(d)){ let r0=Math.floor((b.start-v.T0)/30), r1=Math.ceil((b.start+b.len-v.T0)/30); r0=Math.max(0,Math.min(rows-1,r0)); r1=Math.max(r0+1,Math.min(rows,r1));
+    for(const {b,top,bot} of L.cols[ci]){ let r0=Math.floor(top/30), r1=Math.ceil(bot/30); r0=Math.max(0,Math.min(rows-1,r0)); r1=Math.max(r0+1,Math.min(rows,r1));
       if(g && r0<g.r1){ g.tx.push(cell(b)); g.r1=Math.max(g.r1,r1); } else { flush(); g={r0,r1,tx:[cell(b)]}; } }
     flush(); });
   const ws=XLSX.utils.aoa_to_sheet(aoa); ws['!merges']=merges; ws['!cols']=[{wch:7}].concat(ds.map(()=>({wch:24})));
   const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,tr('xPlan'));
   const head=tr('xHead');
-  const rowOf=b=>[b.date?dayLabel(b.date,true):tr('unscheduled'), b.date?mlabel(b.start):'', b.date?mlabel(b.start+b.len):durLabel(b.len), b.title, CATS()[b.cat]||'', placeName(b.place)||'', b.status?STATUS()[b.status]:'', (b.pp||b.total)?catName(t,blockCat(t,b)):'', b.pp||'', b.total||'', b.address||'', b.link||'', b.ref||'', b.note||''];
+  const rowOf=b=>[b.date?dayLabel(b.date,true):tr('unscheduled'), b.date?mlabel(b.start):'', b.date?mlabel(b.start+b.len)+(dayShift(b)?' +'+dayShift(b):''):durLabel(b.len), b.title, CATS()[b.cat]||'', placeName(b.place)||'', b.status?STATUS()[b.status]:'', (b.pp||b.total)?catName(t,blockCat(t,b)):'', b.pp||'', b.total||'', b.address||'', b.link||'', b.ref||'', b.note||''];
   const det=t.blocks.filter(b=>b.cat!=='sleep').slice().sort((a,b)=>a.date.localeCompare(b.date)||a.start-b.start).map(rowOf).concat(t.tray.map(rowOf));
   const ws2=XLSX.utils.aoa_to_sheet([head].concat(det)); ws2['!cols']=[14,7,7,34,11,16,12,18,9,10,24,30,14,40].map(w=>({wch:w}));
   XLSX.utils.book_append_sheet(wb,ws2,tr('xDetails'));
