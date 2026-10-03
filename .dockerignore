@@ -4,3 +4,5 @@ data
 .env
 README.md
 docker-compose.yml
+tests
+.gitattributes

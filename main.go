@@ -39,7 +39,7 @@ var webFS embed.FS
 const (
 	cookieName  = "planner_session"
 	sessionTTL  = 30 * 24 * time.Hour // renovada a cada uso (ver api)
-	maxBody     = 2 << 20 // 2 MB por viagem
+	maxBody     = 2 << 20             // 2 MB por viagem
 	backupsKept = 30
 )
 
