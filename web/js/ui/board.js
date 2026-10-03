@@ -2,7 +2,7 @@
 import { tr } from '../i18n.js';
 import { $, esc, short, isMobile, refreshSlot, PXM, SNAP, WD, MON, STATUS, parseISO, mlabel, durLabel, dayLabel, newId, announce } from '../util.js';
 import { S, T, ensureActive, pushHistory, dropHistory } from '../state.js';
-import { days, view, fmt, blockCostPP, placeById, placeName, findBlock, blocksOf } from '../trip.js';
+import { days, view, fmt, blockCostPP, placeById, placeName, findBlock, blocksOf, boardLayout, rangeLabel } from '../trip.js';
 import { nPeople, tripTotal, dayCostPP } from '../costs.js';
 import { computeWarnings } from '../warnings.js';
 import { TZ, secondTz } from '../tz.js';
@@ -14,24 +14,26 @@ import { openTripSheet } from './tripsheet.js';
 import { renderDash } from './costsheet.js';
 import { renderWarnings } from './review.js';
 
+/* Faixas lado a lado para pedaços que se sobrepõem numa coluna (top/bot em minutos desde T0). */
 function laneLayout(list){
   const res=new Map(); let cl=[], end=-1;
-  const flush=()=>{ const lanes=[]; for(const b of cl){ let li=lanes.findIndex(e=>e<=b.start); if(li<0){ li=lanes.length; lanes.push(0);} lanes[li]=b.start+b.len; res.set(b.id,{lane:li}); } for(const b of cl) res.get(b.id).n=lanes.length; cl=[]; end=-1; };
-  for(const b of list){ if(cl.length && b.start>=end) flush(); cl.push(b); end=Math.max(end,b.start+b.len); }
+  const flush=()=>{ const lanes=[]; for(const s of cl){ let li=lanes.findIndex(e=>e<=s.top); if(li<0){ li=lanes.length; lanes.push(0);} lanes[li]=s.bot; res.set(s.b.id,{lane:li}); } for(const s of cl) res.get(s.b.id).n=lanes.length; cl=[]; end=-1; };
+  for(const s of list){ if(cl.length && s.top>=end) flush(); cl.push(s); end=Math.max(end,s.bot); }
   if(cl.length) flush(); return res;
 }
-function blockEl(b, warnMap, inTray){
-  const el=document.createElement('div');
-  el.className='blk cat-'+b.cat+(b.locked?' locked':'')+(b.status==='ideia'?' status-ideia':'');
+/* seg: o pedaço visível numa coluna (null no tabuleiro). Um pedaço cortado continua noutro dia ou nas horas escondidas. */
+function blockEl(b, warnMap, seg){
+  const inTray=!seg; const el=document.createElement('div');
+  el.className='blk cat-'+b.cat+(b.locked?' locked':'')+(b.status==='ideia'?' status-ideia':'')+(seg&&seg.cutTop?' cut-top':'')+(seg&&seg.cutBot?' cut-bot':'');
   el.dataset.id=b.id; el.tabIndex=0; el.setAttribute('role','button');
   const w=warnMap.get(b.id);
   const cost = b.pp ? `<span class="eur">${fmt(b.pp)} pp</span>` : (b.total ? `<span class="eur">${fmt(b.total)}</span>` : '');
   const st = b.status ? `<span class="st st-${b.status}">${(b.status==='reservado'||b.status==='pago')?'✓ ':''}${STATUS()[b.status]}</span>` : '';
-  const time = inTray ? durLabel(b.len) : `${mlabel(b.start)}–${mlabel(b.start+b.len)}`;
+  const time = inTray ? durLabel(b.len) : rangeLabel(b);
   el.innerHTML = `<div class="t">${esc(b.title)}</div><div class="m"><span>${time}</span>${cost}${st}</div>`
     + (w?`<span class="badge" title="${esc(w.map(x=>x.t).join('\n'))}">!</span>`:'')
     + (b.locked?`<svg class="lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>`:'')
-    + (inTray?'':'<div class="grip" aria-hidden="true"></div>');
+    + (inTray||seg.cutBot?'':'<div class="grip" aria-hidden="true"></div>');
   if(w){ el.classList.add('has-badge'); if(w.some(x=>x.sev==='bad')) el.classList.add('bad'); }
   el.setAttribute('aria-label', `${b.title}, ${inTray?tr('unscheduledLower'):dayLabel(b.date,true)+' '+time}${b.status?', '+STATUS()[b.status]:''}${w?', '+tr('nWarnings',{n:w.length}):''}`);
   return el;
@@ -88,18 +90,30 @@ export function render(){
   for(let m=Math.ceil((v.T0+1)/60)*60; m<v.T1; m+=60){ const sp=document.createElement('span'); sp.style.top=((m-v.T0)*PXM())+'px'; sp.textContent=mlabel(m); if(m%1440===0) sp.className='mid'; times.appendChild(sp);
     if(sec){ const m2=m+sec.diff, s2=document.createElement('span'); s2.className='sec'+(((m2%1440)+1440)%1440===0?' mid':''); s2.style.top=sp.style.top; s2.textContent=mlabel(m2); times.appendChild(s2); } }
   board.appendChild(times);
-  ds.forEach(date=>{
+  const BL=boardLayout(t,ds), noSleep=x=>!(S.hideSleep && (x.b||x).cat==='sleep');
+  ds.forEach((date,i)=>{
     const col=document.createElement('div'); col.className='day-col'; col.dataset.date=date; col.style.height=H+'px';
     if(v.T1>1440 && v.T0<1440){ col.style.setProperty('--night-top', ((1440-v.T0)*PXM())+'px'); col.insertAdjacentHTML('beforeend', `<div class="midnight" style="top:${(1440-v.T0)*PXM()}px" aria-hidden="true"></div>`); }
-    const list=blocksOf(date).filter(b=>b.start+b.len>v.T0 && b.start<v.T1);
-    const layout=laneLayout(S.hideSleep?list.filter(b=>b.cat!=='sleep'):list);
-    for(const b of list){
-      const el=blockEl(b,warnMap,false); const L=layout.get(b.id)||{lane:0,n:1}; const wp=100/L.n;
-      const top=Math.max(0,(b.start-v.T0))*PXM(); const bottom=Math.min(v.span,(b.start+b.len-v.T0))*PXM(); const hp=bottom-top-2;
+    const list=BL.cols[i];
+    const layout=laneLayout(list.filter(noSleep));
+    for(const s of list){
+      const el=blockEl(s.b,warnMap,s); const L=layout.get(s.b.id)||{lane:0,n:1}; const wp=100/L.n;
+      const top=s.top*PXM(), hp=(s.bot-s.top)*PXM()-2;
       el.style.top=(top+1)+'px'; el.style.height=hp+'px'; el.style.left=`calc(${L.lane*wp}% + 3px)`; el.style.width=`calc(${wp}% - 6px)`;
       if(hp<40) el.classList.add('short');
-      el.style.setProperty('--lines', Math.max(1, Math.floor((hp-22)/15)));
+      el.style.setProperty('--lines', Math.max(1, Math.floor((hp-22-(s.cutTop?5:0)-(s.cutBot?5:0))/15)));
       col.appendChild(el);
+    }
+    // atividades que ficam todas nas horas escondidas: uma marca na ponta do dia, para não desaparecerem
+    for(const [edge,arr] of [['top',BL.top[i]],['bot',BL.bot[i]]]){
+      const hid=arr.filter(noSleep); if(!hid.length) continue;
+      const box=document.createElement('div'); box.className='hid '+edge;
+      for(const b of hid){ const w=warnMap.get(b.id)||[];
+        const c=document.createElement('button'); c.type='button'; c.className='hid-chip cat-'+b.cat+(w.some(x=>x.sev==='bad')?' bad':''); c.dataset.id=b.id;
+        c.innerHTML=`<span class="ar" aria-hidden="true">${edge==='top'?'↑':'↓'}</span><span class="hm">${mlabel(b.start)}</span><span class="nm">${esc(b.title)}</span>`;
+        c.title=tr('hiddenChip',{a:b.title, time:rangeLabel(b)}); c.setAttribute('aria-label', c.title);
+        c.addEventListener('click',()=>openEditor(b.id)); box.appendChild(c); }
+      col.appendChild(box);
     }
     board.appendChild(col);
   });
@@ -107,7 +121,7 @@ export function render(){
   // tray
   const tl=$('#tray-list'); tl.innerHTML='';
   if(!t.tray.length) tl.innerHTML=`<span class="tray-empty">${tr('trayEmpty')}</span>`;
-  for(const b of t.tray) tl.appendChild(blockEl(b,warnMap,true));
+  for(const b of t.tray) tl.appendChild(blockEl(b,warnMap,null));
   // stats
   const pp=tripTotal(t)/nPeople(t);
   $('#tot-pp').textContent=fmt(pp); $('#tot-n-k').textContent = t.people>1 ? tr('totalFor',{n:t.people}) : tr('total'); $('#tot-n').textContent=fmt(pp*(t.people||1));
@@ -123,16 +137,16 @@ export function render(){
   if(!$('#costsheet').hidden) renderDash();
 }
 export function focusBlock(id){
-  const el=document.querySelector(`.blk[data-id="${id}"]`); if(!el){ openEditor(id); return; }
+  const el=document.querySelector(`.blk[data-id="${id}"], .hid-chip[data-id="${id}"]`); if(!el){ openEditor(id); return; }
   if(el.closest('.day-col')){ const scroller=$('#scroller'); const r=el.getBoundingClientRect(), sr=scroller.getBoundingClientRect(); scroller.scrollBy({left:r.left-sr.left-90, top:r.top-sr.top-90, behavior:matchMedia('(prefers-reduced-motion:reduce)').matches?'auto':'smooth'}); }
   el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); el.focus({preventScroll:true});
 }
 
 /* Duplo clique numa coluna cria uma atividade nessa hora; clique no cabeçalho abre o dia. */
 $('#board').addEventListener('dblclick', e=>{
-  if(e.target.closest('.blk')) return; const col=e.target.closest('.day-col'); if(!col) return;
+  if(e.target.closest('.blk,.hid')) return; const col=e.target.closest('.day-col'); if(!col) return;
   const t=T(), v=view(t), r=col.getBoundingClientRect();
-  const s=Math.max(v.T0, Math.min(v.T1-60, v.T0+Math.floor((e.clientY-r.top)/PXM()/30)*30));
+  const s=Math.max(v.T0, Math.min(v.T1-30, v.T0+Math.floor((e.clientY-r.top)/PXM()/30)*30));
   pushHistory(); const b={id:newId('a'), date:col.dataset.date, start:s, len:60, title:tr('newActivity'), cat:'tour', status:'ideia'};
   t.blocks.push(b); commit(); openEditor(b.id,true);
 });
@@ -148,11 +162,12 @@ document.addEventListener('keydown', e=>{
   if(f.where==='tray'||b.locked) return;
   const k=e.key; if(!['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(k)) return;
   e.preventDefault(); const t=T(), v=view(t), ds=days(t); const di=ds.indexOf(b.date); let ch=false; pushHistory();
-  if(e.shiftKey){ if(k==='ArrowDown'&&b.start+b.len<v.T1){ b.len+=SNAP; ch=true; } if(k==='ArrowUp'&&b.len>SNAP){ b.len-=SNAP; ch=true; } }
-  else { if(k==='ArrowUp'&&b.start>v.T0){ b.start-=SNAP; ch=true; } if(k==='ArrowDown'&&b.start+b.len<v.T1){ b.start+=SNAP; ch=true; }
+  // a duração não tem limite (pode passar para o dia seguinte); o início fica dentro do horário visível para não perder o foco
+  if(e.shiftKey){ if(k==='ArrowDown'){ b.len+=SNAP; ch=true; } if(k==='ArrowUp'&&b.len>SNAP){ b.len-=SNAP; ch=true; } }
+  else { if(k==='ArrowUp'&&b.start>v.T0){ b.start-=SNAP; ch=true; } if(k==='ArrowDown'&&b.start+SNAP<v.T1){ b.start+=SNAP; ch=true; }
     if(k==='ArrowLeft'&&di>0){ b.date=ds[di-1]; ch=true; } if(k==='ArrowRight'&&di>=0&&di<ds.length-1){ b.date=ds[di+1]; ch=true; } }
   if(!ch){ dropHistory(); return; }
-  commit(); announce(`${b.title}: ${dayLabel(b.date,true)} ${mlabel(b.start)}–${mlabel(b.start+b.len)}`);
+  commit(); announce(`${b.title}: ${dayLabel(b.date,true)} ${rangeLabel(b)}`);
   const again=document.querySelector(`.blk[data-id="${b.id}"]`); if(again) again.focus();
 });
 

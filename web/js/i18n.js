@@ -38,13 +38,13 @@ const pt = {
   fAddress:'Morada ou ponto de encontro', fLink:'Link (site, reserva, mapa)', fRef:'Referência da reserva', fNote:'Notas',
   fLock:'Fixo (não arrasta sem querer)', duplicate:'Duplicar', toTray:'Mover para "por agendar"', delActivityQ:'Apagar esta atividade?',
   editorHint:'No quadro: arrasta para mudar de dia ou hora (no telemóvel, carrega uns instantes antes de arrastar). Puxa a borda de baixo para mudar a duração. Com o teclado: setas movem 15 min ou um dia, Shift+setas mudam a duração.',
-  anywhere:'Em qualquer sítio', afterMidnight:' (madrugada)', outsideBoard:' (fora do quadro)', autoCat:'Automática: {name}', openLink:'Abrir link ↗',
+  anywhere:'Em qualquer sítio', afterMidnight:' (madrugada)', outsideBoard:' (fora do quadro)', startBefore:'Antes do horário do quadro', startBoard:'No horário do quadro', startAfter:'Depois do horário do quadro', autoCat:'Automática: {name}', openLink:'Abrir link ↗',
 
   // dia
   day:'Dia', dPlace:'Onde estão', dPlace2:'Mudam durante o dia para', dUntil:'Aplicar também aos dias seguintes até', savePlace:'Guardar sítio',
   newPlace:'Novo sítio', newPlacePh:'Ex.: Lisboa, Hotel X, Algarve', dayCosts:'Custos do dia', addCost:'Adicionar custo',
   dayActivities:'Atividades deste dia', newActivityDay:'Nova atividade neste dia', noPlace:'— sem sítio —', noChange:'Não mudam',
-  justThisDay:'Só este dia', dayEmpty:'Ainda não há nada neste dia.',
+  justThisDay:'Só este dia', dayEmpty:'Ainda não há nada neste dia.', fromDay:' · desde {day}',
 
   // viagem
   trip:'Viagem', tName:'Nome da viagem', tNamePh:'Ex.: Açores 2027', tEnd:'Acaba', tDayStart:'O quadro começa às', tDayEnd:'E vai até às',
@@ -80,14 +80,15 @@ const pt = {
   wSleep:'{a} entra no sono', wOverlap:'{a} e {b} ao mesmo tempo', wWeekday:'{a} não acontece {day}',
   wWeekdayD:'Só acontece {days}. Dias possíveis nesta viagem: {ok}.', none:'nenhum',
   wPlace:'{a} é em {place}', wPlaceD:'{day}: estão em {places}.',
-  wHours:'{a} fica fora do horário do quadro', wHoursD:'Começa às {time}. Alarga o horário em "Datas e sítios" ou muda a hora.',
+  wHours:'{a} fica escondida, fora do horário do quadro', wHoursD:'Começa às {time}. No quadro aparece só uma marca na ponta do dia. Alarga o horário em "Datas e sítios" para a veres.',
+  hiddenChip:'{a}, {time}, fora do horário do quadro. Abrir',
   wNight:'Noite longa antes de {b}', wNightD:'{a} acaba às {t1} e {b} começa às {t2} de {day}.',
   wDates:'{a} está fora das datas da viagem', wDatesD:'Está marcada para {date}. Abre-a e escolhe outro dia.',
   seeWarnings:' · ver avisos',
 
   // quadro
   switchTrip:'Trocar de viagem', trips:'Viagens', openMark:' (aberta)', newTripOpt:'+ Nova viagem…',
-  emptyH:'Cria a primeira viagem', emptyP:'Escolhe o nome e as datas de início e fim. Depois vais acrescentando atividades dentro do horário de cada dia.',
+  emptyH:'Cria a primeira viagem', emptyP:'Escolhe o nome e as datas de início e fim. Depois vais acrescentando atividades. O horário do quadro só escolhe as horas que se veem.',
   importBackup:'Importar cópia de segurança', nDays:'{n} dias', clickDay:'clica num dia para dizer onde estão',
   whereClick:'Onde? Clica aqui', placesJoin:' para ',
 
@@ -162,12 +163,12 @@ const en = {
   fAddress:'Address or meeting point', fLink:'Link (website, booking, map)', fRef:'Booking reference', fNote:'Notes',
   fLock:'Locked (can\'t be dragged by accident)', duplicate:'Duplicate', toTray:'Move to "unscheduled"', delActivityQ:'Delete this activity?',
   editorHint:'On the board: drag to change day or time (on a phone, press and hold for a moment before dragging). Pull the bottom edge to change the duration. With the keyboard: arrows move 15 min or one day, Shift+arrows change the duration.',
-  anywhere:'Anywhere', afterMidnight:' (after midnight)', outsideBoard:' (outside the board)', autoCat:'Automatic: {name}', openLink:'Open link ↗',
+  anywhere:'Anywhere', afterMidnight:' (after midnight)', outsideBoard:' (outside the board)', startBefore:'Before the board hours', startBoard:'Within the board hours', startAfter:'After the board hours', autoCat:'Automatic: {name}', openLink:'Open link ↗',
 
   day:'Day', dPlace:'Where you are', dPlace2:'During the day you move to', dUntil:'Also apply to the following days until', savePlace:'Save place',
   newPlace:'New place', newPlacePh:'E.g. Lisbon, Hotel X, Algarve', dayCosts:'Day costs', addCost:'Add cost',
   dayActivities:'Activities this day', newActivityDay:'New activity on this day', noPlace:'— no place —', noChange:'No change',
-  justThisDay:'Just this day', dayEmpty:'Nothing on this day yet.',
+  justThisDay:'Just this day', dayEmpty:'Nothing on this day yet.', fromDay:' · since {day}',
 
   trip:'Trip', tName:'Trip name', tNamePh:'E.g. Azores 2027', tEnd:'Ends', tDayStart:'The board starts at', tDayEnd:'And goes until',
   tTz:'Trip time zone', tTzPh:'E.g. Asia/Tokyo', tHomeTz:'Second time zone (this device)', homeTzDefault:'Default: {tz}',
@@ -200,13 +201,14 @@ const en = {
   wSleep:'{a} cuts into sleep', wOverlap:'{a} and {b} at the same time', wWeekday:'{a} doesn\'t happen {day}',
   wWeekdayD:'Only happens {days}. Possible days on this trip: {ok}.', none:'none',
   wPlace:'{a} is in {place}', wPlaceD:'{day}: you\'re in {places}.',
-  wHours:'{a} is outside the board hours', wHoursD:'Starts at {time}. Widen the hours in "Dates & places" or change the time.',
+  wHours:'{a} is hidden, outside the board hours', wHoursD:'Starts at {time}. The board only shows a marker at the edge of the day. Widen the hours in "Dates & places" to see it.',
+  hiddenChip:'{a}, {time}, outside the board hours. Open',
   wNight:'Late night before {b}', wNightD:'{a} ends at {t1} and {b} starts at {t2} on {day}.',
   wDates:'{a} is outside the trip dates', wDatesD:'It\'s set for {date}. Open it and pick another day.',
   seeWarnings:' · see warnings',
 
   switchTrip:'Switch trip', trips:'Trips', openMark:' (open)', newTripOpt:'+ New trip…',
-  emptyH:'Create your first trip', emptyP:'Choose the name and the start and end dates. Then add activities within each day\'s hours.',
+  emptyH:'Create your first trip', emptyP:'Choose the name and the start and end dates. Then add activities. The board hours only choose which hours are shown.',
   importBackup:'Import backup', nDays:'{n} days', clickDay:'click a day to say where you are',
   whereClick:'Where? Click here', placesJoin:' to ',
 
