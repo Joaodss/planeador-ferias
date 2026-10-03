@@ -155,18 +155,3 @@ test('língua por omissão segue o browser e a escolha fica guardada', async () 
   I18N.set('xx');
   assert.equal(I18N.lang, 'en', 'língua desconhecida é ignorada');
 });
-
-test('mudar o quadro de fuso desloca as atividades e volta ao mesmo sítio', async () => {
-  const { shiftTime } = await import(new URL('../web/js/tz.js', import.meta.url));
-  const v = { T0: 8 * 60, T1: 25 * 60 };   // quadro das 8h à 1h do dia seguinte
-  const off = -8 * 60;                      // Lisboa está 8h atrás de Tóquio
-  assert.deepEqual(shiftTime('2026-10-10', 20 * 60, off, v), { date: '2026-10-10', start: 12 * 60 }, '20h em Tóquio = 12h em Lisboa');
-  assert.deepEqual(shiftTime('2026-10-10', 8 * 60, off, v), { date: '2026-10-09', start: 24 * 60 }, 'meia-noite fica no fim do dia anterior');
-  assert.deepEqual(shiftTime('2026-10-10', 10 * 60, off, v), { date: '2026-10-10', start: 2 * 60 }, 'fora do quadro fica como hora normal');
-  assert.deepEqual(shiftTime('2026-11-01', 8 * 60, off, v), { date: '2026-10-31', start: 24 * 60 }, 'muda de mês');
-  assert.deepEqual(shiftTime('2026-10-10', 1470, 0, v), { date: '2026-10-10', start: 1470 }, 'sem diferença não mexe');
-  for (const start of [8 * 60, 12 * 60 + 15, 23 * 60 + 45, 24 * 60 + 30]) {
-    const there = shiftTime('2026-10-10', start, -off, v);
-    assert.deepEqual(shiftTime(there.date, there.start, off, v), { date: '2026-10-10', start }, `ida e volta às ${start} min`);
-  }
-});

@@ -147,6 +147,29 @@ button,select,input,textarea{font:inherit;color:inherit}
 .blk:hover .grip::after,.blk:focus-visible .grip::after{opacity:.6}
 .blk.locked .grip{display:none}
 body.hide-sleep .day-col .blk.cat-sleep{display:none}
+/* atividade que continua noutro dia ou nas horas escondidas: borda em zig-zag desse lado */
+.blk.cut-top,.blk.cut-bot{--zz-t:linear-gradient(#000 0 0);--zz-b:linear-gradient(#000 0 0);-webkit-mask:var(--zz-t) top/12px 51% repeat-x,var(--zz-b) bottom/12px 51% repeat-x;mask:var(--zz-t) top/12px 51% repeat-x,var(--zz-b) bottom/12px 51% repeat-x}
+.blk.cut-top{--zz-t:conic-gradient(from 135deg at top,#0000,#000 1deg 89deg,#0000 90deg);border-top:0;border-top-left-radius:0;border-top-right-radius:0;padding-top:8px}
+.blk.cut-bot{--zz-b:conic-gradient(from -45deg at bottom,#0000,#000 1deg 89deg,#0000 90deg);border-bottom:0;border-bottom-left-radius:0;border-bottom-right-radius:0;padding-bottom:8px}
+.blk.cut-top .badge{top:8px}
+.blk.cut-bot .lock{bottom:8px}
+.blk.cut-top:focus-visible,.blk.cut-bot:focus-visible{outline-offset:-3px}
+.blk.cut-top.flash,.blk.cut-bot.flash{animation-name:flash-in}
+@keyframes flash-in{0%,40%{box-shadow:inset 0 0 0 3px var(--focus)}100%{box-shadow:inset 0 0 0 0 transparent}}
+.preview.cut-top{border-top-style:dotted;border-top-left-radius:0;border-top-right-radius:0}
+.preview.cut-bot{border-bottom-style:dotted;border-bottom-left-radius:0;border-bottom-right-radius:0}
+/* marca de atividades escondidas (fora do horário do quadro) na ponta do dia */
+.hid{position:absolute;left:0;right:0;display:flex;gap:3px;padding:2px 3px;z-index:3;pointer-events:none;
+  background:repeating-linear-gradient(135deg, transparent 0 5px, color-mix(in srgb, var(--muted) 14%, transparent) 5px 6px)}
+.hid.top{top:0;border-bottom:1px dashed var(--line)}
+.hid.bot{bottom:0;border-top:1px dashed var(--line)}
+.hid-chip{pointer-events:auto;flex:1 1 0;min-width:0;display:flex;align-items:center;gap:4px;height:18px;padding:0 5px;border:1px dashed var(--cc);border-left:3px solid var(--cc);border-radius:5px;background:var(--cf);color:var(--ink);font:inherit;font-size:10.5px;line-height:1;cursor:pointer;white-space:nowrap;overflow:hidden}
+.hid-chip:hover{box-shadow:var(--shadow)}
+.hid-chip .ar{color:var(--cc);font-weight:700}
+.hid-chip .hm{font-family:var(--font-mono);color:var(--muted);font-variant-numeric:tabular-nums}
+.hid-chip .nm{overflow:hidden;text-overflow:ellipsis;font-weight:600}
+.hid-chip.bad{border-color:var(--bad)}
+.hid-chip.flash{animation:flash 1.2s ease-out 1}
 
 .cat-tour{--cc:var(--c-tour);--cf:var(--f-tour)}
 .cat-party{--cc:var(--c-party);--cf:var(--f-party)}
@@ -205,6 +228,7 @@ body.is-dragging,body.is-dragging *{cursor:grabbing!important}
 .day-item{display:flex;gap:10px;align-items:center;border:1px solid var(--line);border-left:4px solid var(--cc);background:var(--cf);border-radius:8px;padding:7px 10px;cursor:pointer;text-align:left;width:100%}
 .day-item .tm{font-family:var(--font-mono);font-size:11px;color:var(--muted);white-space:nowrap}
 .day-item .nm{font-weight:600;font-size:13px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.day-item .from{font-weight:400;color:var(--muted)}
 .warn-item{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border-radius:9px;border:1px solid var(--line);background:var(--surface-2);cursor:pointer;text-align:left;width:100%}
 .warn-item:hover{border-color:var(--muted)}
 .warn-item .sev{flex:none;margin-top:4px;width:9px;height:9px;border-radius:50%;background:var(--warn)}

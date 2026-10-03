@@ -2,9 +2,10 @@
 import { tr } from '../i18n.js';
 import { $, esc, clone, short, newId, SNAP, WD, CATS, mlabel, durLabel, dayLabel, toast } from '../util.js';
 import { S, T, pushHistory } from '../state.js';
-import { viewDays, view, placeName, findBlock, moveTo, toTray, inView } from '../trip.js';
+import { days, view, placeName, findBlock, moveTo, toTray, boardFrame, toBoard, fromBoard } from '../trip.js';
 import { catName, hasCat, autoCat, catOptions } from '../costs.js';
-import { TZ, secondTz, viewOffset } from '../tz.js';
+import { TZ, secondTz } from '../tz.js';
+import { absStart, slotAt } from '../span.js';
 import { commit } from '../sync.js';
 import { closeSheets } from './sheets.js';
 
@@ -12,10 +13,12 @@ let editorSnap=false;   // já foi guardado um ponto de Desfazer nesta edição?
 export function buildWdays(){ $('#f-wdays').innerHTML=[1,2,3,4,5,6,0].map(w=>`<label><input type="checkbox" value="${w}" id="f-wd-${w}">${WD()[w]}</label>`).join(''); }
 buildWdays();
 function fillSelects(){
-  const t=T(); if(!t) return; const v=view(t); const ds=viewDays(t);
+  const t=T(); if(!t) return; const v=view(t); const ds=boardFrame(t).ds;
   $('#f-day').innerHTML=`<option value="tray">${tr('unscheduled')}</option>`+ds.map(d=>`<option value="${d}">${dayLabel(d,true)}${(t.dayPlaces[d]||[]).length?' · '+(t.dayPlaces[d]).map(p=>short(placeName(p))).join(' → '):''}</option>`).join('');
-  let so=''; for(let m=v.T0; m<v.T1; m+=SNAP) so+=`<option value="${m}">${mlabel(m)}${m>=1440?tr('afterMidnight'):''}</option>`; $('#f-start').innerHTML=so;
-  let lo=''; for(let m=SNAP; m<=v.span; m+=SNAP) lo+=`<option value="${m}">${durLabel(m)}</option>`; $('#f-len').innerHTML=lo;
+  // qualquer hora do dia: o horário do quadro só decide o que se vê
+  const grp=(key,a,b)=>{ let o=''; for(let m=a; m<b; m+=SNAP) o+=`<option value="${m}">${mlabel(m)}${m>=1440?tr('afterMidnight'):''}</option>`; return o?`<optgroup label="${esc(tr(key))}">${o}</optgroup>`:''; };
+  $('#f-start').innerHTML=grp('startBefore',0,v.T0)+grp('startBoard',v.T0,v.T1)+grp('startAfter',v.T1,v.T0+1440);
+  let lo=''; for(let m=SNAP; m<=4320; m+=(m<1440?SNAP:30)) lo+=`<option value="${m}">${durLabel(m)}</option>`; $('#f-len').innerHTML=lo;
   $('#f-place').innerHTML=`<option value="">${tr('anywhere')}</option>`+t.places.map(p=>`<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('');
 }
 export function openEditor(id,isNew){
@@ -26,7 +29,7 @@ export function openEditor(id,isNew){
 export function fillEditor(full){
   const f=findBlock(S.editingId); if(!f){ $('#editor').hidden=true; S.editingId=null; return; }
   // dia e hora mostrados na hora do quadro (vb), como na grelha
-  const b=f.b, act=document.activeElement, t=T(), vb=f.where==='tray'?null:inView(t,b);
+  const b=f.b, act=document.activeElement, t=T(), F=boardFrame(t), vb=f.where==='tray'?null:toBoard(t,F,b);
   const set=(sel,val)=>{ const el=$(sel); if(full||el!==act){ if(el.type==='checkbox') el.checked=!!val; else el.value=val; } };
   set('#f-title',b.title); if(vb && ![...$('#f-day').options].some(o=>o.value===vb.date)) $('#f-day').insertAdjacentHTML('beforeend',`<option value="${vb.date}">${dayLabel(vb.date,true)}</option>`);
   set('#f-day', vb?vb.date:'tray'); $('#f-start').disabled=f.where==='tray';
@@ -40,7 +43,7 @@ export function fillEditor(full){
   const lo=$('#f-link-open'); if(/^https?:\/\//i.test(b.link||'')){ lo.hidden=false; lo.href=b.link; lo.textContent=tr('openLink'); } else lo.hidden=true;
   $('#f-tray').hidden=f.where==='tray'; $('#ed-h').textContent=CATS()[b.cat]||tr('activity');
   // a outra hora: o segundo fuso, ou a hora da viagem quando o quadro está no segundo fuso
-  const sec=secondTz(t), off=viewOffset(t), other=sec && (off ? {tz:t.tz, diff:-sec.diff} : sec), fs=$('#f-sec');
+  const sec=secondTz(t), other=sec && (F.off ? {tz:t.tz, diff:-sec.diff} : sec), fs=$('#f-sec');
   if(other && vb){ const a=vb.start+other.diff, sh=Math.floor(a/1440)-Math.floor(vb.start/1440);
     fs.textContent=tr('secAt',{city:TZ.city(other.tz), range:`${mlabel(a)}–${mlabel(a+b.len)}`})+(sh<0?tr('prevDay'):sh>0?tr('nextDay'):''); fs.hidden=false; }
   else fs.hidden=true;
@@ -58,12 +61,13 @@ $('#f-lock').addEventListener('change',e=>edit(b=>{ if(e.target.checked) b.locke
 $('#f-pp').addEventListener('input',e=>edit(b=>{ const v=parseFloat(e.target.value); if(v>0) b.pp=v; else delete b.pp; }));
 $('#f-total').addEventListener('input',e=>edit(b=>{ const v=parseFloat(e.target.value); if(v>0) b.total=v; else delete b.total; }));
 $('#f-wdays').addEventListener('change',()=>edit(b=>{ const ws=[0,1,2,3,4,5,6].filter(w=>$('#f-wd-'+w).checked); if(ws.length&&ws.length<7) b.weekdays=ws; else delete b.weekdays; }));
-/* Dia e hora vêm na hora do quadro; moveTo converte para a hora da viagem. */
-$('#f-len').addEventListener('change',e=>edit((b,f)=>{ b.len=+e.target.value; const t=T(), v=view(t); if(f.where==='tray') return; const vb=inView(t,b); if(vb.start+b.len>v.T1) moveTo(b.id, vb.date, v.T1-b.len); }));
-$('#f-start').addEventListener('change',e=>edit(b=>{ moveTo(b.id, inView(T(),b).date, +e.target.value); }));
-$('#f-day').addEventListener('change',e=>edit((b,f)=>{ if(e.target.value==='tray') toTray(b.id); else moveTo(b.id,e.target.value, f.where==='tray'?Math.max(view(T()).T0,600):inView(T(),b).start); }));
+/* Dia e hora vêm na hora do quadro (pode ser o segundo fuso); fromBoard converte para a hora da viagem. */
+$('#f-len').addEventListener('change',e=>edit(b=>{ b.len=+e.target.value; }));
+$('#f-start').addEventListener('change',e=>edit(b=>{ const t=T(), F=boardFrame(t); Object.assign(b, fromBoard(t,F,toBoard(t,F,b).date,+e.target.value)); }));
+$('#f-day').addEventListener('change',e=>edit((b,f)=>{ if(e.target.value==='tray'){ toTray(b.id); return; }
+  const t=T(), F=boardFrame(t), p=fromBoard(t,F,e.target.value, f.where==='tray'?Math.max(view(t).T0,600):toBoard(t,F,b).start); moveTo(b.id,p.date,p.start); }));
 $('#f-dup').addEventListener('click',()=>{ const f=findBlock(S.editingId); if(!f) return; pushHistory(); const c=clone(f.b); c.id=newId('a'); delete c.locked; const t=T();
-  if(f.where==='tray') t.tray.push(c); else { const vb=inView(t,f.b); t.blocks.push(c); moveTo(c.id, vb.date, vb.start+f.b.len); } commit(); openEditor(c.id); toast(tr('tDupActivity')); });
+  if(f.where==='tray') t.tray.push(c); else { const ds=days(t), s=slotAt(t, absStart(t,f.b)+f.b.len, ds.length); c.date=ds[s.i]; c.start=s.start; t.blocks.push(c); } commit(); openEditor(c.id); toast(tr('tDupActivity')); });
 $('#f-tray').addEventListener('click',()=>{ edit(b=>toTray(b.id)); $('#editor').hidden=true; S.editingId=null; });
 $('#f-del').addEventListener('click',()=>{ $('#f-del-confirm').hidden=false; $('#f-del-yes').focus(); });
 $('#f-del-no').addEventListener('click',()=>{ $('#f-del-confirm').hidden=true; });
