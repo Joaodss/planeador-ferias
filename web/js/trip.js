@@ -2,6 +2,7 @@
 import { I18N } from './i18n.js';
 import { parseISO, iso, addDays, newId } from './util.js';
 import { T } from './state.js';
+import { viewOffset, shiftTime } from './tz.js';
 
 export function normTrip(t){ t.places=t.places||[]; t.dayPlaces=t.dayPlaces||{}; t.blocks=t.blocks||[]; t.tray=t.tray||[]; t.people=t.people||1; t.currency=t.currency||'€'; if(t.dayStart==null) t.dayStart=7; if(t.dayEnd==null) t.dayEnd=1; return t; }
 export function days(t){ const out=[]; if(!t) return out; let d=parseISO(t.start); const e=parseISO(t.end); while(d<=e && out.length<120){ out.push(iso(d)); d=addDays(d,1);} return out; }
@@ -19,7 +20,23 @@ export function addPlace(name){ const t=T(); name=name.trim(); if(!name) return 
 /* ---------- lookup / mutate ---------- */
 export function findBlock(id){ const t=T(); if(!t) return null; let b=t.blocks.find(x=>x.id===id); if(b) return {b,where:'grid'}; b=t.tray.find(x=>x.id===id); return b?{b,where:'tray'}:null; }
 export function blocksOf(date){ return T().blocks.filter(b=>b.date===date).sort((a,b)=>a.start-b.start||b.len-a.len); }
+/* Põe a atividade no dia/hora do quadro (date e start na hora do quadro, que pode ser o segundo fuso). */
 export function moveTo(id,date,start){ const t=T(), f=findBlock(id); if(!f) return; const b=f.b; const v=view(t);
   if(f.where==='tray'){ t.tray=t.tray.filter(x=>x!==b); t.blocks.push(b); }
-  b.date=date; b.start=Math.max(v.T0, Math.min(v.T1-b.len, start)); }
+  Object.assign(b, fromView(t, date, Math.max(v.T0, Math.min(v.T1-b.len, start)))); }
+
+/* ---------- quadro noutro fuso ----------
+   Guardado: date/start na hora da viagem. Mostrado: na hora do quadro (ver viewOffset em tz.js). */
+export function inView(t,b){ const off=viewOffset(t); return off ? shiftTime(b.date,b.start,off,view(t)) : {date:b.date, start:b.start}; }
+export function fromView(t,date,start){ const off=viewOffset(t); return off ? shiftTime(date,start,-off,view(t)) : {date, start}; }
+/* Atividades da viagem com o dia e a hora em que aparecem no quadro: [{b, date, start}]. */
+export function viewBlocks(t){ const off=viewOffset(t), v=view(t);
+  return t.blocks.map(b=>off ? {b, ...shiftTime(b.date,b.start,off,v)} : {b, date:b.date, start:b.start}); }
+/* Colunas do quadro: os dias da viagem, mais o dia antes/depois se alguma atividade cair lá na hora do quadro. */
+export function viewDays(t, vbs){
+  const ds=days(t); if(!ds.length || !viewOffset(t)) return ds;
+  let a=ds[0], z=ds[ds.length-1];
+  for(const x of vbs||viewBlocks(t)) if(ds.includes(x.b.date)){ if(x.date<a) a=x.date; if(x.date>z) z=x.date; }
+  const out=[]; for(let d=parseISO(a); iso(d)<=z && out.length<122; d=addDays(d,1)) out.push(iso(d)); return out;
+}
 export function toTray(id){ const t=T(), f=findBlock(id); if(!f||f.where==='tray') return; t.blocks=t.blocks.filter(x=>x!==f.b); delete f.b.date; delete f.b.start; t.tray.push(f.b); }

@@ -4,7 +4,7 @@
 import { tr } from '../i18n.js';
 import { $, PXM, SNAP, parseISO, mlabel, durLabel, dayLabel, toast, announce } from '../util.js';
 import { S, T, pushHistory, dropHistory } from '../state.js';
-import { view, findBlock, moveTo, toTray } from '../trip.js';
+import { view, findBlock, moveTo, toTray, inView, fromView } from '../trip.js';
 import { commit } from '../sync.js';
 import { render } from './board.js';
 import { openEditor } from './editor.js';
@@ -44,13 +44,15 @@ function clearTargets(){ document.querySelectorAll('.drop-target').forEach(x=>x.
 function updateDrag(){
   const drag=S.drag; if(!drag||!drag.active) return;
   const t=T(), f=findBlock(drag.id); if(!f) return; const b=f.b, v=view(t);
+  // tudo aqui é na hora do quadro (vs = início da atividade no quadro); moveTo converte para a hora da viagem
   clearTargets(); drag.target=null;
   if(drag.mode==='resize'){
     const col=drag.el.closest('.day-col'); if(!col) return; const r=col.getBoundingClientRect();
-    let end=v.T0+Math.round((drag.y-r.top)/PXM()/SNAP)*SNAP; end=Math.max(b.start+SNAP, Math.min(v.T1,end));
-    drag.target={len:end-b.start};
-    const p=document.createElement('div'); p.className='preview'; p.style.top=((b.start-v.T0)*PXM())+'px'; p.style.height=((end-b.start)*PXM())+'px';
-    p.innerHTML=`<span>${mlabel(b.start)}–${mlabel(end)} · ${durLabel(end-b.start)}</span>`; col.appendChild(p); return;
+    const vs=inView(t,b).start;
+    let end=v.T0+Math.round((drag.y-r.top)/PXM()/SNAP)*SNAP; end=Math.max(vs+SNAP, Math.min(v.T1,end));
+    drag.target={len:end-vs};
+    const p=document.createElement('div'); p.className='preview'; p.style.top=((vs-v.T0)*PXM())+'px'; p.style.height=((end-vs)*PXM())+'px';
+    p.innerHTML=`<span>${mlabel(vs)}–${mlabel(end)} · ${durLabel(end-vs)}</span>`; col.appendChild(p); return;
   }
   drag.ghost.style.transform=`translate(${drag.x-Math.min(drag.offX,120)}px, ${drag.y-drag.offY}px) rotate(-1.2deg)`;
   const hit=document.elementFromPoint(drag.x,drag.y); const col=hit&&hit.closest('.day-col'); const tray=hit&&hit.closest('#tray');
@@ -58,7 +60,7 @@ function updateDrag(){
     const date=col.dataset.date, r=col.getBoundingClientRect();
     let s=v.T0+Math.round((drag.y-drag.offY-r.top)/PXM()/SNAP)*SNAP; s=Math.max(v.T0, Math.min(v.T1-b.len, s));
     drag.target={date,start:s}; col.classList.add('drop-target');
-    const wd=parseISO(date).getDay(); const dp=t.dayPlaces[date]||[];
+    const td=fromView(t,date,s).date, wd=parseISO(td).getDay(); const dp=t.dayPlaces[td]||[];
     const clash=(b.weekdays&&b.weekdays.length&&!b.weekdays.includes(wd)) || (b.place&&dp.length&&!dp.includes(b.place));
     const p=document.createElement('div'); p.className='preview'+(clash?' bad':''); p.style.top=((s-v.T0)*PXM())+'px'; p.style.height=(b.len*PXM())+'px';
     p.innerHTML=`<span>${dayLabel(date)} · ${mlabel(s)}–${mlabel(s+b.len)}${clash?tr('seeWarnings'):''}</span>`; col.appendChild(p);
