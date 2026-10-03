@@ -36,6 +36,27 @@ function placeName(id){ const p=placeById(id); return p ? p.name : ''; }
 function short(n){ return n.split(' ·')[0]; }
 function newId(p){ return (p||'n')+Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
 
+/* ---------- fusos ----------
+   As horas da grelha são a hora local da viagem (t.tz). O segundo fuso aparece numa
+   coluna de horas ao lado: o escolhido neste dispositivo, senão PLANNER_HOME_TZ, senão o do browser. */
+const HOME_KEY='ferias-home-tz';
+let serverHomeTz='';
+function defaultHomeTz(){ return TZ.valid(serverHomeTz) ? serverHomeTz : TZ.local(); }
+function ownHomeTz(){ try{ const v=localStorage.getItem(HOME_KEY)||''; return TZ.valid(v)?v:''; }catch(e){ return ''; } }
+function homeTz(){ return ownHomeTz() || defaultHomeTz(); }
+/* Segundo fuso da viagem t, ou null se não houver fuso da viagem ou se forem iguais. */
+function secondTz(t){
+  const h=homeTz(); if(!t || !TZ.valid(t.tz) || !TZ.valid(h)) return null;
+  const diff=TZ.diff(t.tz,h,t.start); return diff ? {tz:h, diff} : null;
+}
+/* Aceita "Asia/Tokyo", "asia/tokyo" ou só "Tokyo". Devolve '' se vazio e null se não reconhecer. */
+function resolveTz(v){
+  v=v.trim(); if(!v) return '';
+  const n=v.toLowerCase().replace(/\s+/g,'_');
+  const hit=TZ.all.find(z=>z.toLowerCase()===n) || TZ.all.find(z=>z.toLowerCase().endsWith('/'+n));
+  return hit || (TZ.valid(v) ? v : null);
+}
+
 /* ---------- server sync ----------
    Cada viagem é um ficheiro no servidor com um número de revisão (rev).
    A página guarda só as viagens que mudaram e envia a revisão em que se baseou;
@@ -97,6 +118,7 @@ function undo(){ if(!history.length) return; store=JSON.parse(history.pop()); en
 function applyServer(d){
   for(const k of Object.keys(revs)) delete revs[k];
   for(const k of Object.keys(synced)) delete synced[k];
+  serverHomeTz=d.homeTz||'';
   const trips=d.trips.map(x=>{ const t=normTrip(x.trip); revs[t.id]=x.rev; synced[t.id]=JSON.stringify(t); return t; });
   trips.sort((a,b)=>String(a.start).localeCompare(String(b.start)));
   store={version:2, trips};
@@ -240,7 +262,7 @@ function render(){
   const board=$('#board'); const sc=$('#scroller'); const sl=sc.scrollLeft, st=sc.scrollTop;
   board.innerHTML='';
   if(!t){
-    $('#trip-name').textContent=tr('appName'); $('#route').textContent='';
+    $('#trip-name').textContent=tr('appName'); $('#route').textContent=''; board.classList.remove('two-tz');
     board.style.gridTemplateColumns='1fr';
     board.innerHTML = `<div class="empty-board"><div class="card"><h2>${tr('emptyH')}</h2><p>${tr('emptyP')}</p><div class="actions"><button class="btn primary" type="button" id="empty-new">${tr('newTrip')}</button><button class="btn" type="button" id="empty-import">${tr('importBackup')}</button></div></div></div>`;
     $('#empty-new').addEventListener('click',()=>openTripSheet(true));
@@ -255,12 +277,18 @@ function render(){
   const seq=[]; ds.forEach(d=>(t.dayPlaces[d]||[]).forEach(p=>{ if(seq[seq.length-1]!==p) seq.push(p); }));
   const s0=parseISO(t.start), s1=parseISO(t.end);
   const range = s0.getMonth()===s1.getMonth() ? `${s0.getDate()}–${s1.getDate()} ${MON()[s1.getMonth()]} ${s1.getFullYear()}` : `${s0.getDate()} ${MON()[s0.getMonth()]} – ${s1.getDate()} ${MON()[s1.getMonth()]} ${s1.getFullYear()}`;
-  $('#route').innerHTML = `<span>${range} · ${tr('nDays',{n:ds.length})}</span>` + (seq.length ? '<span class="arrow">·</span>'+seq.map(p=>`<b>${esc(short(placeName(p)))}</b>`).join('<span class="arrow">→</span>') : `<span class="arrow">·</span><span>${tr('clickDay')}</span>`);
-  board.style.gridTemplateColumns = `${matchMedia('(max-width:640px)').matches?48:58}px repeat(${ds.length}, minmax(${matchMedia('(max-width:640px)').matches?124:138}px,1fr))`;
+  const sec=secondTz(t);
+  $('#route').innerHTML = `<span>${range} · ${tr('nDays',{n:ds.length})}</span>` + (seq.length ? '<span class="arrow">·</span>'+seq.map(p=>`<b>${esc(short(placeName(p)))}</b>`).join('<span class="arrow">→</span>') : `<span class="arrow">·</span><span>${tr('clickDay')}</span>`)
+    + (TZ.valid(t.tz) ? `<span class="arrow">·</span><span title="${esc(t.tz)}">${tr('tzRoute',{city:esc(TZ.city(t.tz))})}${sec?` (${esc(TZ.city(sec.tz))} ${TZ.diffLabel(sec.diff)})`:''}</span>` : '');
+  const narrow=matchMedia('(max-width:640px)').matches;
+  board.classList.toggle('two-tz', !!sec);
+  board.style.gridTemplateColumns = `${sec?(narrow?84:98):(narrow?48:58)}px repeat(${ds.length}, minmax(${matchMedia('(max-width:640px)').matches?124:138}px,1fr))`;
   // warnings
   const warns=computeWarnings(); const warnMap=new Map();
   for(const w of warns) for(const id of w.ids){ if(!warnMap.has(id)) warnMap.set(id,[]); warnMap.get(id).push(w); }
-  board.appendChild(Object.assign(document.createElement('div'),{className:'corner'}));
+  const corner=Object.assign(document.createElement('div'),{className:'corner'});
+  if(sec) corner.innerHTML=`<span class="sec" title="${esc(sec.tz)}">${esc(TZ.city(sec.tz))}</span><span title="${esc(t.tz)}">${esc(TZ.city(t.tz))}</span>`;
+  board.appendChild(corner);
   ds.forEach((date,i)=>{
     const d=parseISO(date), wd=d.getDay();
     const h=document.createElement('button'); h.type='button'; h.className='dh'+((wd===0||wd===6)?' weekend':''); h.dataset.date=date;
@@ -274,7 +302,8 @@ function render(){
     board.appendChild(h);
   });
   const times=document.createElement('div'); times.className='times'; times.style.height=H+'px'; times.style.position='sticky';
-  for(let m=Math.ceil((v.T0+1)/60)*60; m<v.T1; m+=60){ const sp=document.createElement('span'); sp.style.top=((m-v.T0)*PXM())+'px'; sp.textContent=mlabel(m); if(m%1440===0) sp.className='mid'; times.appendChild(sp); }
+  for(let m=Math.ceil((v.T0+1)/60)*60; m<v.T1; m+=60){ const sp=document.createElement('span'); sp.style.top=((m-v.T0)*PXM())+'px'; sp.textContent=mlabel(m); if(m%1440===0) sp.className='mid'; times.appendChild(sp);
+    if(sec){ const m2=m+sec.diff, s2=document.createElement('span'); s2.className='sec'+(((m2%1440)+1440)%1440===0?' mid':''); s2.style.top=sp.style.top; s2.textContent=mlabel(m2); times.appendChild(s2); } }
   board.appendChild(times);
   ds.forEach(date=>{
     const col=document.createElement('div'); col.className='day-col'; col.dataset.date=date; col.style.height=H+'px';
@@ -470,6 +499,10 @@ function fillEditor(full){
   const cur=t.currency||'€'; $('#f-pp-l').textContent=tr('costPPCur',{cur}); $('#f-total-l').textContent=tr('costTotalCur',{cur});
   const lo=$('#f-link-open'); if(/^https?:\/\//i.test(b.link||'')){ lo.hidden=false; lo.href=b.link; lo.textContent=tr('openLink'); } else lo.hidden=true;
   $('#f-tray').hidden=f.where==='tray'; $('#ed-h').textContent=CATS()[b.cat]||tr('activity');
+  const sec=secondTz(t), fs=$('#f-sec');
+  if(sec && f.where!=='tray'){ const a=b.start+sec.diff, sh=Math.floor(a/1440)-Math.floor(b.start/1440);
+    fs.textContent=tr('secAt',{city:TZ.city(sec.tz), range:`${mlabel(a)}–${mlabel(a+b.len)}`})+(sh<0?tr('prevDay'):sh>0?tr('nextDay'):''); fs.hidden=false; }
+  else fs.hidden=true;
 }
 function edit(fn){ const f=findBlock(editingId); if(!f) return; if(!editorSnap){ pushHistory(); editorSnap=true; } fn(f.b,f); commit(); }
 const optStr=(k)=>e=>edit(b=>{ const v=e.target.value.trim(); if(v) b[k]=e.target.value; else delete b[k]; });
@@ -531,12 +564,14 @@ $('#d-add').addEventListener('click',()=>{ const t=T(), v=view(t); const list=bl
 /* trip sheet */
 let tripMode='edit';
 (function(){ const h=Array.from({length:24},(_,i)=>`<option value="${i}">${pad(i)}:00</option>`).join(''); $('#t-ds').innerHTML=h; $('#t-de').innerHTML=h; })();
+$('#tz-list').innerHTML=TZ.all.map(z=>`<option value="${z}">`).join('');
 function openTripSheet(isNew){
   closeSheets(); tripMode=isNew?'new':'edit'; const t=T(); $('#tripsheet').hidden=false; $('#t-err').hidden=true; $('#t-del-confirm').hidden=true;
   $('#t-h').textContent=tr(isNew?'newTrip':'datesPlaces'); $('#t-submit').textContent=tr(isNew?'createTrip':'save');
   $('#t-places-wrap').hidden=isNew;
-  if(isNew||!t){ const n=new Date(); const s=iso(addDays(n,30)), e=iso(addDays(n,36)); $('#t-name').value=''; $('#t-start').value=s; $('#t-end').value=e; $('#t-ds').value='7'; $('#t-de').value='1'; $('#t-people').value='2'; $('#t-cur').value='€'; $('#t-budget').value=''; }
-  else { $('#t-name').value=t.name; $('#t-start').value=t.start; $('#t-end').value=t.end; $('#t-ds').value=String(t.dayStart); $('#t-de').value=String(t.dayEnd); $('#t-people').value=String(t.people||1); $('#t-cur').value=t.currency||'€'; $('#t-budget').value=t.budget||''; renderPlaces(); renderCats(); }
+  if(isNew||!t){ const n=new Date(); const s=iso(addDays(n,30)), e=iso(addDays(n,36)); $('#t-name').value=''; $('#t-start').value=s; $('#t-end').value=e; $('#t-ds').value='7'; $('#t-de').value='1'; $('#t-people').value='2'; $('#t-cur').value='€'; $('#t-budget').value=''; $('#t-tz').value=homeTz(); }
+  else { $('#t-name').value=t.name; $('#t-start').value=t.start; $('#t-end').value=t.end; $('#t-ds').value=String(t.dayStart); $('#t-de').value=String(t.dayEnd); $('#t-people').value=String(t.people||1); $('#t-cur').value=t.currency||'€'; $('#t-budget').value=t.budget||''; $('#t-tz').value=t.tz||''; renderPlaces(); renderCats(); }
+  $('#t-hometz').value=ownHomeTz(); $('#t-hometz').placeholder=tr('homeTzDefault',{tz:defaultHomeTz()||'—'});
   $('#t-name').focus();
 }
 function renderPlaces(){
@@ -560,13 +595,17 @@ $('#t-form').addEventListener('submit',e=>{
   if(en<s) return fail(tr('errTripOrder'));
   const n=Math.round((parseISO(en)-parseISO(s))/864e5)+1; if(n>60) return fail(tr('errTripLong',{n}));
   const ds=+$('#t-ds').value, de=+$('#t-de').value, people=Math.max(1,parseInt($('#t-people').value)||1), cur=$('#t-cur').value, budget=parseFloat($('#t-budget').value)>0?parseFloat($('#t-budget').value):0;
+  const tz=resolveTz($('#t-tz').value), home=resolveTz($('#t-hometz').value);
+  if(tz===null) return fail(tr('errTz',{v:$('#t-tz').value.trim()}));
+  if(home===null) return fail(tr('errTz',{v:$('#t-hometz').value.trim()}));
+  try{ if(home && home!==defaultHomeTz()) localStorage.setItem(HOME_KEY,home); else localStorage.removeItem(HOME_KEY); }catch(_){}
   pushHistory();
   if(tripMode==='new'){
-    const t={id:newId('t'), name, start:s, end:en, dayStart:ds, dayEnd:de, people, currency:cur, places:[], dayPlaces:{}, blocks:[], tray:[], costs:[]}; if(budget) t.budget=budget;
+    const t={id:newId('t'), name, start:s, end:en, dayStart:ds, dayEnd:de, people, currency:cur, places:[], dayPlaces:{}, blocks:[], tray:[], costs:[]}; if(budget) t.budget=budget; if(tz) t.tz=tz;
     store.trips.push(t); activeId=t.id; try{ localStorage.setItem(ACTIVE_KEY,activeId); }catch(_){}
     $('#tripsheet').hidden=true; commit(); scroller.scrollTo(0,0); toast(tr('tTripCreated'));
   } else {
-    const t=T(); Object.assign(t,{name,start:s,end:en,dayStart:ds,dayEnd:de,people,currency:cur}); if(budget) t.budget=budget; else delete t.budget;
+    const t=T(); Object.assign(t,{name,start:s,end:en,dayStart:ds,dayEnd:de,people,currency:cur}); if(budget) t.budget=budget; else delete t.budget; if(tz) t.tz=tz; else delete t.tz;
     const dset=new Set(days(t)); const out=t.blocks.filter(b=>!dset.has(b.date));
     out.forEach(b=>toTray(b.id)); (t.costs||[]).forEach(c=>{ if(c.date && !dset.has(c.date)) delete c.date; }); Object.keys(t.dayPlaces).forEach(d=>{ if(!dset.has(d)) delete t.dayPlaces[d]; });
     $('#tripsheet').hidden=true; commit(); if(out.length) toast(tr('tOutOfDates',{n:out.length}));

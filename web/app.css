@@ -99,6 +99,14 @@ button,select,input,textarea{font:inherit;color:inherit}
 .times{position:sticky;left:0;z-index:3;background:var(--surface);border-right:1px solid var(--line)}
 .times span{position:absolute;right:8px;font-family:var(--font-mono);font-size:10.5px;color:var(--muted);transform:translateY(-50%);font-variant-numeric:tabular-nums}
 .times span.mid{color:var(--c-sleep);font-weight:600}
+/* segundo fuso: coluna de horas à esquerda, mais discreta */
+.two-tz .times span:not(.sec){color:var(--ink)}
+.two-tz .times span.mid:not(.sec){color:var(--c-sleep)}
+.times span.sec{right:auto;left:6px;font-size:10px;opacity:.75}
+.two-tz .corner{display:flex;align-items:flex-end;justify-content:space-between;gap:4px;padding:0 8px 7px 6px}
+.corner span{font-size:10px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.corner span.sec{color:var(--muted);font-weight:500}
+.sec-time{margin:-6px 0 0}
 .day-col{position:relative;border-left:1px solid var(--line-faint);
   background:
    linear-gradient(to bottom, transparent var(--night-top,100%), var(--night) var(--night-top,100%)),
