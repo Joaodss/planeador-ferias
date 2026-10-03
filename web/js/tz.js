@@ -1,8 +1,6 @@
 /* Fusos horários.
    As horas do planeador são a hora local da viagem (o fuso escolhido em "Datas e sítios").
    Daqui sai só a conversão para um segundo fuso, mostrada ao lado na grelha. */
-(function(g){
-"use strict";
 
 let ALL = [];
 try{ ALL = Intl.supportedValuesOf('timeZone'); }catch(e){}
@@ -38,5 +36,28 @@ function diffLabel(min){
   return s + h + (m ? ':' + String(m).padStart(2,'0') : '') + 'h';
 }
 
-g.TZ = {all: ALL, valid, local, offsetAt, diff, city, diffLabel};
-})(typeof window !== 'undefined' ? window : globalThis);
+export const TZ = {all: ALL, valid, local, offsetAt, diff, city, diffLabel};
+
+/* ---------- segundo fuso ----------
+   O segundo fuso aparece numa coluna de horas ao lado da grelha:
+   o escolhido neste dispositivo, senão PLANNER_HOME_TZ, senão o do browser. */
+const HOME_KEY='ferias-home-tz';
+let serverHomeTz='';
+export function setServerHomeTz(v){ serverHomeTz=v||''; }
+export function defaultHomeTz(){ return valid(serverHomeTz) ? serverHomeTz : local(); }
+export function ownHomeTz(){ try{ const v=localStorage.getItem(HOME_KEY)||''; return valid(v)?v:''; }catch(e){ return ''; } }
+export function homeTz(){ return ownHomeTz() || defaultHomeTz(); }
+/* Guarda o segundo fuso deste dispositivo (só se for diferente do valor por omissão). */
+export function saveHomeTz(home){ try{ if(home && home!==defaultHomeTz()) localStorage.setItem(HOME_KEY,home); else localStorage.removeItem(HOME_KEY); }catch(_){} }
+/* Segundo fuso da viagem t, ou null se não houver fuso da viagem ou se forem iguais. */
+export function secondTz(t){
+  const h=homeTz(); if(!t || !valid(t.tz) || !valid(h)) return null;
+  const d=diff(t.tz,h,t.start); return d ? {tz:h, diff:d} : null;
+}
+/* Aceita "Asia/Tokyo", "asia/tokyo" ou só "Tokyo". Devolve '' se vazio e null se não reconhecer. */
+export function resolveTz(v){
+  v=v.trim(); if(!v) return '';
+  const n=v.toLowerCase().replace(/\s+/g,'_');
+  const hit=ALL.find(z=>z.toLowerCase()===n) || ALL.find(z=>z.toLowerCase().endsWith('/'+n));
+  return hit || (valid(v) ? v : null);
+}

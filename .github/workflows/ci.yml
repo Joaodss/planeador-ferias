@@ -85,7 +85,7 @@ jobs:
           for i in $(seq 1 30); do curl -fsS http://localhost:8080/healthz && break; sleep 1; done
           echo
           set -x
-          curl -fsS http://localhost:8080/ | grep -q 'src="i18n.js"'
+          curl -fsS http://localhost:8080/ | grep -q 'src="js/main.js"'
           test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/api/trips)" = 401
           test "$(curl -s -o /dev/null -w '%{http_code}' -c jar -X POST \
             -H 'X-Requested-With: planner' -H 'Content-Type: application/json' \

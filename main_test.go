@@ -442,8 +442,8 @@ func TestStaticFiles(t *testing.T) {
 	if w.Code != http.StatusOK || !strings.HasPrefix(w.Header().Get("Content-Type"), "text/html") {
 		t.Fatalf("/: código %d, tipo %q", w.Code, w.Header().Get("Content-Type"))
 	}
-	if !strings.Contains(w.Body.String(), `src="i18n.js"`) {
-		t.Error("index.html devia carregar i18n.js")
+	if !strings.Contains(w.Body.String(), `<script type="module" src="js/main.js">`) {
+		t.Error("index.html devia carregar js/main.js como módulo")
 	}
 	etag := w.Header().Get("ETag")
 	if etag == "" {
@@ -453,12 +453,16 @@ func TestStaticFiles(t *testing.T) {
 		t.Errorf("If-None-Match: código %d, esperava 304", w.Code)
 	}
 
-	for _, p := range []string{"/app.js", "/i18n.js", "/app.css"} {
+	for _, p := range []string{"/js/main.js", "/js/i18n.js", "/js/tz.js", "/js/ui/board.js", "/css/app.css"} {
 		if w := call(s, "GET", p, ""); w.Code != http.StatusOK || w.Body.Len() == 0 {
 			t.Errorf("%s: código %d", p, w.Code)
 		}
 	}
-	if w := call(s, "HEAD", "/app.js", ""); w.Code != http.StatusOK || w.Body.Len() != 0 {
+	// O browser recusa módulos ES que não venham como JavaScript.
+	if ct := call(s, "GET", "/js/main.js", "").Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/javascript") {
+		t.Errorf("/js/main.js: tipo %q, esperava text/javascript", ct)
+	}
+	if w := call(s, "HEAD", "/js/main.js", ""); w.Code != http.StatusOK || w.Body.Len() != 0 {
 		t.Errorf("HEAD: código %d, corpo com %d bytes", w.Code, w.Body.Len())
 	}
 	if w := call(s, "GET", "/nao-existe.js", ""); w.Code != http.StatusNotFound {

@@ -1,31 +1,78 @@
 // Testes da página: correm com "node --test tests/", sem dependências.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import vm from 'node:vm';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const read = p => readFileSync(new URL('../web/' + p, import.meta.url), 'utf8');
+const WEB = fileURLToPath(new URL('../web/', import.meta.url));
+const read = p => readFileSync(path.join(WEB, p), 'utf8');
 
-// Carrega i18n.js num ambiente mínimo de browser.
-function loadI18n({ stored = null, language = 'pt-PT' } = {}) {
+// Todos os módulos da página (caminhos relativos a web/, com "/").
+const modules = (function walk(dir) {
+  return readdirSync(path.join(WEB, dir)).flatMap(f => {
+    const p = dir + '/' + f;
+    return statSync(path.join(WEB, p)).isDirectory() ? walk(p) : p.endsWith('.js') ? [p] : [];
+  });
+})('js');
+
+// Carrega js/i18n.js num ambiente mínimo de browser. Cada chamada importa uma cópia nova
+// do módulo (o ?n= no URL), porque a língua é escolhida quando o módulo é avaliado.
+let loads = 0;
+async function loadI18n({ stored = null, language = 'pt-PT' } = {}) {
   const store = stored ? { 'ferias-lang': stored } : {};
-  const ctx = {
-    window: {},
-    navigator: { language },
-    localStorage: { getItem: k => store[k] ?? null, setItem: (k, v) => { store[k] = v; } },
-    document: { querySelectorAll: () => [], documentElement: {} },
-  };
-  vm.runInNewContext(read('i18n.js'), ctx);
-  return { I18N: ctx.window.I18N, store, doc: ctx.document };
+  const doc = { querySelectorAll: () => [], documentElement: {} };
+  const set = (k, value) => Object.defineProperty(globalThis, k, { value, configurable: true, writable: true });
+  set('navigator', { language });
+  set('localStorage', { getItem: k => store[k] ?? null, setItem: (k, v) => { store[k] = v; } });
+  set('document', doc);
+  const { I18N } = await import(new URL('../web/js/i18n.js?n=' + (++loads), import.meta.url));
+  return { I18N, store, doc };
 }
 
-const { I18N } = loadI18n();
+const { I18N } = await loadI18n();
 const { pt, en } = I18N.dicts;
 const kind = v => Array.isArray(v) ? 'array' : typeof v;
 const placeholders = s => [...s.matchAll(/\{(\w+)\}/g)].map(m => m[1]).sort();
 
-test('app.js e i18n.js são JavaScript válido', () => {
-  for (const f of ['app.js', 'i18n.js']) assert.doesNotThrow(() => new vm.Script(read(f), { filename: f }), f);
+test('todos os módulos em js/ são JavaScript válido', () => {
+  assert.ok(modules.length > 10, `só encontrei ${modules.length} módulos`);
+  for (const f of modules) {
+    const r = spawnSync(process.execPath, ['--input-type=module', '--check'], { input: read(f), encoding: 'utf8' });
+    assert.equal(r.status, 0, `${f}: ${r.stderr}`);
+  }
+});
+
+test('cada import aponta para um ficheiro e um nome exportado', () => {
+  const exportsOf = {};
+  for (const f of modules) {
+    const ex = new Set();
+    for (const line of read(f).split('\n')) {
+      let m;
+      if ((m = line.match(/^export\s+(?:async\s+)?function\s+([\w$]+)/))) ex.add(m[1]);
+      else if ((m = line.match(/^export\s+(?:const|let)\s+(.*)$/))) {
+        // export const A = …, B = …  (só os nomes ao nível de topo)
+        ex.add(m[1].match(/^([\w$]+)/)[1]);
+        let depth = 0, cur = '';
+        for (const ch of m[1]) {
+          if ('([{'.includes(ch)) depth++; else if (')]}'.includes(ch)) depth--;
+          else if (ch === ',' && depth === 0) { cur = ''; continue; }
+          cur += ch; const n = depth === 0 && cur.match(/^\s*([\w$]+)\s*=$/); if (n) ex.add(n[1]);
+        }
+      }
+      else if ((m = line.match(/^export\s*\{([^}]*)\}/))) m[1].split(',').map(x => x.trim()).filter(Boolean).forEach(n => ex.add(n));
+    }
+    exportsOf[f] = ex;
+  }
+  const problems = [];
+  for (const f of modules) for (const m of read(f).matchAll(/^import\s*(?:\{([^}]*)\}\s*from\s*)?'([^']+)'/gm)) {
+    const target = path.posix.join(path.posix.dirname(f), m[2]);
+    if (!exportsOf[target]) { problems.push(`${f}: ${m[2]} não existe`); continue; }
+    for (const n of (m[1] || '').split(',').map(x => x.trim()).filter(Boolean))
+      if (!exportsOf[target].has(n)) problems.push(`${f}: ${m[2]} não exporta ${n}`);
+  }
+  assert.deepEqual(problems, []);
 });
 
 test('PT e EN têm exatamente as mesmas chaves', () => {
@@ -62,10 +109,10 @@ test('traduções com plural devolvem texto para 1 e para vários', () => {
   assert.equal(pt.onDay({ w: 1 }), 'à segunda');
 });
 
-test('todas as chaves usadas em app.js existem', () => {
-  const src = read('app.js');
+test('todas as chaves usadas nos módulos existem', () => {
   const used = new Set();
-  for (const m of src.matchAll(/\btr\(([^()]*)/g)) for (const k of m[1].matchAll(/'(\w+)'/g)) used.add(k[1]);
+  for (const f of modules.filter(f => f !== 'js/i18n.js'))
+    for (const m of read(f).matchAll(/\btr\(([^()]*)/g)) for (const k of m[1].matchAll(/'(\w+)'/g)) used.add(k[1]);
   assert.ok(used.size > 100, `só encontrei ${used.size} chaves — a expressão regular deixou de funcionar?`);
   assert.deepEqual([...used].filter(k => !(k in pt)), [], 'chaves em falta no dicionário');
 });
@@ -77,28 +124,29 @@ test('todas as chaves usadas em index.html existem', () => {
   assert.deepEqual(used.filter(k => !(k in pt)), [], 'chaves em falta no dicionário');
 });
 
-test('index.html carrega i18n.js antes de app.js', () => {
+test('index.html carrega js/main.js como módulo e o CSS de css/', () => {
   const html = read('index.html');
-  const a = html.indexOf('src="i18n.js"'), b = html.indexOf('src="app.js"');
-  assert.ok(a > 0 && b > a);
+  assert.match(html, /<script type="module" src="js\/main\.js"><\/script>/);
+  assert.match(html, /<link rel="stylesheet" href="css\/app\.css">/);
+  assert.doesNotMatch(html, /<script(?![^>]*type="module")[^>]*src="(?!https:)/, 'scripts locais devem ser módulos');
 });
 
-test('tr substitui marcadores e recorre ao PT ou à própria chave', () => {
-  const { I18N } = loadI18n({ stored: 'en' });
+test('tr substitui marcadores e recorre ao PT ou à própria chave', async () => {
+  const { I18N } = await loadI18n({ stored: 'en' });
   assert.equal(I18N.tr('totalFor', { n: 4 }), 'For 4');
   assert.equal(I18N.tr('wOverlap', { a: 'Jantar', b: '{b}' }), 'Jantar and {b} at the same time', 'valores não são reinterpretados');
   assert.equal(I18N.tr('totalFor'), 'For {n}');
   assert.equal(I18N.tr('chave-que-nao-existe'), 'chave-que-nao-existe');
 });
 
-test('língua por omissão segue o browser e a escolha fica guardada', () => {
-  assert.equal(loadI18n({ language: 'pt-BR' }).I18N.lang, 'pt');
-  assert.equal(loadI18n({ language: 'en-US' }).I18N.lang, 'en');
-  assert.equal(loadI18n({ language: 'fr-FR' }).I18N.lang, 'en');
-  assert.equal(loadI18n({ language: 'en-US', stored: 'pt' }).I18N.lang, 'pt');
-  assert.equal(loadI18n({ language: 'pt-PT', stored: 'xx' }).I18N.lang, 'pt', 'valor guardado inválido é ignorado');
+test('língua por omissão segue o browser e a escolha fica guardada', async () => {
+  assert.equal((await loadI18n({ language: 'pt-BR' })).I18N.lang, 'pt');
+  assert.equal((await loadI18n({ language: 'en-US' })).I18N.lang, 'en');
+  assert.equal((await loadI18n({ language: 'fr-FR' })).I18N.lang, 'en');
+  assert.equal((await loadI18n({ language: 'en-US', stored: 'pt' })).I18N.lang, 'pt');
+  assert.equal((await loadI18n({ language: 'pt-PT', stored: 'xx' })).I18N.lang, 'pt', 'valor guardado inválido é ignorado');
 
-  const { I18N, store, doc } = loadI18n({ language: 'pt-PT' });
+  const { I18N, store, doc } = await loadI18n({ language: 'pt-PT' });
   I18N.set(I18N.other());
   assert.equal(I18N.lang, 'en');
   assert.equal(store['ferias-lang'], 'en');
