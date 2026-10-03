@@ -1,0 +1,151 @@
+/* O quadro: cabeçalho da viagem, grelha de dias e horas, tabuleiro "por agendar" e totais. */
+import { tr } from '../i18n.js';
+import { $, esc, short, isMobile, refreshSlot, PXM, SNAP, WD, MON, STATUS, parseISO, mlabel, durLabel, dayLabel, newId, announce } from '../util.js';
+import { S, T, ensureActive, pushHistory, dropHistory } from '../state.js';
+import { days, view, fmt, blockCostPP, placeById, placeName, findBlock, blocksOf } from '../trip.js';
+import { nPeople, tripTotal, dayCostPP } from '../costs.js';
+import { computeWarnings } from '../warnings.js';
+import { commit, undo } from '../sync.js';
+import { closeSheets } from './sheets.js';
+import { openEditor, fillEditor } from './editor.js';
+import { openDay, fillDay } from './daysheet.js';
+import { openTripSheet } from './tripsheet.js';
+import { renderDash } from './costsheet.js';
+import { renderWarnings } from './review.js';
+
+function laneLayout(list){
+  const res=new Map(); let cl=[], end=-1;
+  const flush=()=>{ const lanes=[]; for(const b of cl){ let li=lanes.findIndex(e=>e<=b.start); if(li<0){ li=lanes.length; lanes.push(0);} lanes[li]=b.start+b.len; res.set(b.id,{lane:li}); } for(const b of cl) res.get(b.id).n=lanes.length; cl=[]; end=-1; };
+  for(const b of list){ if(cl.length && b.start>=end) flush(); cl.push(b); end=Math.max(end,b.start+b.len); }
+  if(cl.length) flush(); return res;
+}
+function blockEl(b, warnMap, inTray){
+  const el=document.createElement('div');
+  el.className='blk cat-'+b.cat+(b.locked?' locked':'')+(b.status==='ideia'?' status-ideia':'');
+  el.dataset.id=b.id; el.tabIndex=0; el.setAttribute('role','button');
+  const w=warnMap.get(b.id);
+  const cost = b.pp ? `<span class="eur">${fmt(b.pp)} pp</span>` : (b.total ? `<span class="eur">${fmt(b.total)}</span>` : '');
+  const st = b.status ? `<span class="st st-${b.status}">${(b.status==='reservado'||b.status==='pago')?'✓ ':''}${STATUS()[b.status]}</span>` : '';
+  const time = inTray ? durLabel(b.len) : `${mlabel(b.start)}–${mlabel(b.start+b.len)}`;
+  el.innerHTML = `<div class="t">${esc(b.title)}</div><div class="m"><span>${time}</span>${cost}${st}</div>`
+    + (w?`<span class="badge" title="${esc(w.map(x=>x.t).join('\n'))}">!</span>`:'')
+    + (b.locked?`<svg class="lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>`:'')
+    + (inTray?'':'<div class="grip" aria-hidden="true"></div>');
+  if(w){ el.classList.add('has-badge'); if(w.some(x=>x.sev==='bad')) el.classList.add('bad'); }
+  el.setAttribute('aria-label', `${b.title}, ${inTray?tr('unscheduledLower'):dayLabel(b.date,true)+' '+time}${b.status?', '+STATUS()[b.status]:''}${w?', '+tr('nWarnings',{n:w.length}):''}`);
+  return el;
+}
+export function render(){
+  refreshSlot(); ensureActive();
+  const t=T();
+  // trip switcher
+  const sel=$('#trip-sel'); sel.innerHTML = `<option value="">${S.store.trips.length>1?tr('switchTrip'):tr('trips')}</option>` + S.store.trips.map(x=>`<option value="${esc(x.id)}"${t&&x.id===t.id?' disabled':''}>${esc(x.name)}${t&&x.id===t.id?tr('openMark'):''}</option>`).join('') + `<option value="__new">${tr('newTripOpt')}</option>`;
+  sel.value='';
+  const board=$('#board'); const sc=$('#scroller'); const sl=sc.scrollLeft, st=sc.scrollTop;
+  board.innerHTML='';
+  if(!t){
+    $('#trip-name').textContent=tr('appName'); $('#route').textContent='';
+    board.style.gridTemplateColumns='1fr';
+    board.innerHTML = `<div class="empty-board"><div class="card"><h2>${tr('emptyH')}</h2><p>${tr('emptyP')}</p><div class="actions"><button class="btn primary" type="button" id="empty-new">${tr('newTrip')}</button><button class="btn" type="button" id="empty-import">${tr('importBackup')}</button></div></div></div>`;
+    $('#empty-new').addEventListener('click',()=>openTripSheet(true));
+    $('#empty-import').addEventListener('click',()=>$('#import-file').click());
+    document.title=tr('appName');
+    $('#tray-list').innerHTML=''; ['#tot-pp','#tot-n','#tot-res'].forEach(s=>$(s).textContent='—'); $('#warn-txt').textContent='—'; return;
+  }
+  document.title = t.name ? `${t.name} · ${tr('appName')}` : tr('appName');
+  $('#trip-name').textContent=t.name;
+  const ds=days(t), v=view(t), H=v.span*PXM();
+  // route summary
+  const seq=[]; ds.forEach(d=>(t.dayPlaces[d]||[]).forEach(p=>{ if(seq[seq.length-1]!==p) seq.push(p); }));
+  const s0=parseISO(t.start), s1=parseISO(t.end);
+  const range = s0.getMonth()===s1.getMonth() ? `${s0.getDate()}–${s1.getDate()} ${MON()[s1.getMonth()]} ${s1.getFullYear()}` : `${s0.getDate()} ${MON()[s0.getMonth()]} – ${s1.getDate()} ${MON()[s1.getMonth()]} ${s1.getFullYear()}`;
+  $('#route').innerHTML = `<span>${range} · ${tr('nDays',{n:ds.length})}</span>` + (seq.length ? '<span class="arrow">·</span>'+seq.map(p=>`<b>${esc(short(placeName(p)))}</b>`).join('<span class="arrow">→</span>') : `<span class="arrow">·</span><span>${tr('clickDay')}</span>`);
+  board.style.gridTemplateColumns = `${isMobile()?48:58}px repeat(${ds.length}, minmax(${isMobile()?124:138}px,1fr))`;
+  // warnings
+  const warns=computeWarnings(); const warnMap=new Map();
+  for(const w of warns) for(const id of w.ids){ if(!warnMap.has(id)) warnMap.set(id,[]); warnMap.get(id).push(w); }
+  board.appendChild(Object.assign(document.createElement('div'),{className:'corner'}));
+  ds.forEach((date,i)=>{
+    const d=parseISO(date), wd=d.getDay();
+    const h=document.createElement('button'); h.type='button'; h.className='dh'+((wd===0||wd===6)?' weekend':''); h.dataset.date=date;
+    const locs=t.dayPlaces[date]||[];
+    const cost=blocksOf(date).reduce((s,b)=>s+blockCostPP(b),0)+dayCostPP(date);
+    if(locs.length) h.style.setProperty('--loc-c', `linear-gradient(90deg, ${locs.map((l,k)=>`var(--p${((placeById(l)||{c:1}).c-1)%8+1}) ${k*100/locs.length}% ${(k+1)*100/locs.length}%`).join(',')})`);
+    const showMonth = i===0 || d.getDate()===1;
+    h.innerHTML = `<div class="strip"></div><div class="date"><span class="num">${d.getDate()}</span><span class="wd">${WD()[wd]}${showMonth?' · '+MON()[d.getMonth()]:''}</span><span class="cost">${cost?fmt(cost)+' pp':''}</span></div>`
+      + (locs.length ? `<div class="loc" title="${esc(locs.map(placeName).join(' → '))}">${locs.map(l=>esc(short(placeName(l)))).join(' <span class="ferry">→</span> ')}</div>` : `<div class="loc none">${tr('whereClick')}</div>`);
+    h.setAttribute('aria-label', `${dayLabel(date,true)}${locs.length?', '+locs.map(placeName).join(tr('placesJoin')):''}. ${tr('openDay')}`);
+    board.appendChild(h);
+  });
+  const times=document.createElement('div'); times.className='times'; times.style.height=H+'px'; times.style.position='sticky';
+  for(let m=Math.ceil((v.T0+1)/60)*60; m<v.T1; m+=60){ const sp=document.createElement('span'); sp.style.top=((m-v.T0)*PXM())+'px'; sp.textContent=mlabel(m); if(m%1440===0) sp.className='mid'; times.appendChild(sp); }
+  board.appendChild(times);
+  ds.forEach(date=>{
+    const col=document.createElement('div'); col.className='day-col'; col.dataset.date=date; col.style.height=H+'px';
+    if(v.T1>1440 && v.T0<1440){ col.style.setProperty('--night-top', ((1440-v.T0)*PXM())+'px'); col.insertAdjacentHTML('beforeend', `<div class="midnight" style="top:${(1440-v.T0)*PXM()}px" aria-hidden="true"></div>`); }
+    const list=blocksOf(date).filter(b=>b.start+b.len>v.T0 && b.start<v.T1);
+    const layout=laneLayout(S.hideSleep?list.filter(b=>b.cat!=='sleep'):list);
+    for(const b of list){
+      const el=blockEl(b,warnMap,false); const L=layout.get(b.id)||{lane:0,n:1}; const wp=100/L.n;
+      const top=Math.max(0,(b.start-v.T0))*PXM(); const bottom=Math.min(v.span,(b.start+b.len-v.T0))*PXM(); const hp=bottom-top-2;
+      el.style.top=(top+1)+'px'; el.style.height=hp+'px'; el.style.left=`calc(${L.lane*wp}% + 3px)`; el.style.width=`calc(${wp}% - 6px)`;
+      if(hp<40) el.classList.add('short');
+      el.style.setProperty('--lines', Math.max(1, Math.floor((hp-22)/15)));
+      col.appendChild(el);
+    }
+    board.appendChild(col);
+  });
+  sc.scrollLeft=sl; sc.scrollTop=st;
+  // tray
+  const tl=$('#tray-list'); tl.innerHTML='';
+  if(!t.tray.length) tl.innerHTML=`<span class="tray-empty">${tr('trayEmpty')}</span>`;
+  for(const b of t.tray) tl.appendChild(blockEl(b,warnMap,true));
+  // stats
+  const pp=tripTotal(t)/nPeople(t);
+  $('#tot-pp').textContent=fmt(pp); $('#tot-n-k').textContent = t.people>1 ? tr('totalFor',{n:t.people}) : tr('total'); $('#tot-n').textContent=fmt(pp*(t.people||1));
+  const res=t.blocks.concat(t.tray).filter(b=>b.status==='reservar').length; $('#tot-res').textContent=String(res);
+  const btn=$('#warn-btn'); const bad=warns.filter(w=>w.sev==='bad').length;
+  btn.classList.toggle('has-warn', warns.length>0 && !bad); btn.classList.toggle('has-bad', bad>0);
+  $('#warn-txt').textContent = warns.length ? tr('nToReview',{n:warns.length}) : tr('noConflicts');
+  S.lastWarnings=warns;
+  // painéis abertos acompanham a alteração
+  if(!$('#warnings').hidden) renderWarnings();
+  if(S.editingId && !$('#editor').hidden) fillEditor(false);
+  if(S.dayOpen && !$('#daysheet').hidden) fillDay();
+  if(!$('#costsheet').hidden) renderDash();
+}
+export function focusBlock(id){
+  const el=document.querySelector(`.blk[data-id="${id}"]`); if(!el){ openEditor(id); return; }
+  if(el.closest('.day-col')){ const scroller=$('#scroller'); const r=el.getBoundingClientRect(), sr=scroller.getBoundingClientRect(); scroller.scrollBy({left:r.left-sr.left-90, top:r.top-sr.top-90, behavior:matchMedia('(prefers-reduced-motion:reduce)').matches?'auto':'smooth'}); }
+  el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); el.focus({preventScroll:true});
+}
+
+/* Duplo clique numa coluna cria uma atividade nessa hora; clique no cabeçalho abre o dia. */
+$('#board').addEventListener('dblclick', e=>{
+  if(e.target.closest('.blk')) return; const col=e.target.closest('.day-col'); if(!col) return;
+  const t=T(), v=view(t), r=col.getBoundingClientRect();
+  const s=Math.max(v.T0, Math.min(v.T1-60, v.T0+Math.floor((e.clientY-r.top)/PXM()/30)*30));
+  pushHistory(); const b={id:newId('a'), date:col.dataset.date, start:s, len:60, title:tr('newActivity'), cat:'tour', status:'ideia'};
+  t.blocks.push(b); commit(); openEditor(b.id,true);
+});
+$('#board').addEventListener('click', e=>{ const h=e.target.closest('.dh'); if(h) openDay(h.dataset.date); });
+
+/* Teclado: Ctrl/⌘+Z, Esc, e setas para mover ou redimensionar a atividade com foco. */
+document.addEventListener('keydown', e=>{
+  if((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==='z' && !e.target.closest('input,textarea,select')){ e.preventDefault(); undo(); return; }
+  if(e.key==='Escape'){ closeSheets(); return; }
+  const el=e.target.closest&&e.target.closest('.blk'); if(!el) return;
+  const f=findBlock(el.dataset.id); if(!f) return; const b=f.b;
+  if(e.key==='Enter'||e.key===' '){ e.preventDefault(); openEditor(b.id); return; }
+  if(f.where==='tray'||b.locked) return;
+  const k=e.key; if(!['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(k)) return;
+  e.preventDefault(); const t=T(), v=view(t), ds=days(t); const di=ds.indexOf(b.date); let ch=false; pushHistory();
+  if(e.shiftKey){ if(k==='ArrowDown'&&b.start+b.len<v.T1){ b.len+=SNAP; ch=true; } if(k==='ArrowUp'&&b.len>SNAP){ b.len-=SNAP; ch=true; } }
+  else { if(k==='ArrowUp'&&b.start>v.T0){ b.start-=SNAP; ch=true; } if(k==='ArrowDown'&&b.start+b.len<v.T1){ b.start+=SNAP; ch=true; }
+    if(k==='ArrowLeft'&&di>0){ b.date=ds[di-1]; ch=true; } if(k==='ArrowRight'&&di>=0&&di<ds.length-1){ b.date=ds[di+1]; ch=true; } }
+  if(!ch){ dropHistory(); return; }
+  commit(); announce(`${b.title}: ${dayLabel(b.date,true)} ${mlabel(b.start)}–${mlabel(b.start+b.len)}`);
+  const again=document.querySelector(`.blk[data-id="${b.id}"]`); if(again) again.focus();
+});
+
+let rz=null; window.addEventListener('resize',()=>{ clearTimeout(rz); rz=setTimeout(render,120); });

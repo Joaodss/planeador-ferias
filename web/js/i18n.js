@@ -2,8 +2,6 @@
    Cada texto tem uma chave. O valor pode ser texto com {marcadores}, uma lista
    ou uma função (para plurais e frases que mudam de ordem entre línguas).
    No HTML: data-i18n (texto), data-i18n-ph (placeholder), data-i18n-title, data-i18n-aria. */
-(function(){
-"use strict";
 const pl = (n, one, many) => n===1 ? one : many;
 
 const pt = {
@@ -265,11 +263,12 @@ function set(l){
   apply();
 }
 
-window.I18N = {
+export const I18N = {
   tr, apply, set,
   get lang(){ return lang; },
   get locale(){ return lang==='pt' ? 'pt-PT' : 'en-GB'; },
   other(){ return lang==='pt' ? 'en' : 'pt'; },
 };
 apply();
-})();
+
+export { tr };

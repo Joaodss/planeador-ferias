@@ -7,8 +7,8 @@ A imagem Docker tem cerca de 7 MB e não precisa de base de dados: cada viagem �
 
 | Ficheiro | Para que serve |
 | --- | --- |
-| `main.go` | Servidor: login, API e leitura/escrita dos ficheiros. Só usa a biblioteca padrão do Go. |
-| `web/` | A página (`index.html`, `app.css`, `app.js`, e `i18n.js` com os textos em português e inglês). Fica embutida no binário. |
+| `*.go` | Servidor, só com a biblioteca padrão do Go: `main.go` (arranque), `routes.go` (API), `auth.go` (login e sessões), `trips.go` (ficheiros das viagens e cópias), `static.go` (página embutida). |
+| `web/` | A página: `index.html`, `css/app.css` e `js/` em módulos ES sem build (`js/main.js` é a entrada e lista o que cada módulo faz; `js/ui/` tem a interface). Fica embutida no binário. |
 | `Dockerfile` | Compila e produz a imagem final (`FROM scratch`). |
 | `docker-compose.yml` | Arranque no servidor, com volume para os dados. |
 | `.github/workflows/docker.yml` | Publica a imagem em `ghcr.io` a cada push para `main`. |
