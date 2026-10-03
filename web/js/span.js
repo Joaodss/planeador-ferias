@@ -10,6 +10,26 @@ const utc = s => { const [y,m,d] = s.split('-').map(Number); return Date.UTC(y, 
 export function view(t){ const T0=t.dayStart*60; const span=(((t.dayEnd - t.dayStart)+24)%24 || 24)*60; return {T0, span, T1:T0+span}; }
 export function dayIndex(t, date){ return Math.round((utc(date) - utc(t.start)) / 864e5); }
 export function absStart(t, b){ return dayIndex(t, b.date)*DAY + b.start; }
+export const addISO = (s, n) => new Date(utc(s) + n*864e5).toISOString().slice(0,10);
+
+/* Quadro noutro fuso. O quadro começa à meia-noite do dia d0 desse fuso e
+   sh = minutos a somar ao tempo absoluto da viagem para ter o tempo absoluto do quadro
+   (off = quanto o fuso do quadro está à frente da hora da viagem). Na hora da viagem, sh=0. */
+export function frameShift(t, off, d0){ return off - dayIndex(t, d0)*DAY; }
+/* Dia e hora em que a atividade aparece no quadro (dia d0+i, start em [T0, T0+1440)). */
+export function toFrame(t, b, sh, d0){
+  const {T0}=view(t), X=absStart(t,b)+sh, i=Math.floor((X-T0)/DAY);
+  return {date:addISO(d0, i), start:X-i*DAY};
+}
+/* O contrário: dia e hora do quadro → date/start guardados na hora da viagem.
+   Fica na coluna onde a hora da viagem a mostra; se cair nas horas escondidas depois do fim
+   do quadro, fica como hora normal do dia seguinte (06:00 de dia 12, não 30:00 de dia 11). */
+export function fromFrame(t, date, start, sh, d0){
+  const {T0, T1}=view(t), A=Math.round((utc(date)-utc(d0))/864e5)*DAY + start - sh;
+  let i=Math.floor((A-T0)/DAY), s=A-i*DAY;
+  if(s>=T1 && s>=DAY){ i++; s-=DAY; }
+  return {date:addISO(t.start, i), start:s};
+}
 
 /* Coluna e hora para um instante absoluto. Cada dia do quadro vai de T0 até T0 do dia
    seguinte, por isso a 01:00 de uma noite fica no dia anterior (start ≥ 1440). */
@@ -18,10 +38,10 @@ export function slotAt(t, abs, n){
   return {i, start:Math.max(0, abs-i*DAY)};
 }
 
-/* Pedaços visíveis de uma atividade num quadro de n colunas.
+/* Pedaços visíveis de uma atividade num quadro de n colunas (sh: ver frameShift).
    top/bot em minutos desde T0 da coluna; cutTop/cutBot quando continua para fora. */
-export function segments(t, b, n){
-  const {T0, T1}=view(t); const A=absStart(t,b), B=A+b.len, out=[];
+export function segments(t, b, n, sh=0){
+  const {T0, T1}=view(t); const A=absStart(t,b)+sh, B=A+b.len, out=[];
   const j0=Math.max(0, Math.floor((A-T1)/DAY)), j1=Math.min(n-1, Math.floor((B-T0)/DAY));
   for(let j=j0; j<=j1; j++){
     const W0=j*DAY+T0, W1=j*DAY+T1;
@@ -32,9 +52,9 @@ export function segments(t, b, n){
 
 /* Atividade toda escondida: em que coluna e em que ponta (top/bot) mostrar a marca.
    Fica na ponta visível mais próxima no tempo. null se tem alguma parte visível. */
-export function hiddenEdge(t, b, n){
-  if(segments(t,b,n).length) return null;
-  const {T0, T1}=view(t); const A=absStart(t,b), B=A+b.len;
+export function hiddenEdge(t, b, n, sh=0){
+  if(segments(t,b,n,sh).length) return null;
+  const {T0, T1}=view(t); const A=absStart(t,b)+sh, B=A+b.len;
   const k=Math.floor((A-T0)/DAY);              // a falha depois da coluna k contém a atividade
   if(k<0) return {i:0, edge:'top'};
   if(k>=n-1) return {i:n-1, edge:'bot'};

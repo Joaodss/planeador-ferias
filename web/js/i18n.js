@@ -49,9 +49,10 @@ const pt = {
   // viagem
   trip:'Viagem', tName:'Nome da viagem', tNamePh:'Ex.: Açores 2027', tEnd:'Acaba', tDayStart:'O quadro começa às', tDayEnd:'E vai até às',
   tTz:'Fuso horário da viagem', tTzPh:'Ex.: Asia/Tokyo', tHomeTz:'Segundo fuso (neste dispositivo)', homeTzDefault:'Por omissão: {tz}',
-  tzHint:'As horas do quadro são a hora local da viagem. Quando o segundo fuso é diferente, aparece numa coluna de horas ao lado.',
+  tzHint:'As horas do quadro são a hora local da viagem. Quando o segundo fuso é diferente, aparece numa coluna de horas ao lado. Clica no nome de uma cidade, no canto da grelha, para ver o quadro na hora dela.',
   errTz:'Não reconheço o fuso "{v}". Escolhe um da lista (ex.: Europe/Lisbon, Asia/Tokyo).',
   tzRoute:'hora de {city}', secAt:'Em {city}: {range}', prevDay:' (dia anterior)', nextDay:' (dia seguinte)',
+  viewIn:'Ver o quadro na hora de {city}', viewingIn:'O quadro está na hora de {city}', tzDatesNote:'sítios e custos do dia pelas datas de {city}', outsideTrip:'Fora da viagem',
   people:'Pessoas', currency:'Moeda', budgetOpt:'Orçamento total da viagem (opcional)', budgetPh:'Ex.: 4000',
   places:'Sítios', placesHint:'Os sítios onde vão estar (cidades, ilhas, hotéis). Atribui-os aos dias clicando no cabeçalho de cada dia.',
   costCats:'Categorias de custo', costCatsHint:'As categorias em que os custos são somados no resumo. Podes mudar os nomes, remover ou criar novas.',
@@ -172,9 +173,10 @@ const en = {
 
   trip:'Trip', tName:'Trip name', tNamePh:'E.g. Azores 2027', tEnd:'Ends', tDayStart:'The board starts at', tDayEnd:'And goes until',
   tTz:'Trip time zone', tTzPh:'E.g. Asia/Tokyo', tHomeTz:'Second time zone (this device)', homeTzDefault:'Default: {tz}',
-  tzHint:'Board times are the trip\'s local time. When the second time zone is different, it shows as an extra column of hours.',
+  tzHint:'Board times are the trip\'s local time. When the second time zone is different, it shows as an extra column of hours. Click a city name in the corner of the grid to see the board in its time.',
   errTz:'I don\'t recognise the time zone "{v}". Pick one from the list (e.g. Europe/London, Asia/Tokyo).',
   tzRoute:'{city} time', secAt:'In {city}: {range}', prevDay:' (day before)', nextDay:' (day after)',
+  viewIn:'Show the board in {city} time', viewingIn:'The board is in {city} time', tzDatesNote:'day places and costs follow {city} dates', outsideTrip:'Outside the trip',
   people:'People', currency:'Currency', budgetOpt:'Total trip budget (optional)', budgetPh:'E.g. 4000',
   places:'Places', placesHint:'The places where you\'ll be (cities, islands, hotels). Assign them to days by clicking each day\'s header.',
   costCats:'Cost categories', costCatsHint:'The categories costs are added up into in the summary. You can rename, remove or create new ones.',

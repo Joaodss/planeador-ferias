@@ -2,7 +2,7 @@
 // para o outro ou ficam nas horas que o quadro não mostra.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { view, absStart, segments, hiddenEdge, slotAt, dayShift } from '../web/js/span.js';
+import { view, absStart, segments, hiddenEdge, slotAt, dayShift, frameShift, toFrame, fromFrame } from '../web/js/span.js';
 
 const trip = (dayStart, dayEnd) => ({ start: '2027-07-01', end: '2027-07-03', dayStart, dayEnd });
 const N = 3;   // três colunas: 1, 2 e 3 de julho
@@ -63,4 +63,26 @@ test('dayShift conta as meias-noites atravessadas', () => {
   assert.equal(dayShift({ start: H(23), len: H(2) }), 1);
   assert.equal(dayShift({ start: H(25), len: H(1) }), 0);
   assert.equal(dayShift({ start: H(8), len: H(50) }), 2);
+});
+
+test('quadro noutro fuso: desloca as atividades e volta ao mesmo sítio', () => {
+  // viagem a Tóquio vista em Lisboa (8 h atrás), quadro das 8h à 1h
+  const t = { start: '2026-10-10', end: '2026-10-13', dayStart: 8, dayEnd: 1 };
+  const off = -H(8), d0 = '2026-10-10', sh = frameShift(t, off, d0);
+  const at = (date, start) => toFrame(t, { date, start }, sh, d0);
+  assert.deepEqual(at('2026-10-10', H(20)), { date: '2026-10-10', start: H(12) }, '20h em Tóquio = 12h em Lisboa');
+  assert.deepEqual(at('2026-10-10', H(8)), { date: '2026-10-09', start: H(24) }, 'meia-noite fica no fim do dia anterior');
+  assert.deepEqual(at('2026-10-10', H(24)), { date: '2026-10-10', start: H(16) }, 'madrugada de Tóquio guardada com start ≥ 1440');
+  // segments com sh: o jantar das 20h aparece às 12h na coluna de dia 10
+  assert.deepEqual(segments(t, { date: '2026-10-10', start: H(20), len: H(1) }, 4, sh), [{ i: 0, top: H(4), bot: H(5), cutTop: false, cutBot: false }]);
+  // um quadro que começa no dia anterior (coluna extra antes da viagem)
+  const d1 = '2026-10-09', sh1 = frameShift(t, off, d1);
+  assert.deepEqual(toFrame(t, { date: '2026-10-10', start: H(8) }, sh1, d1), { date: '2026-10-09', start: H(24) });
+  assert.deepEqual(fromFrame(t, '2026-10-09', H(24), sh1, d1), { date: '2026-10-10', start: H(8) });
+  // ida e volta: o que se larga no quadro fica guardado na hora da viagem e volta ao mesmo sítio
+  for (const [date, start] of [['2026-10-10', H(8)], ['2026-10-11', H(12) + 15], ['2026-10-12', H(23) + 45], ['2026-10-12', H(24) + 30]]) {
+    const back = fromFrame(t, date, start, sh, d0);
+    assert.deepEqual(toFrame(t, back, sh, d0), { date, start }, `${date} ${start}`);
+  }
+  assert.deepEqual(fromFrame(t, '2026-10-11', H(22), sh, d0), { date: '2026-10-12', start: H(6) }, '22h de dia 11 em Lisboa = 6h de dia 12 em Tóquio');
 });

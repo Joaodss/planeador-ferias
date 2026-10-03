@@ -2,7 +2,8 @@
 import { I18N } from './i18n.js';
 import { parseISO, iso, addDays, newId, mlabel } from './util.js';
 import { T } from './state.js';
-import { segments, hiddenEdge, dayShift } from './span.js';
+import { view, segments, hiddenEdge, dayShift, absStart, addISO, frameShift, toFrame, fromFrame } from './span.js';
+import { viewOffset } from './tz.js';
 
 export { view } from './span.js';
 
@@ -11,13 +12,14 @@ export function days(t){ const out=[]; if(!t) return out; let d=parseISO(t.start
 /* "22:00–06:00 +1": o +N conta as meias-noites atravessadas. */
 export function rangeLabel(b){ const n=dayShift(b); return `${mlabel(b.start)}–${mlabel(b.start+b.len)}${n?' +'+n:''}`; }
 /* Distribui as atividades pelas colunas: pedaços visíveis em cols[i] (ordenados) e,
-   para as que ficam todas escondidas, uma marca no topo ou no fundo de uma coluna. */
-export function boardLayout(t, ds){
-  const n=ds.length, cols=ds.map(()=>[]), top=ds.map(()=>[]), bot=ds.map(()=>[]);
+   para as que ficam todas escondidas, uma marca no topo ou no fundo de uma coluna.
+   sh≠0 quando o quadro está noutro fuso (ver boardFrame). */
+export function boardLayout(t, ds, sh=0){
+  const n=ds.length, cols=ds.map(()=>[]), top=ds.map(()=>[]), bot=ds.map(()=>[]), tds=sh?days(t):ds;
   for(const b of t.blocks){
-    for(const s of segments(t,b,n)) cols[s.i].push(Object.assign({b}, s));
-    if(!ds.includes(b.date)) continue;   // fora das datas: já há um aviso próprio
-    const h=hiddenEdge(t,b,n); if(h) (h.edge==='top'?top:bot)[h.i].push(b);
+    for(const s of segments(t,b,n,sh)) cols[s.i].push(Object.assign({b}, s));
+    if(!tds.includes(b.date)) continue;   // fora das datas: já há um aviso próprio
+    const h=hiddenEdge(t,b,n,sh); if(h) (h.edge==='top'?top:bot)[h.i].push(b);
   }
   for(const c of cols) c.sort((x,y)=>x.top-y.top||(y.bot-y.top)-(x.bot-x.top));
   return {cols, top, bot};
@@ -40,3 +42,20 @@ export function moveTo(id,date,start){ const t=T(), f=findBlock(id); if(!f) retu
   if(f.where==='tray'){ t.tray=t.tray.filter(x=>x!==b); t.blocks.push(b); }
   b.date=date; b.start=Math.max(0,start); }
 export function toTray(id){ const t=T(), f=findBlock(id); if(!f||f.where==='tray') return; t.blocks=t.blocks.filter(x=>x!==f.b); delete f.b.date; delete f.b.start; t.tray.push(f.b); }
+
+/* ---------- quadro noutro fuso ----------
+   As atividades guardam-se sempre na hora da viagem; o quadro pode estar no segundo fuso (viewOffset em tz.js).
+   F={ds, d0, sh, off}: colunas a mostrar (dias no fuso do quadro, a começar em d0) e deslocamento sh (ver span.js).
+   Na hora da viagem: ds=days(t), sh=off=0 e as conversões não mexem em nada. */
+export function boardFrame(t){
+  const ds=days(t), off=viewOffset(t); if(!off || !ds.length) return {ds, d0:ds[0], sh:0, off:0};
+  const {T0}=view(t), sh0=frameShift(t,off,ds[0]); let a=0, z=ds.length-1;
+  // um dia antes ou depois da viagem só aparece se alguma atividade começar lá, na hora do quadro
+  for(const b of t.blocks) if(ds.includes(b.date)){ const i=Math.floor((absStart(t,b)+sh0-T0)/1440); a=Math.max(-2,Math.min(a,i)); z=Math.min(ds.length+1,Math.max(z,i)); }
+  const out=[]; for(let i=a;i<=z;i++) out.push(addISO(ds[0],i));
+  return {ds:out, d0:out[0], sh:frameShift(t,off,out[0]), off};
+}
+/* Dia e hora em que a atividade aparece no quadro. */
+export function toBoard(t,F,b){ return F.off ? toFrame(t,b,F.sh,F.d0) : {date:b.date, start:b.start}; }
+/* Dia e hora do quadro → date/start a guardar (hora da viagem). */
+export function fromBoard(t,F,date,start){ return F.off ? fromFrame(t,date,start,F.sh,F.d0) : {date, start}; }

@@ -104,8 +104,10 @@ button,select,input,textarea{font:inherit;color:inherit}
 .two-tz .times span.mid:not(.sec){color:var(--c-sleep)}
 .times span.sec{right:auto;left:6px;font-size:10px;opacity:.75}
 .two-tz .corner{display:flex;align-items:flex-end;justify-content:space-between;gap:4px;padding:0 8px 7px 6px}
-.corner span{font-size:10px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
-.corner span.sec{color:var(--muted);font-weight:500}
+.corner .tzv{font:inherit;font-size:10px;font-weight:600;color:var(--ink);background:none;border:0;padding:2px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;cursor:default}
+.corner .tzv.sec{color:var(--muted);font-weight:500;cursor:pointer;text-decoration:underline dotted;text-underline-offset:2px}
+.corner .tzv.sec:hover{color:var(--ink)}
+.dh.extra{cursor:default;background:var(--surface-2)}
 .sec-time{margin:-6px 0 0}
 .day-col{position:relative;border-left:1px solid var(--line-faint);
   background:

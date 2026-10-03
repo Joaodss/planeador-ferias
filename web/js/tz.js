@@ -54,6 +54,15 @@ export function secondTz(t){
   const h=homeTz(); if(!t || !valid(t.tz) || !valid(h)) return null;
   const d=diff(t.tz,h,t.start); return d ? {tz:h, diff:d} : null;
 }
+
+/* ---------- quadro noutro fuso ----------
+   Clicar numa cidade no canto da grelha mostra o quadro na hora desse fuso (escolha deste dispositivo).
+   As atividades continuam guardadas na hora da viagem: só a vista muda. */
+const VIEW_KEY='ferias-view-home';
+export function viewingHome(){ try{ return localStorage.getItem(VIEW_KEY)==='1'; }catch(e){ return false; } }
+export function setViewingHome(on){ try{ if(on) localStorage.setItem(VIEW_KEY,'1'); else localStorage.removeItem(VIEW_KEY); }catch(_){} }
+/* Minutos que o fuso do quadro está à frente da hora da viagem (0 quando o quadro está na hora da viagem). */
+export function viewOffset(t){ const s=viewingHome() && secondTz(t); return s ? s.diff : 0; }
 /* Aceita "Asia/Tokyo", "asia/tokyo" ou só "Tokyo". Devolve '' se vazio e null se não reconhecer. */
 export function resolveTz(v){
   v=v.trim(); if(!v) return '';
