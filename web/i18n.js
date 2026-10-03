@@ -266,7 +266,7 @@ function set(l){
 }
 
 window.I18N = {
-  tr, apply, set,
+  tr, apply, set, dicts: DICT,
   get lang(){ return lang; },
   get locale(){ return lang==='pt' ? 'pt-PT' : 'en-GB'; },
   other(){ return lang==='pt' ? 'en' : 'pt'; },

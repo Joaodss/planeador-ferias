@@ -11,7 +11,9 @@ A imagem Docker tem cerca de 7 MB e não precisa de base de dados: cada viagem �
 | `web/` | A página (`index.html`, `app.css`, `app.js`, e `i18n.js` com os textos em português e inglês). Fica embutida no binário. |
 | `Dockerfile` | Compila e produz a imagem final (`FROM scratch`). |
 | `docker-compose.yml` | Arranque no servidor, com volume para os dados. |
-| `.github/workflows/docker.yml` | Publica a imagem em `ghcr.io` a cada push para `main`. |
+| `main_test.go`, `tests/` | Testes do servidor (Go) e da página (Node, sem dependências). |
+| `.github/workflows/ci.yml` | Em cada PR: formato, análise estática, testes, vulnerabilidades e arranque da imagem Docker. |
+| `.github/workflows/docker.yml` | Publica a imagem em `ghcr.io` a cada push para `master`, depois de correr os testes. |
 
 ## Arrancar no servidor
 
@@ -64,7 +66,7 @@ Mudar a palavra-passe termina todas as sessões abertas.
 O código e os dados estão separados: o código vai na imagem, os dados ficam no volume.
 Atualizar a imagem nunca toca nas viagens.
 
-1. Cria um repositório no GitHub (pode ser privado) e faz push para `main`.
+1. Cria um repositório no GitHub (pode ser privado) e faz push para `master`.
 2. O workflow compila e publica `ghcr.io/<utilizador>/<repositório>:latest` (amd64 e arm64).
 3. No `docker-compose.yml`, troca `OWNER/planeador-ferias` pelo caminho da tua imagem.
 4. No servidor, a cada nova versão:
@@ -116,3 +118,15 @@ PLANNER_USER=eu PLANNER_PASSWORD=uma-palavra-passe go run .
 ```
 
 Não há passo de build para a página: edita os ficheiros em `web/` e volta a correr.
+
+### Testes
+
+```sh
+go test ./...                 # servidor: login, sessões, viagens, cópias, cabeçalhos
+node --test tests/*.test.mjs  # página: sintaxe e traduções PT/EN completas
+gofmt -l . && go vet ./...    # formato e análise
+```
+
+O CI corre tudo isto em cada PR, mais `staticcheck`, `govulncheck`, `hadolint` e um arranque real
+da imagem Docker com login. Ao acrescentar um texto à página, põe-no em `web/i18n.js` nas duas
+línguas: o teste falha se faltar uma tradução.
