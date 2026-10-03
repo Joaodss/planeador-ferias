@@ -6,13 +6,11 @@ const esc = s => String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&g
 const clone = o => JSON.parse(JSON.stringify(o));
 const cssSlot = () => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--slot')) || 24;
 let SLOT = cssSlot(); const PXM = () => SLOT/30; const SNAP = 15;
-const WD = ['Dom','2ª','3ª','4ª','5ª','6ª','Sáb'];
-const WD_LONG = ['domingo','segunda','terça','quarta','quinta','sexta','sábado'];
-const MON = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
-const CATS = {tour:'Passeio', party:'Festa', transport:'Transporte', food:'Refeição', rest:'Livre', sleep:'Sono'};
-const STATUS = {ideia:'ideia', reservar:'por reservar', reservado:'reservado', pago:'pago'};
-const artDay = w => (w===0||w===6?'ao ':'à ')+WD_LONG[w];
-const daysPhrase = ws => ws.slice().sort((x,y)=>((x||7)-(y||7))).map(artDay).join(', ').replace(/, ([^,]*)$/,' e $1');
+/* Textos: ver i18n.js. tr(chave, {marcadores}) devolve o texto na língua escolhida. */
+const tr = I18N.tr;
+const WD = () => tr('wd'), MON = () => tr('mon'), CATS = () => tr('cats'), STATUS = () => tr('status');
+const artDay = w => tr('onDay',{w});
+const daysPhrase = ws => ws.slice().sort((x,y)=>((x||7)-(y||7))).map(artDay).join(', ').replace(/, ([^,]*)$/,' '+tr('and')+' $1');
 
 /* ---------- dates & times ---------- */
 const parseISO = s => { const [y,m,d]=s.split('-').map(Number); return new Date(y,m-1,d); };
@@ -20,7 +18,7 @@ const iso = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`
 const addDays = (d,n) => { const x=new Date(d); x.setDate(x.getDate()+n); return x; };
 const mlabel = m => { const x=((m%1440)+1440)%1440; return pad(Math.floor(x/60))+':'+pad(x%60); };
 const durLabel = n => { const h=Math.floor(n/60), m=n%60; return h ? (m? `${h}h${pad(m)}` : `${h}h`) : `${m} min`; };
-function dayLabel(date, withMonth){ const d=parseISO(date); return `${WD[d.getDay()]} ${d.getDate()}${withMonth?' '+MON[d.getMonth()]:''}`; }
+function dayLabel(date, withMonth){ const d=parseISO(date); return `${WD()[d.getDay()]} ${d.getDate()}${withMonth?' '+MON()[d.getMonth()]:''}`; }
 
 /* ---------- store ---------- */
 let store = {version:2, trips:[]};
@@ -31,7 +29,7 @@ function T(){ return store.trips.find(t=>t.id===activeId) || null; }
 function ensureActive(){ if(!T()) activeId = store.trips.length ? store.trips[0].id : null; }
 function days(t){ const out=[]; if(!t) return out; let d=parseISO(t.start); const e=parseISO(t.end); while(d<=e && out.length<120){ out.push(iso(d)); d=addDays(d,1);} return out; }
 function view(t){ const T0=t.dayStart*60; const span=(((t.dayEnd - t.dayStart)+24)%24 || 24)*60; return {T0, span, T1:T0+span}; }
-function fmt(v){ const t=T(); const cur=(t&&t.currency)||'€'; const n=(Math.round(v*100)/100).toLocaleString('pt-PT',{maximumFractionDigits:2}); return cur==='€' ? n+' €' : cur+n; }
+function fmt(v){ const t=T(); const cur=(t&&t.currency)||'€'; const n=(Math.round(v*100)/100).toLocaleString(I18N.locale,{maximumFractionDigits:2}); return cur==='€' && I18N.lang==='pt' ? n+' €' : cur+n; }
 function blockCostPP(b){ const t=T(); return (b.pp||0) + (b.total ? b.total/Math.max(1,t.people||1) : 0); }
 function placeById(id){ const t=T(); return t && t.places.find(p=>p.id===id); }
 function placeName(id){ const p=placeById(id); return p ? p.name : ''; }
@@ -54,10 +52,10 @@ async function api(method, path, body){
 function computeDirty(){ const ids=new Set(store.trips.map(t=>t.id)); return store.trips.some(t=>synced[t.id]!==JSON.stringify(t)) || Object.keys(synced).some(id=>!ids.has(id)); }
 function setSave(s,txt){ $('#save').dataset.s=s; $('#save-txt').textContent=txt; }
 function refreshSaveLabel(){
-  if(saving) return setSave('saving','A guardar…');
-  if(!online) return setSave('error','Não foi possível guardar — a tentar de novo');
-  if(dirty) return setSave('dirty','Por guardar');
-  setSave('saved','Tudo guardado');
+  if(saving) return setSave('saving',tr('saving'));
+  if(!online) return setSave('error',tr('saveError'));
+  if(dirty) return setSave('dirty',tr('unsaved'));
+  setSave('saved',tr('allSaved'));
 }
 function scheduleSave(delay){ clearTimeout(saveTimer); saveTimer=setTimeout(doSave, delay||1200); refreshSaveLabel(); }
 function clearHistory(){ history=[]; $('#undo').disabled=true; }
@@ -88,13 +86,13 @@ async function doSave(){
     online=true;
   }catch(e){ if(!e || e.code!=='auth') online=false; }
   saving=false; dirty=computeDirty(); refreshSaveLabel();
-  if(conflict){ clearHistory(); closeSheets(); ensureActive(); render(); toast('Esta viagem foi alterada noutro dispositivo. Carreguei a versão mais recente e a tua última alteração não foi guardada.'); }
-  if(tooBig) toast('Esta viagem ficou demasiado grande para guardar (limite de 2 MB). Encurta as notas mais longas.');
+  if(conflict){ clearHistory(); closeSheets(); ensureActive(); render(); toast(tr('tConflict')); }
+  if(tooBig) toast(tr('tTooBig'));
   if(dirty && authed) scheduleSave(online?1200:8000);
 }
 function commit(){ dirty=true; scheduleSave(); render(); }
 function pushHistory(){ history.push(JSON.stringify(store)); if(history.length>60) history.shift(); $('#undo').disabled=false; }
-function undo(){ if(!history.length) return; store=JSON.parse(history.pop()); ensureActive(); $('#undo').disabled=!history.length; closeSheets(); commit(); announce('Alteração desfeita'); }
+function undo(){ if(!history.length) return; store=JSON.parse(history.pop()); ensureActive(); $('#undo').disabled=!history.length; closeSheets(); commit(); announce(tr('undone')); }
 
 function applyServer(d){
   for(const k of Object.keys(revs)) delete revs[k];
@@ -121,7 +119,7 @@ async function refresh(){
     const sig=a=>JSON.stringify(a.sort());
     if(sig(store.trips.map(t=>t.id+':'+revs[t.id]))===sig(d.trips.map(x=>x.trip.id+':'+x.rev))) return;
     applyServer(d); clearHistory(); closeSheets(); ensureActive(); render();
-    toast('Atualizei com as alterações feitas noutro dispositivo.');
+    toast(tr('tRefreshed'));
   }catch(e){}
 }
 document.addEventListener('visibilitychange',()=>{
@@ -140,18 +138,18 @@ function showLogin(){
 $('#login-form').addEventListener('submit', async e=>{
   e.preventDefault(); const err=$('#l-err'), btn=$('#l-submit'); err.hidden=true;
   const fail=m=>{ err.textContent=m; err.hidden=false; };
-  if(!$('#l-user').value.trim() || !$('#l-pass').value) return fail('Escreve o utilizador e a palavra-passe.');
-  btn.disabled=true; btn.textContent='A entrar…';
+  if(!$('#l-user').value.trim() || !$('#l-pass').value) return fail(tr('errFill'));
+  btn.disabled=true; btn.textContent=tr('signingIn');
   try{
     const r=await fetch('/api/login',{method:'POST', headers:{'Content-Type':'application/json','X-Requested-With':'planner'}, credentials:'same-origin', body:JSON.stringify({user:$('#l-user').value, password:$('#l-pass').value})});
     if(r.ok){ $('#l-pass').value=''; if(computeDirty()){ showApp(); render(); doSave(); } else await loadAll(); }
-    else if(r.status===429) fail('Demasiadas tentativas falhadas. Espera 10 minutos e tenta de novo.');
-    else fail('Utilizador ou palavra-passe errados.');
-  }catch(ex){ if(!ex || ex.code!=='auth') fail('Não consegui falar com o servidor. Tenta de novo.'); }
-  finally{ btn.disabled=false; btn.textContent='Entrar'; }
+    else if(r.status===429) fail(tr('errTooMany'));
+    else fail(tr('errWrong'));
+  }catch(ex){ if(!ex || ex.code!=='auth') fail(tr('errServer')); }
+  finally{ btn.disabled=false; btn.textContent=tr('signIn'); }
 });
 $('#logout').addEventListener('click', async ()=>{
-  if(computeDirty()){ clearTimeout(saveTimer); await doSave(); if(computeDirty()){ toast('Ainda há alterações por guardar. Tenta sair daqui a pouco.'); return; } }
+  if(computeDirty()){ clearTimeout(saveTimer); await doSave(); if(computeDirty()){ toast(tr('tLogoutPending')); return; } }
   try{ await fetch('/api/logout',{method:'POST', headers:{'X-Requested-With':'planner'}, credentials:'same-origin'}); }catch(e){}
   store={version:2, trips:[]}; applyServer({trips:[]}); clearHistory(); closeSheets(); showLogin();
 });
@@ -184,28 +182,28 @@ function computeWarnings(){
       const x=list[a], y=list[c];
       if(y.start < x.start+x.len && x.start < y.start+y.len){
         const sl = x.cat==='sleep'||y.cat==='sleep'; const o = x.cat==='sleep'?y:x;
-        W.push({sev:sl?'warn':'bad', ids:[x.id,y.id], date, t: sl?`${o.title} entra no sono`:`${x.title} e ${y.title} ao mesmo tempo`, d:`${dayLabel(date,true)} · ${mlabel(Math.max(x.start,y.start))}–${mlabel(Math.min(x.start+x.len,y.start+y.len))}`});
+        W.push({sev:sl?'warn':'bad', ids:[x.id,y.id], date, t: sl?tr('wSleep',{a:o.title}):tr('wOverlap',{a:x.title,b:y.title}), d:`${dayLabel(date,true)} · ${mlabel(Math.max(x.start,y.start))}–${mlabel(Math.min(x.start+x.len,y.start+y.len))}`});
       }
     }
     for(const b of list){
       if(b.weekdays && b.weekdays.length && !b.weekdays.includes(wd)){
         const ok = ds.filter(dd=>b.weekdays.includes(parseISO(dd).getDay()) && (!b.place || !(t.dayPlaces[dd]||[]).length || (t.dayPlaces[dd]||[]).includes(b.place)));
-        W.push({sev:'bad', ids:[b.id], date, t:`${b.title} não acontece ${artDay(wd)}`, d:`Só acontece ${daysPhrase(b.weekdays)}. Dias possíveis nesta viagem: ${ok.map(dd=>dayLabel(dd)).join(', ')||'nenhum'}.`});
+        W.push({sev:'bad', ids:[b.id], date, t:tr('wWeekday',{a:b.title,day:artDay(wd)}), d:tr('wWeekdayD',{days:daysPhrase(b.weekdays), ok:ok.map(dd=>dayLabel(dd)).join(', ')||tr('none')})});
       }
       if(b.place && dp.length && !dp.includes(b.place)){
-        W.push({sev:'bad', ids:[b.id], date, t:`${b.title} é em ${placeName(b.place)}`, d:`${dayLabel(date,true)}: estão em ${dp.map(placeName).join(' → ')}.`});
+        W.push({sev:'bad', ids:[b.id], date, t:tr('wPlace',{a:b.title,place:placeName(b.place)}), d:tr('wPlaceD',{day:dayLabel(date,true), places:dp.map(placeName).join(' → ')})});
       }
       if(b.start < v.T0 || b.start+b.len > v.T1){
-        W.push({sev:'warn', ids:[b.id], date, t:`${b.title} fica fora do horário do quadro`, d:`Começa às ${mlabel(b.start)}. Alarga o horário em "Datas e sítios" ou muda a hora.`});
+        W.push({sev:'warn', ids:[b.id], date, t:tr('wHours',{a:b.title}), d:tr('wHoursD',{time:mlabel(b.start)})});
       }
       if(b.cat==='party' && b.start+b.len>=1380 && i<ds.length-1){
         for(const n of blocksOf(ds[i+1]).filter(n=>['tour','transport','party'].includes(n.cat) && n.start<600))
-          W.push({sev:'warn', ids:[b.id,n.id], date:ds[i+1], t:`Noite longa antes de ${n.title}`, d:`${b.title} acaba às ${mlabel(b.start+b.len)} e ${n.title} começa às ${mlabel(n.start)} de ${dayLabel(ds[i+1])}.`});
+          W.push({sev:'warn', ids:[b.id,n.id], date:ds[i+1], t:tr('wNight',{b:n.title}), d:tr('wNightD',{a:b.title, t1:mlabel(b.start+b.len), b:n.title, t2:mlabel(n.start), day:dayLabel(ds[i+1])})});
       }
     }
   });
   const outside = t.blocks.filter(b=>!ds.includes(b.date));
-  for(const b of outside) W.push({sev:'bad', ids:[b.id], date:b.date, t:`${b.title} está fora das datas da viagem`, d:`Está marcada para ${b.date}. Abre-a e escolhe outro dia.`});
+  for(const b of outside) W.push({sev:'bad', ids:[b.id], date:b.date, t:tr('wDates',{a:b.title}), d:tr('wDatesD',{date:b.date})});
   return W;
 }
 
@@ -222,14 +220,14 @@ function blockEl(b, warnMap, inTray){
   el.dataset.id=b.id; el.tabIndex=0; el.setAttribute('role','button');
   const w=warnMap.get(b.id);
   const cost = b.pp ? `<span class="eur">${fmt(b.pp)} pp</span>` : (b.total ? `<span class="eur">${fmt(b.total)}</span>` : '');
-  const st = b.status ? `<span class="st st-${b.status}">${(b.status==='reservado'||b.status==='pago')?'✓ ':''}${STATUS[b.status]}</span>` : '';
+  const st = b.status ? `<span class="st st-${b.status}">${(b.status==='reservado'||b.status==='pago')?'✓ ':''}${STATUS()[b.status]}</span>` : '';
   const time = inTray ? durLabel(b.len) : `${mlabel(b.start)}–${mlabel(b.start+b.len)}`;
   el.innerHTML = `<div class="t">${esc(b.title)}</div><div class="m"><span>${time}</span>${cost}${st}</div>`
     + (w?`<span class="badge" title="${esc(w.map(x=>x.t).join('\n'))}">!</span>`:'')
     + (b.locked?`<svg class="lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>`:'')
     + (inTray?'':'<div class="grip" aria-hidden="true"></div>');
   if(w){ el.classList.add('has-badge'); if(w.some(x=>x.sev==='bad')) el.classList.add('bad'); }
-  el.setAttribute('aria-label', `${b.title}, ${inTray?'por agendar':dayLabel(b.date,true)+' '+time}${b.status?', '+STATUS[b.status]:''}${w?', '+w.length+' aviso(s)':''}`);
+  el.setAttribute('aria-label', `${b.title}, ${inTray?tr('unscheduledLower'):dayLabel(b.date,true)+' '+time}${b.status?', '+STATUS()[b.status]:''}${w?', '+tr('nWarnings',{n:w.length}):''}`);
   return el;
 }
 let hideSleep=false, lastWarnings=[];
@@ -237,27 +235,27 @@ function render(){
   SLOT=cssSlot(); ensureActive();
   const t=T();
   // trip switcher
-  const sel=$('#trip-sel'); sel.innerHTML = `<option value="">${store.trips.length>1?'Trocar de viagem':'Viagens'}</option>` + store.trips.map(x=>`<option value="${esc(x.id)}"${t&&x.id===t.id?' disabled':''}>${esc(x.name)}${t&&x.id===t.id?' (aberta)':''}</option>`).join('') + '<option value="__new">+ Nova viagem…</option>';
+  const sel=$('#trip-sel'); sel.innerHTML = `<option value="">${store.trips.length>1?tr('switchTrip'):tr('trips')}</option>` + store.trips.map(x=>`<option value="${esc(x.id)}"${t&&x.id===t.id?' disabled':''}>${esc(x.name)}${t&&x.id===t.id?tr('openMark'):''}</option>`).join('') + `<option value="__new">${tr('newTripOpt')}</option>`;
   sel.value='';
   const board=$('#board'); const sc=$('#scroller'); const sl=sc.scrollLeft, st=sc.scrollTop;
   board.innerHTML='';
   if(!t){
-    $('#trip-name').textContent='Planeador de Férias'; $('#route').textContent='';
+    $('#trip-name').textContent=tr('appName'); $('#route').textContent='';
     board.style.gridTemplateColumns='1fr';
-    board.innerHTML = `<div class="empty-board"><div class="card"><h2>Cria a primeira viagem</h2><p>Escolhe o nome e as datas de início e fim. Depois vais acrescentando atividades dentro do horário de cada dia.</p><div class="actions"><button class="btn primary" type="button" id="empty-new">Nova viagem</button><button class="btn" type="button" id="empty-import">Importar cópia de segurança</button></div></div></div>`;
+    board.innerHTML = `<div class="empty-board"><div class="card"><h2>${tr('emptyH')}</h2><p>${tr('emptyP')}</p><div class="actions"><button class="btn primary" type="button" id="empty-new">${tr('newTrip')}</button><button class="btn" type="button" id="empty-import">${tr('importBackup')}</button></div></div></div>`;
     $('#empty-new').addEventListener('click',()=>openTripSheet(true));
     $('#empty-import').addEventListener('click',()=>$('#import-file').click());
-    document.title='Planeador de Férias';
+    document.title=tr('appName');
     $('#tray-list').innerHTML=''; ['#tot-pp','#tot-n','#tot-res'].forEach(s=>$(s).textContent='—'); $('#warn-txt').textContent='—'; return;
   }
-  document.title = t.name ? `${t.name} · Planeador de Férias` : 'Planeador de Férias';
+  document.title = t.name ? `${t.name} · ${tr('appName')}` : tr('appName');
   $('#trip-name').textContent=t.name;
   const ds=days(t), v=view(t), H=v.span*PXM();
   // route summary
   const seq=[]; ds.forEach(d=>(t.dayPlaces[d]||[]).forEach(p=>{ if(seq[seq.length-1]!==p) seq.push(p); }));
   const s0=parseISO(t.start), s1=parseISO(t.end);
-  const range = s0.getMonth()===s1.getMonth() ? `${s0.getDate()}–${s1.getDate()} ${MON[s1.getMonth()]} ${s1.getFullYear()}` : `${s0.getDate()} ${MON[s0.getMonth()]} – ${s1.getDate()} ${MON[s1.getMonth()]} ${s1.getFullYear()}`;
-  $('#route').innerHTML = `<span>${range} · ${ds.length} dias</span>` + (seq.length ? '<span class="arrow">·</span>'+seq.map(p=>`<b>${esc(short(placeName(p)))}</b>`).join('<span class="arrow">→</span>') : '<span class="arrow">·</span><span>clica num dia para dizer onde estão</span>');
+  const range = s0.getMonth()===s1.getMonth() ? `${s0.getDate()}–${s1.getDate()} ${MON()[s1.getMonth()]} ${s1.getFullYear()}` : `${s0.getDate()} ${MON()[s0.getMonth()]} – ${s1.getDate()} ${MON()[s1.getMonth()]} ${s1.getFullYear()}`;
+  $('#route').innerHTML = `<span>${range} · ${tr('nDays',{n:ds.length})}</span>` + (seq.length ? '<span class="arrow">·</span>'+seq.map(p=>`<b>${esc(short(placeName(p)))}</b>`).join('<span class="arrow">→</span>') : `<span class="arrow">·</span><span>${tr('clickDay')}</span>`);
   board.style.gridTemplateColumns = `${matchMedia('(max-width:640px)').matches?48:58}px repeat(${ds.length}, minmax(${matchMedia('(max-width:640px)').matches?124:138}px,1fr))`;
   // warnings
   const warns=computeWarnings(); const warnMap=new Map();
@@ -270,9 +268,9 @@ function render(){
     const cost=blocksOf(date).reduce((s,b)=>s+blockCostPP(b),0)+dayCostPP(date);
     if(locs.length) h.style.setProperty('--loc-c', `linear-gradient(90deg, ${locs.map((l,k)=>`var(--p${((placeById(l)||{c:1}).c-1)%8+1}) ${k*100/locs.length}% ${(k+1)*100/locs.length}%`).join(',')})`);
     const showMonth = i===0 || d.getDate()===1;
-    h.innerHTML = `<div class="strip"></div><div class="date"><span class="num">${d.getDate()}</span><span class="wd">${WD[wd]}${showMonth?' · '+MON[d.getMonth()]:''}</span><span class="cost">${cost?fmt(cost)+' pp':''}</span></div>`
-      + (locs.length ? `<div class="loc" title="${esc(locs.map(placeName).join(' → '))}">${locs.map(l=>esc(short(placeName(l)))).join(' <span class="ferry">→</span> ')}</div>` : `<div class="loc none">Onde? Clica aqui</div>`);
-    h.setAttribute('aria-label', `${dayLabel(date,true)}${locs.length?', '+locs.map(placeName).join(' para '):''}. Abrir o dia`);
+    h.innerHTML = `<div class="strip"></div><div class="date"><span class="num">${d.getDate()}</span><span class="wd">${WD()[wd]}${showMonth?' · '+MON()[d.getMonth()]:''}</span><span class="cost">${cost?fmt(cost)+' pp':''}</span></div>`
+      + (locs.length ? `<div class="loc" title="${esc(locs.map(placeName).join(' → '))}">${locs.map(l=>esc(short(placeName(l)))).join(' <span class="ferry">→</span> ')}</div>` : `<div class="loc none">${tr('whereClick')}</div>`);
+    h.setAttribute('aria-label', `${dayLabel(date,true)}${locs.length?', '+locs.map(placeName).join(tr('placesJoin')):''}. ${tr('openDay')}`);
     board.appendChild(h);
   });
   const times=document.createElement('div'); times.className='times'; times.style.height=H+'px'; times.style.position='sticky';
@@ -296,15 +294,15 @@ function render(){
   sc.scrollLeft=sl; sc.scrollTop=st;
   // tray
   const tl=$('#tray-list'); tl.innerHTML='';
-  if(!t.tray.length) tl.innerHTML='<span class="tray-empty">Nada por agendar.</span>';
+  if(!t.tray.length) tl.innerHTML=`<span class="tray-empty">${tr('trayEmpty')}</span>`;
   for(const b of t.tray) tl.appendChild(blockEl(b,warnMap,true));
   // stats
   const pp=tripTotal(t)/nPeople(t);
-  $('#tot-pp').textContent=fmt(pp); $('#tot-n-k').textContent = t.people>1 ? `Para ${t.people}` : 'Total'; $('#tot-n').textContent=fmt(pp*(t.people||1));
+  $('#tot-pp').textContent=fmt(pp); $('#tot-n-k').textContent = t.people>1 ? tr('totalFor',{n:t.people}) : tr('total'); $('#tot-n').textContent=fmt(pp*(t.people||1));
   const res=t.blocks.concat(t.tray).filter(b=>b.status==='reservar').length; $('#tot-res').textContent=String(res);
   const btn=$('#warn-btn'); const bad=warns.filter(w=>w.sev==='bad').length;
   btn.classList.toggle('has-warn', warns.length>0 && !bad); btn.classList.toggle('has-bad', bad>0);
-  $('#warn-txt').textContent = warns.length ? `${warns.length} ${warns.length===1?'ponto':'pontos'} a rever` : 'Sem conflitos';
+  $('#warn-txt').textContent = warns.length ? tr('nToReview',{n:warns.length}) : tr('noConflicts');
   lastWarnings=warns;
   if(!$('#warnings').hidden) renderWarnings();
   if(editingId && !$('#editor').hidden) fillEditor(false);
@@ -313,8 +311,8 @@ function render(){
 }
 function renderWarnings(){
   const box=$('#w-list'); box.innerHTML='';
-  if(!lastWarnings.length){ box.innerHTML='<div class="empty-ok">Nada sobreposto. Todas as atividades estão nos dias em que acontecem e no sítio onde vão estar.</div>'; return; }
-  box.insertAdjacentHTML('beforeend','<p class="hint">Vermelho: sobreposições, dias em que o evento não existe ou atividade no sítio errado. Âmbar: sono cortado, noite longa antes de um compromisso cedo, ou fora do horário do quadro.</p>');
+  if(!lastWarnings.length){ box.innerHTML=`<div class="empty-ok">${tr('warnOk')}</div>`; return; }
+  box.insertAdjacentHTML('beforeend',`<p class="hint">${tr('warnHint')}</p>`);
   lastWarnings.slice().sort((a,b)=>String(a.date).localeCompare(String(b.date))||(a.sev==='bad'?-1:1)).forEach(w=>{
     const it=document.createElement('button'); it.type='button'; it.className='warn-item'+(w.sev==='bad'?' bad':'');
     it.innerHTML=`<span class="sev"></span><span><div class="wt">${esc(w.t)}</div><div class="wd">${esc(w.d)}</div></span>`;
@@ -340,7 +338,7 @@ document.addEventListener('pointerdown', e=>{
 });
 function startDrag(){
   if(!drag) return;
-  if(drag.locked){ toast('Esta atividade está marcada como fixa. Abre-a para desbloquear.'); drag.cancelled=true; return; }
+  if(drag.locked){ toast(tr('tLocked')); drag.cancelled=true; return; }
   drag.active=true; pushHistory(); document.body.classList.add('is-dragging');
   const f=findBlock(drag.id);
   if(drag.mode==='move'){
@@ -381,7 +379,7 @@ function updateDrag(){
     const wd=parseISO(date).getDay(); const dp=t.dayPlaces[date]||[];
     const clash=(b.weekdays&&b.weekdays.length&&!b.weekdays.includes(wd)) || (b.place&&dp.length&&!dp.includes(b.place));
     const p=document.createElement('div'); p.className='preview'+(clash?' bad':''); p.style.top=((s-v.T0)*PXM())+'px'; p.style.height=(b.len*PXM())+'px';
-    p.innerHTML=`<span>${dayLabel(date)} · ${mlabel(s)}–${mlabel(s+b.len)}${clash?' · ver avisos':''}</span>`; col.appendChild(p);
+    p.innerHTML=`<span>${dayLabel(date)} · ${mlabel(s)}–${mlabel(s+b.len)}${clash?tr('seeWarnings'):''}</span>`; col.appendChild(p);
   } else if(tray){ drag.target={tray:true}; tray.classList.add('drop-target'); }
 }
 function autoScroll(){
@@ -402,7 +400,7 @@ function endDrag(e){
   if(e.type==='pointercancel' || !d.target){ history.pop(); $('#undo').disabled=!history.length; render(); return; }
   const f=findBlock(d.id);
   if(d.mode==='resize'){ f.b.len=d.target.len; announce(`${f.b.title}: ${durLabel(f.b.len)}`); }
-  else if(d.target.tray){ toTray(d.id); announce(`${f.b.title} passou para "por agendar"`); }
+  else if(d.target.tray){ toTray(d.id); announce(tr('movedToTray',{a:f.b.title})); }
   else { moveTo(d.id,d.target.date,d.target.start); announce(`${f.b.title} → ${dayLabel(d.target.date,true)}, ${mlabel(d.target.start)}`); }
   commit(); suppressClick=true; setTimeout(()=>suppressClick=false,50);
 }
@@ -416,7 +414,7 @@ $('#board').addEventListener('dblclick', e=>{
   if(e.target.closest('.blk')) return; const col=e.target.closest('.day-col'); if(!col) return;
   const t=T(), v=view(t), r=col.getBoundingClientRect();
   const s=Math.max(v.T0, Math.min(v.T1-60, v.T0+Math.floor((e.clientY-r.top)/PXM()/30)*30));
-  pushHistory(); const b={id:newId('a'), date:col.dataset.date, start:s, len:60, title:'Nova atividade', cat:'tour', status:'ideia'};
+  pushHistory(); const b={id:newId('a'), date:col.dataset.date, start:s, len:60, title:tr('newActivity'), cat:'tour', status:'ideia'};
   t.blocks.push(b); commit(); openEditor(b.id,true);
 });
 $('#board').addEventListener('click', e=>{ const h=e.target.closest('.dh'); if(h) openDay(h.dataset.date); });
@@ -444,13 +442,14 @@ document.querySelectorAll('[data-close]').forEach(b=>b.addEventListener('click',
 
 /* activity editor */
 let editingId=null, editorSnap=false;
-(function(){ $('#f-wdays').innerHTML=[1,2,3,4,5,6,0].map(w=>`<label><input type="checkbox" value="${w}" id="f-wd-${w}">${WD[w]}</label>`).join(''); })();
+function buildWdays(){ $('#f-wdays').innerHTML=[1,2,3,4,5,6,0].map(w=>`<label><input type="checkbox" value="${w}" id="f-wd-${w}">${WD()[w]}</label>`).join(''); }
+buildWdays();
 function fillSelects(){
   const t=T(); if(!t) return; const v=view(t); const ds=days(t);
-  $('#f-day').innerHTML='<option value="tray">Por agendar</option>'+ds.map(d=>`<option value="${d}">${dayLabel(d,true)}${(t.dayPlaces[d]||[]).length?' · '+(t.dayPlaces[d]).map(p=>short(placeName(p))).join(' → '):''}</option>`).join('');
-  let so=''; for(let m=v.T0; m<v.T1; m+=SNAP) so+=`<option value="${m}">${mlabel(m)}${m>=1440?' (madrugada)':''}</option>`; $('#f-start').innerHTML=so;
+  $('#f-day').innerHTML=`<option value="tray">${tr('unscheduled')}</option>`+ds.map(d=>`<option value="${d}">${dayLabel(d,true)}${(t.dayPlaces[d]||[]).length?' · '+(t.dayPlaces[d]).map(p=>short(placeName(p))).join(' → '):''}</option>`).join('');
+  let so=''; for(let m=v.T0; m<v.T1; m+=SNAP) so+=`<option value="${m}">${mlabel(m)}${m>=1440?tr('afterMidnight'):''}</option>`; $('#f-start').innerHTML=so;
   let lo=''; for(let m=SNAP; m<=v.span; m+=SNAP) lo+=`<option value="${m}">${durLabel(m)}</option>`; $('#f-len').innerHTML=lo;
-  $('#f-place').innerHTML='<option value="">Em qualquer sítio</option>'+t.places.map(p=>`<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('');
+  $('#f-place').innerHTML=`<option value="">${tr('anywhere')}</option>`+t.places.map(p=>`<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('');
 }
 function openEditor(id,isNew){
   if(suppressClick) return; closeSheets(); editingId=id; editorSnap=!!isNew;
@@ -462,19 +461,19 @@ function fillEditor(full){
   const b=f.b, act=document.activeElement, t=T();
   const set=(sel,val)=>{ const el=$(sel); if(full||el!==act){ if(el.type==='checkbox') el.checked=!!val; else el.value=val; } };
   set('#f-title',b.title); set('#f-day', f.where==='tray'?'tray':b.date); $('#f-start').disabled=f.where==='tray';
-  if(f.where!=='tray'){ if(![...$('#f-start').options].some(o=>+o.value===b.start)) $('#f-start').insertAdjacentHTML('beforeend',`<option value="${b.start}">${mlabel(b.start)} (fora do quadro)</option>`); set('#f-start',String(b.start)); }
+  if(f.where!=='tray'){ if(![...$('#f-start').options].some(o=>+o.value===b.start)) $('#f-start').insertAdjacentHTML('beforeend',`<option value="${b.start}">${mlabel(b.start)}${tr('outsideBoard')}</option>`); set('#f-start',String(b.start)); }
   if(![...$('#f-len').options].some(o=>+o.value===b.len)) $('#f-len').insertAdjacentHTML('beforeend',`<option value="${b.len}">${durLabel(b.len)}</option>`);
   set('#f-len',String(b.len)); set('#f-cat',b.cat); set('#f-status',b.status||''); set('#f-place',b.place||'');
-  if(full||$('#f-ccat')!==act){ $('#f-ccat').innerHTML=catOptions(t, (b.ccat&&hasCat(t,b.ccat))?b.ccat:'', `<option value="">Automática: ${esc(catName(t,autoCat(t,b)))}</option>`); }
+  if(full||$('#f-ccat')!==act){ $('#f-ccat').innerHTML=catOptions(t, (b.ccat&&hasCat(t,b.ccat))?b.ccat:'', `<option value="">${tr('autoCat',{name:esc(catName(t,autoCat(t,b)))})}</option>`); }
   set('#f-pp',b.pp??''); set('#f-total',b.total??''); set('#f-address',b.address||''); set('#f-link',b.link||''); set('#f-ref',b.ref||''); set('#f-note',b.note||''); set('#f-lock',b.locked);
   [0,1,2,3,4,5,6].forEach(w=>{ const c=$('#f-wd-'+w); if(full||c!==act) c.checked=!!(b.weekdays&&b.weekdays.includes(w)); });
-  const cur=t.currency||'€'; $('#f-pp-l').textContent=`Custo por pessoa (${cur})`; $('#f-total-l').textContent=`Custo total (${cur})`;
-  const lo=$('#f-link-open'); if(/^https?:\/\//i.test(b.link||'')){ lo.hidden=false; lo.href=b.link; lo.textContent='Abrir link ↗'; } else lo.hidden=true;
-  $('#f-tray').hidden=f.where==='tray'; $('#ed-h').textContent=CATS[b.cat]||'Atividade';
+  const cur=t.currency||'€'; $('#f-pp-l').textContent=tr('costPPCur',{cur}); $('#f-total-l').textContent=tr('costTotalCur',{cur});
+  const lo=$('#f-link-open'); if(/^https?:\/\//i.test(b.link||'')){ lo.hidden=false; lo.href=b.link; lo.textContent=tr('openLink'); } else lo.hidden=true;
+  $('#f-tray').hidden=f.where==='tray'; $('#ed-h').textContent=CATS()[b.cat]||tr('activity');
 }
 function edit(fn){ const f=findBlock(editingId); if(!f) return; if(!editorSnap){ pushHistory(); editorSnap=true; } fn(f.b,f); commit(); }
 const optStr=(k)=>e=>edit(b=>{ const v=e.target.value.trim(); if(v) b[k]=e.target.value; else delete b[k]; });
-$('#f-title').addEventListener('input',e=>edit(b=>{ b.title=e.target.value||'Sem nome'; }));
+$('#f-title').addEventListener('input',e=>edit(b=>{ b.title=e.target.value||tr('untitled'); }));
 ['note','address','link','ref'].forEach(k=>$('#f-'+k).addEventListener('input',optStr(k)));
 $('#f-cat').addEventListener('change',e=>edit(b=>{ b.cat=e.target.value; }));
 $('#f-status').addEventListener('change',e=>edit(b=>{ if(e.target.value) b.status=e.target.value; else delete b.status; }));
@@ -488,11 +487,11 @@ $('#f-len').addEventListener('change',e=>edit(b=>{ b.len=+e.target.value; const 
 $('#f-start').addEventListener('change',e=>edit(b=>{ const v=view(T()); b.start=Math.min(+e.target.value, v.T1-b.len); }));
 $('#f-day').addEventListener('change',e=>edit((b,f)=>{ if(e.target.value==='tray') toTray(b.id); else moveTo(b.id,e.target.value, f.where==='tray'?Math.max(view(T()).T0,600):b.start); }));
 $('#f-dup').addEventListener('click',()=>{ const f=findBlock(editingId); if(!f) return; pushHistory(); const c=clone(f.b); c.id=newId('a'); delete c.locked; const t=T();
-  if(f.where==='tray') t.tray.push(c); else { c.start=Math.min(view(t).T1-c.len, f.b.start+f.b.len); t.blocks.push(c); } commit(); openEditor(c.id); toast('Cópia criada logo a seguir à original.'); });
+  if(f.where==='tray') t.tray.push(c); else { c.start=Math.min(view(t).T1-c.len, f.b.start+f.b.len); t.blocks.push(c); } commit(); openEditor(c.id); toast(tr('tDupActivity')); });
 $('#f-tray').addEventListener('click',()=>{ edit(b=>toTray(b.id)); $('#editor').hidden=true; editingId=null; });
 $('#f-del').addEventListener('click',()=>{ $('#f-del-confirm').hidden=false; $('#f-del-yes').focus(); });
 $('#f-del-no').addEventListener('click',()=>{ $('#f-del-confirm').hidden=true; });
-$('#f-del-yes').addEventListener('click',()=>{ const id=editingId, t=T(); pushHistory(); t.blocks=t.blocks.filter(b=>b.id!==id); t.tray=t.tray.filter(b=>b.id!==id); $('#editor').hidden=true; editingId=null; commit(); toast('Atividade apagada. Usa Desfazer se foi engano.'); });
+$('#f-del-yes').addEventListener('click',()=>{ const id=editingId, t=T(); pushHistory(); t.blocks=t.blocks.filter(b=>b.id!==id); t.tray=t.tray.filter(b=>b.id!==id); $('#editor').hidden=true; editingId=null; commit(); toast(tr('tDelActivity')); });
 
 /* day sheet */
 let dayOpen=null;
@@ -500,41 +499,41 @@ function openDay(date){ closeSheets(); dayOpen=date; $('#daysheet').hidden=false
 function fillDay(full){
   const t=T(); if(!t||!dayOpen) return; const ds=days(t); const cur=t.dayPlaces[dayOpen]||[];
   $('#d-h').textContent=dayLabel(dayOpen,true);
-  const opts='<option value="">— sem sítio —</option>'+t.places.map(p=>`<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('');
-  if(full!==false || document.activeElement!==$('#d-place')){ $('#d-place').innerHTML=opts; $('#d-place').value=cur[0]||''; }
-  if(full!==false || document.activeElement!==$('#d-place2')){ $('#d-place2').innerHTML=opts.replace('— sem sítio —','Não mudam'); $('#d-place2').value=cur[1]||''; }
-  if(full!==false){ const i=ds.indexOf(dayOpen); $('#d-until').innerHTML=`<option value="">Só este dia</option>`+ds.slice(i+1).map(d=>`<option value="${d}">${dayLabel(d,true)}</option>`).join(''); }
+  const popts=t.places.map(p=>`<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('');
+  if(full!==false || document.activeElement!==$('#d-place')){ $('#d-place').innerHTML=`<option value="">${tr('noPlace')}</option>`+popts; $('#d-place').value=cur[0]||''; }
+  if(full!==false || document.activeElement!==$('#d-place2')){ $('#d-place2').innerHTML=`<option value="">${tr('noChange')}</option>`+popts; $('#d-place2').value=cur[1]||''; }
+  if(full!==false){ const i=ds.indexOf(dayOpen); $('#d-until').innerHTML=`<option value="">${tr('justThisDay')}</option>`+ds.slice(i+1).map(d=>`<option value="${d}">${dayLabel(d,true)}</option>`).join(''); }
   const list=blocksOf(dayOpen); const box=$('#d-list'); box.innerHTML='';
   const cost=list.reduce((s,b)=>s+blockCostPP(b),0);
-  $('#d-list-h').textContent = `Atividades deste dia${cost?' · '+fmt(cost)+' por pessoa':''}`;
-  const dc=dayCostPP(dayOpen); $('#d-costs-h').textContent = `Custos do dia${dc?' · '+fmt(dc)+' por pessoa':''}`;
+  $('#d-list-h').textContent = tr('dayActivities')+(cost?' · '+fmt(cost)+' '+tr('perPersonLower'):'');
+  const dc=dayCostPP(dayOpen); $('#d-costs-h').textContent = tr('dayCosts')+(dc?' · '+fmt(dc)+' '+tr('perPersonLower'):'');
   renderCostRows($('#d-costs'), dayOpen, full===true);
-  if(!list.length) box.innerHTML='<p class="hint">Ainda não há nada neste dia.</p>';
+  if(!list.length) box.innerHTML=`<p class="hint">${tr('dayEmpty')}</p>`;
   list.filter(b=>b.cat!=='sleep').forEach(b=>{ const it=document.createElement('button'); it.type='button'; it.className='day-item cat-'+b.cat;
-    it.innerHTML=`<span class="tm">${mlabel(b.start)}–${mlabel(b.start+b.len)}</span><span class="nm">${esc(b.title)}</span>${b.status?`<span class="st st-${b.status}" style="margin-left:auto;font-size:10px;font-weight:700;padding:0 5px;border-radius:4px">${STATUS[b.status]}</span>`:''}`;
+    it.innerHTML=`<span class="tm">${mlabel(b.start)}–${mlabel(b.start+b.len)}</span><span class="nm">${esc(b.title)}</span>${b.status?`<span class="st st-${b.status}" style="margin-left:auto;font-size:10px;font-weight:700;padding:0 5px;border-radius:4px">${STATUS()[b.status]}</span>`:''}`;
     it.addEventListener('click',()=>openEditor(b.id)); box.appendChild(it); });
 }
 $('#d-apply').addEventListener('click',()=>{
   const t=T(); const p1=$('#d-place').value, p2=$('#d-place2').value, until=$('#d-until').value; const ds=days(t);
   const i=ds.indexOf(dayOpen), j=until?ds.indexOf(until):i; pushHistory();
   for(let k=i;k<=j;k++){ const d=ds[k]; const arr=[]; if(p1) arr.push(p1); if(p2 && p2!==p1 && k===j) arr.push(p2); if(arr.length) t.dayPlaces[d]=arr; else delete t.dayPlaces[d]; }
-  if(p2 && j>i && p2!==p1) toast('A mudança de sítio ficou no último dia escolhido.');
-  commit(); fillDay(true); announce('Sítio guardado');
+  if(p2 && j>i && p2!==p1) toast(tr('tPlaceLastDay'));
+  commit(); fillDay(true); announce(tr('placeSaved'));
 });
 function addPlace(name){ const t=T(); name=name.trim(); if(!name) return null; const ex=t.places.find(p=>p.name.toLowerCase()===name.toLowerCase()); if(ex) return ex;
   const used=t.places.map(p=>p.c); let c=1; while(used.includes(c) && c<8) c++; if(used.includes(c)) c=(t.places.length%8)+1;
   const p={id:newId('p'), name, c}; t.places.push(p); return p; }
-$('#d-addplace').addEventListener('click',()=>{ const v=$('#d-newplace').value; if(!v.trim()) return; pushHistory(); const p=addPlace(v); $('#d-newplace').value=''; commit(); fillDay(true); $('#d-place').value=p.id; toast(`"${p.name}" adicionado. Carrega em Guardar sítio para o atribuir.`); });
+$('#d-addplace').addEventListener('click',()=>{ const v=$('#d-newplace').value; if(!v.trim()) return; pushHistory(); const p=addPlace(v); $('#d-newplace').value=''; commit(); fillDay(true); $('#d-place').value=p.id; toast(tr('tPlaceAdded',{name:p.name})); });
 $('#d-newplace').addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); $('#d-addplace').click(); } });
 $('#d-add').addEventListener('click',()=>{ const t=T(), v=view(t); const list=blocksOf(dayOpen); let s=Math.max(v.T0,540);
-  pushHistory(); const b={id:newId('a'), date:dayOpen, start:Math.min(s,v.T1-60), len:60, title:'Nova atividade', cat:'tour', status:'ideia'}; t.blocks.push(b); commit(); openEditor(b.id,true); });
+  pushHistory(); const b={id:newId('a'), date:dayOpen, start:Math.min(s,v.T1-60), len:60, title:tr('newActivity'), cat:'tour', status:'ideia'}; t.blocks.push(b); commit(); openEditor(b.id,true); });
 
 /* trip sheet */
 let tripMode='edit';
 (function(){ const h=Array.from({length:24},(_,i)=>`<option value="${i}">${pad(i)}:00</option>`).join(''); $('#t-ds').innerHTML=h; $('#t-de').innerHTML=h; })();
 function openTripSheet(isNew){
   closeSheets(); tripMode=isNew?'new':'edit'; const t=T(); $('#tripsheet').hidden=false; $('#t-err').hidden=true; $('#t-del-confirm').hidden=true;
-  $('#t-h').textContent=isNew?'Nova viagem':'Datas e sítios'; $('#t-submit').textContent=isNew?'Criar viagem':'Guardar';
+  $('#t-h').textContent=tr(isNew?'newTrip':'datesPlaces'); $('#t-submit').textContent=tr(isNew?'createTrip':'save');
   $('#t-places-wrap').hidden=isNew;
   if(isNew||!t){ const n=new Date(); const s=iso(addDays(n,30)), e=iso(addDays(n,36)); $('#t-name').value=''; $('#t-start').value=s; $('#t-end').value=e; $('#t-ds').value='7'; $('#t-de').value='1'; $('#t-people').value='2'; $('#t-cur').value='€'; $('#t-budget').value=''; }
   else { $('#t-name').value=t.name; $('#t-start').value=t.start; $('#t-end').value=t.end; $('#t-ds').value=String(t.dayStart); $('#t-de').value=String(t.dayEnd); $('#t-people').value=String(t.people||1); $('#t-cur').value=t.currency||'€'; $('#t-budget').value=t.budget||''; renderPlaces(); renderCats(); }
@@ -542,11 +541,11 @@ function openTripSheet(isNew){
 }
 function renderPlaces(){
   const t=T(), box=$('#t-places'); box.innerHTML='';
-  if(!t.places.length){ box.innerHTML='<p class="hint">Ainda não há sítios.</p>'; return; }
+  if(!t.places.length){ box.innerHTML=`<p class="hint">${tr('noPlaces')}</p>`; return; }
   t.places.forEach(p=>{ const row=document.createElement('div'); row.className='place-row'; row.style.setProperty('--pc',`var(--p${(p.c-1)%8+1})`);
-    row.innerHTML=`<i aria-hidden="true"></i><input type="text" value="${esc(p.name)}" aria-label="Nome do sítio" style="border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:6px 8px;min-width:0"><button class="btn danger" type="button">Remover</button>`;
+    row.innerHTML=`<i aria-hidden="true"></i><input type="text" value="${esc(p.name)}" aria-label="${tr('placeNameAria')}" style="border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:6px 8px;min-width:0"><button class="btn danger" type="button">${tr('remove')}</button>`;
     const inp=row.querySelector('input'); let snap=false;
-    inp.addEventListener('input',()=>{ if(!snap){ pushHistory(); snap=true; } p.name=inp.value||'Sem nome'; dirty=true; scheduleSave(); render(); });
+    inp.addEventListener('input',()=>{ if(!snap){ pushHistory(); snap=true; } p.name=inp.value||tr('untitled'); dirty=true; scheduleSave(); render(); });
     row.querySelector('button').addEventListener('click',()=>{ pushHistory(); t.places=t.places.filter(x=>x!==p); Object.keys(t.dayPlaces).forEach(d=>{ t.dayPlaces[d]=t.dayPlaces[d].filter(x=>x!==p.id); if(!t.dayPlaces[d].length) delete t.dayPlaces[d]; }); t.blocks.concat(t.tray).forEach(b=>{ if(b.place===p.id) delete b.place; }); commit(); renderPlaces(); });
     box.appendChild(row); });
 }
@@ -556,44 +555,50 @@ $('#t-form').addEventListener('submit',e=>{
   e.preventDefault(); const err=$('#t-err');
   const name=$('#t-name').value.trim(), s=$('#t-start').value, en=$('#t-end').value;
   const fail=m=>{ err.textContent=m; err.hidden=false; };
-  if(!name) return fail('Dá um nome à viagem.');
-  if(!s||!en) return fail('Escolhe as datas de início e de fim.');
-  if(en<s) return fail('A data de fim tem de ser igual ou depois da de início.');
-  const n=Math.round((parseISO(en)-parseISO(s))/864e5)+1; if(n>60) return fail(`São ${n} dias. O limite é 60 dias por viagem.`);
+  if(!name) return fail(tr('errTripName'));
+  if(!s||!en) return fail(tr('errTripDates'));
+  if(en<s) return fail(tr('errTripOrder'));
+  const n=Math.round((parseISO(en)-parseISO(s))/864e5)+1; if(n>60) return fail(tr('errTripLong',{n}));
   const ds=+$('#t-ds').value, de=+$('#t-de').value, people=Math.max(1,parseInt($('#t-people').value)||1), cur=$('#t-cur').value, budget=parseFloat($('#t-budget').value)>0?parseFloat($('#t-budget').value):0;
   pushHistory();
   if(tripMode==='new'){
     const t={id:newId('t'), name, start:s, end:en, dayStart:ds, dayEnd:de, people, currency:cur, places:[], dayPlaces:{}, blocks:[], tray:[], costs:[]}; if(budget) t.budget=budget;
     store.trips.push(t); activeId=t.id; try{ localStorage.setItem(ACTIVE_KEY,activeId); }catch(_){}
-    $('#tripsheet').hidden=true; commit(); scroller.scrollTo(0,0); toast('Viagem criada. Clica no cabeçalho de um dia para dizer onde estão, ou faz duplo clique na grelha para criar uma atividade.');
+    $('#tripsheet').hidden=true; commit(); scroller.scrollTo(0,0); toast(tr('tTripCreated'));
   } else {
     const t=T(); Object.assign(t,{name,start:s,end:en,dayStart:ds,dayEnd:de,people,currency:cur}); if(budget) t.budget=budget; else delete t.budget;
     const dset=new Set(days(t)); const out=t.blocks.filter(b=>!dset.has(b.date));
     out.forEach(b=>toTray(b.id)); (t.costs||[]).forEach(c=>{ if(c.date && !dset.has(c.date)) delete c.date; }); Object.keys(t.dayPlaces).forEach(d=>{ if(!dset.has(d)) delete t.dayPlaces[d]; });
-    $('#tripsheet').hidden=true; commit(); if(out.length) toast(`${out.length} ${out.length===1?'atividade ficou':'atividades ficaram'} fora das novas datas e ${out.length===1?'passou':'passaram'} para "Por agendar".`);
+    $('#tripsheet').hidden=true; commit(); if(out.length) toast(tr('tOutOfDates',{n:out.length}));
   }
 });
 $('#t-cancel').addEventListener('click',()=>{ $('#tripsheet').hidden=true; render(); });
-$('#t-dup').addEventListener('click',()=>{ const t=T(); pushHistory(); const c=clone(t); c.id=newId('t'); c.name=t.name+' (cópia)'; store.trips.push(c); activeId=c.id; try{ localStorage.setItem(ACTIVE_KEY,activeId); }catch(_){} $('#tripsheet').hidden=true; commit(); toast('Viagem duplicada.'); });
+$('#t-dup').addEventListener('click',()=>{ const t=T(); pushHistory(); const c=clone(t); c.id=newId('t'); c.name=t.name+tr('copySuffix'); store.trips.push(c); activeId=c.id; try{ localStorage.setItem(ACTIVE_KEY,activeId); }catch(_){} $('#tripsheet').hidden=true; commit(); toast(tr('tTripDup')); });
 $('#t-del').addEventListener('click',()=>{ $('#t-del-confirm').hidden=false; $('#t-del-yes').focus(); });
 $('#t-del-no').addEventListener('click',()=>{ $('#t-del-confirm').hidden=true; });
-$('#t-del-yes').addEventListener('click',()=>{ const t=T(); pushHistory(); store.trips=store.trips.filter(x=>x!==t); activeId=null; ensureActive(); $('#tripsheet').hidden=true; commit(); toast(`"${t.name}" apagada. Usa Desfazer se foi engano.`); });
+$('#t-del-yes').addEventListener('click',()=>{ const t=T(); pushHistory(); store.trips=store.trips.filter(x=>x!==t); activeId=null; ensureActive(); $('#tripsheet').hidden=true; commit(); toast(tr('tTripDel',{name:t.name})); });
 
 /* toolbar */
 $('#trip-sel').addEventListener('change',e=>{ if(!e.target.value) return; if(e.target.value==='__new'){ e.target.value=''; openTripSheet(true); return; } activeId=e.target.value; try{ localStorage.setItem(ACTIVE_KEY,activeId); }catch(_){} closeSheets(); render(); scroller.scrollTo(0,0); });
 $('#undo').addEventListener('click',undo);
-$('#add').addEventListener('click',()=>{ const t=T(); if(!t){ openTripSheet(true); return; } pushHistory(); const b={id:newId('a'), len:60, title:'Nova atividade', cat:'tour', status:'ideia'}; t.tray.push(b); commit(); openEditor(b.id,true); });
+$('#add').addEventListener('click',()=>{ const t=T(); if(!t){ openTripSheet(true); return; } pushHistory(); const b={id:newId('a'), len:60, title:tr('newActivity'), cat:'tour', status:'ideia'}; t.tray.push(b); commit(); openEditor(b.id,true); });
 $('#trip-settings').addEventListener('click',()=>{ if(!T()) openTripSheet(true); else openTripSheet(false); });
 $('#show-sleep').addEventListener('change',e=>{ hideSleep=!e.target.checked; document.body.classList.toggle('hide-sleep',hideSleep); try{ localStorage.setItem(SLEEP_KEY,hideSleep?'1':'0'); }catch(_){} render(); });
 try{ if(localStorage.getItem(SLEEP_KEY)==='1'){ hideSleep=true; $('#show-sleep').checked=false; document.body.classList.add('hide-sleep'); } }catch(_){}
+/* Trocar de língua: os textos fixos mudam logo; o resto volta a ser desenhado. */
+document.querySelectorAll('[data-lang-toggle]').forEach(b=>b.addEventListener('click',()=>{
+  I18N.set(I18N.other()); buildWdays(); closeSheets(); $('#l-err').hidden=true;
+  if(authed){ render(); refreshSaveLabel(); } else document.title=tr('appName');
+}));
 
 /* ---------- custos ---------- */
-const DEFAULT_CATS = [{id:'alojamento',name:'Alojamento'},{id:'transporte',name:'Transportes'},{id:'alimentacao',name:'Alimentação'},{id:'atividades',name:'Atividades'},{id:'festas',name:'Festas e saídas'},{id:'compras',name:'Compras'},{id:'outros',name:'Outros'}];
+const DEFAULT_CAT_IDS = ['alojamento','transporte','alimentacao','atividades','festas','compras','outros'];
+const defaultCats = () => DEFAULT_CAT_IDS.map(id=>({id, name:tr('defaultCats')[id]}));
 const AUTO_CAT = {tour:'atividades', party:'festas', transport:'transporte', food:'alimentacao', rest:'outros', sleep:'outros'};
 const NO_CAT = 'sem';
-function cats(t){ return (t && t.costCats) || DEFAULT_CATS; }
-function ownCats(t){ if(!t.costCats) t.costCats=clone(DEFAULT_CATS); return t.costCats; }
-function catName(t,id){ const c=cats(t).find(c=>c.id===id); return c ? c.name : 'Sem categoria'; }
+function cats(t){ return (t && t.costCats) || defaultCats(); }
+function ownCats(t){ if(!t.costCats) t.costCats=defaultCats(); return t.costCats; }
+function catName(t,id){ const c=cats(t).find(c=>c.id===id); return c ? c.name : tr('noCat'); }
 function hasCat(t,id){ return cats(t).some(c=>c.id===id); }
 function autoCat(t,b){ const id=AUTO_CAT[b.cat]; return hasCat(t,id) ? id : NO_CAT; }
 function blockCat(t,b){ return (b.ccat && hasCat(t,b.ccat)) ? b.ccat : autoCat(t,b); }
@@ -608,7 +613,7 @@ function tripTotal(t){ return t.blocks.reduce((s,b)=>s+blockTotal(t,b),0) + (t.c
 function costItems(t){
   const out=[];
   for(const b of t.blocks){ const v=blockTotal(t,b); if(v>0) out.push({label:b.title, date:b.date, cat:blockCat(t,b), total:v, paid:b.status==='pago', blockId:b.id}); }
-  for(const c of (t.costs||[])){ const v=lineTotal(t,c); if(v>0) out.push({label:c.label||'Sem descrição', date:c.date||null, cat:lineCat(t,c), total:v, paid:!!c.paid}); }
+  for(const c of (t.costs||[])){ const v=lineTotal(t,c); if(v>0) out.push({label:c.label||tr('noDesc'), date:c.date||null, cat:lineCat(t,c), total:v, paid:!!c.paid}); }
   return out;
 }
 function catOptions(t, sel, first){ return (first||'') + cats(t).map(c=>`<option value="${esc(c.id)}"${c.id===sel?' selected':''}>${esc(c.name)}</option>`).join(''); }
@@ -617,15 +622,15 @@ function catOptions(t, sel, first){ return (first||'') + cats(t).map(c=>`<option
 function renderCostRows(box, date, force){
   if(!force && box.contains(document.activeElement)) return;
   const t=T(); if(!t) return; const lines=costLines(t,date); box.innerHTML='';
-  if(!lines.length){ box.innerHTML = `<p class="hint">${date===null ? 'Sem custos gerais. Serve para o que não pertence a um dia: voos, seguro, vistos.' : 'Sem custos neste dia. Serve para alojamento, refeições ou outros gastos que não são uma atividade.'}</p>`; return; }
+  if(!lines.length){ box.innerHTML = `<p class="hint">${tr(date===null ? 'noGeneralCosts' : 'noDayCosts')}</p>`; return; }
   for(const c of lines){
     const row=document.createElement('div'); row.className='cost-row'; const k='c-'+c.id;
-    row.innerHTML = `<input type="text" id="${k}-l" class="c-label" value="${esc(c.label||'')}" placeholder="Descrição (ex.: hotel)" aria-label="Descrição do custo">`
-      + `<input type="number" id="${k}-a" class="c-amt" min="0" step="0.01" inputmode="decimal" value="${c.amount??''}" placeholder="0" aria-label="Valor em ${esc(t.currency||'€')}">`
-      + `<select id="${k}-p" class="c-per" aria-label="Valor total ou por pessoa"><option value="total">total</option><option value="pp"${c.per==='pp'?' selected':''}>por pessoa</option></select>`
-      + `<select id="${k}-c" class="c-cat" aria-label="Categoria de custo">${catOptions(t, lineCat(t,c), `<option value="">Sem categoria</option>`)}</select>`
-      + `<label class="toggle c-paid"><input type="checkbox" id="${k}-d"${c.paid?' checked':''}>Pago</label>`
-      + `<button class="x c-del" type="button" aria-label="Remover este custo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button>`;
+    row.innerHTML = `<input type="text" id="${k}-l" class="c-label" value="${esc(c.label||'')}" placeholder="${tr('costDescPh')}" aria-label="${tr('costDescAria')}">`
+      + `<input type="number" id="${k}-a" class="c-amt" min="0" step="0.01" inputmode="decimal" value="${c.amount??''}" placeholder="0" aria-label="${tr('costAmountAria',{cur:esc(t.currency||'€')})}">`
+      + `<select id="${k}-p" class="c-per" aria-label="${tr('costPerAria')}"><option value="total">${tr('perTotal')}</option><option value="pp"${c.per==='pp'?' selected':''}>${tr('perPersonLower')}</option></select>`
+      + `<select id="${k}-c" class="c-cat" aria-label="${tr('costCat')}">${catOptions(t, lineCat(t,c), `<option value="">${tr('noCat')}</option>`)}</select>`
+      + `<label class="toggle c-paid"><input type="checkbox" id="${k}-d"${c.paid?' checked':''}>${tr('paid')}</label>`
+      + `<button class="x c-del" type="button" aria-label="${tr('removeCost')}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button>`;
     let snap=false; const touch=()=>{ if(!snap){ pushHistory(); snap=true; } };
     row.querySelector('.c-label').addEventListener('input',e=>{ touch(); c.label=e.target.value; commit(); });
     row.querySelector('.c-amt').addEventListener('input',e=>{ touch(); const v=parseFloat(e.target.value); c.amount = v>0 ? v : 0; commit(); });
@@ -652,24 +657,24 @@ function renderDash(force){
   const t=T(); if(!t) return; const items=costItems(t); const n=nPeople(t);
   const total=items.reduce((s,i)=>s+i.total,0); const paid=items.filter(i=>i.paid).reduce((s,i)=>s+i.total,0);
   // resumo
-  let h = `<div class="dash-figs"><div class="dash-fig"><span class="k">${n>1?`Total para ${n}`:'Total'}</span><span class="v big">${fmt(total)}</span></div>`
-    + (n>1?`<div class="dash-fig"><span class="k">Por pessoa</span><span class="v">${fmt(total/n)}</span></div>`:'')
-    + `<div class="dash-fig"><span class="k">Já pago</span><span class="v">${fmt(paid)}</span></div><div class="dash-fig"><span class="k">Por pagar</span><span class="v">${fmt(total-paid)}</span></div></div>`;
+  let h = `<div class="dash-figs"><div class="dash-fig"><span class="k">${n>1?tr('totalFor',{n}):tr('total')}</span><span class="v big">${fmt(total)}</span></div>`
+    + (n>1?`<div class="dash-fig"><span class="k">${tr('perPerson')}</span><span class="v">${fmt(total/n)}</span></div>`:'')
+    + `<div class="dash-fig"><span class="k">${tr('alreadyPaid')}</span><span class="v">${fmt(paid)}</span></div><div class="dash-fig"><span class="k">${tr('toPay')}</span><span class="v">${fmt(total-paid)}</span></div></div>`;
   if(t.budget>0){
     const left=t.budget-total, over=left<0, pct=Math.round(total/t.budget*100);
-    h += `<div class="budget${over?' over':''}"><div class="budget-top"><span>Orçamento: <b>${fmt(t.budget)}</b></span><span class="budget-state">${over?`Acima do orçamento em ${fmt(-left)}`:`Sobram ${fmt(left)}`}</span></div>`
-      + `<div class="bar-track tall" role="img" aria-label="${pct}% do orçamento usado"><span class="bar-fill" style="width:${Math.min(100,pct)}%"></span></div><div class="budget-sub">${pct}% usado${n>1?` · ${fmt(Math.abs(left)/n)} por pessoa ${over?'a mais':'de margem'}`:''}</div></div>`;
-  } else h += `<p class="hint">Define um orçamento em "Datas e sítios" para ver aqui quanto sobra.</p>`;
+    h += `<div class="budget${over?' over':''}"><div class="budget-top"><span>${tr('budget')}: <b>${fmt(t.budget)}</b></span><span class="budget-state">${over?tr('overBudget',{x:fmt(-left)}):tr('left',{x:fmt(left)})}</span></div>`
+      + `<div class="bar-track tall" role="img" aria-label="${tr('budgetUsedAria',{pct})}"><span class="bar-fill" style="width:${Math.min(100,pct)}%"></span></div><div class="budget-sub">${tr('budgetUsed',{pct})}${n>1?' · '+tr('budgetPP',{x:fmt(Math.abs(left)/n), over}):''}</div></div>`;
+  } else h += `<p class="hint">${tr('budgetHint')}</p>`;
   $('#c-summary').innerHTML=h;
   // por categoria
   const open=new Set([...document.querySelectorAll('#c-bycat details[open]')].map(d=>d.dataset.cat));
   const groups=new Map(); for(const i of items){ if(!groups.has(i.cat)) groups.set(i.cat,[]); groups.get(i.cat).push(i); }
   const rows=[...groups.entries()].map(([id,list])=>({id, list, sum:list.reduce((s,i)=>s+i.total,0)})).sort((a,b)=>b.sum-a.sum);
   const max=rows.length?rows[0].sum:0; const box=$('#c-bycat');
-  if(!rows.length) box.innerHTML='<p class="hint">Ainda não há custos. Põe um valor numa atividade ou acrescenta custos a um dia.</p>';
+  if(!rows.length) box.innerHTML=`<p class="hint">${tr('noCosts')}</p>`;
   else {
-    box.innerHTML = rows.map(r=>`<details class="cat-row" data-cat="${esc(r.id)}"${open.has(r.id)?' open':''}><summary title="${esc(catName(t,r.id))}: ${fmt(r.sum)}${n>1?' · '+fmt(r.sum/n)+' por pessoa':''}">${barRow(esc(catName(t,r.id)), r.sum, max, total)}</summary><ul class="cat-items">`
-      + r.list.slice().sort((a,b)=>String(a.date||'').localeCompare(String(b.date||''))||b.total-a.total).map(i=>`<li${i.blockId?` data-block="${esc(i.blockId)}" tabindex="0" role="button"`:''}><span class="ci-d">${i.date?dayLabel(i.date,true):'Geral'}</span><span class="ci-l">${esc(i.label)}</span>${i.paid?'<span class="st st-pago">✓ pago</span>':''}<span class="ci-v">${fmt(i.total)}</span></li>`).join('')
+    box.innerHTML = rows.map(r=>`<details class="cat-row" data-cat="${esc(r.id)}"${open.has(r.id)?' open':''}><summary title="${esc(catName(t,r.id))}: ${fmt(r.sum)}${n>1?' · '+fmt(r.sum/n)+' '+tr('perPersonLower'):''}">${barRow(esc(catName(t,r.id)), r.sum, max, total)}</summary><ul class="cat-items">`
+      + r.list.slice().sort((a,b)=>String(a.date||'').localeCompare(String(b.date||''))||b.total-a.total).map(i=>`<li${i.blockId?` data-block="${esc(i.blockId)}" tabindex="0" role="button"`:''}><span class="ci-d">${i.date?dayLabel(i.date,true):tr('general')}</span><span class="ci-l">${esc(i.label)}</span>${i.paid?`<span class="st st-pago">${tr('paidMark')}</span>`:''}<span class="ci-v">${fmt(i.total)}</span></li>`).join('')
       + `</ul></details>`).join('');
     box.querySelectorAll('li[data-block]').forEach(li=>{ const go=()=>openEditor(li.dataset.block); li.addEventListener('click',go); li.addEventListener('keydown',e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); go(); } }); });
   }
@@ -677,8 +682,8 @@ function renderDash(force){
   const ds=days(t); const byDay=ds.map(d=>({d, sum:items.filter(i=>i.date===d).reduce((s,i)=>s+i.total,0)}));
   const gen=items.filter(i=>!i.date || !ds.includes(i.date)).reduce((s,i)=>s+i.total,0);
   const dmax=Math.max(gen, ...byDay.map(x=>x.sum), 0);
-  $('#c-byday').innerHTML = (gen>0?`<div class="day-row static" title="Custos gerais: ${fmt(gen)}">${barRow('Gerais', gen, dmax, total, false)}</div>`:'')
-    + byDay.map(x=>`<button type="button" class="day-row" data-date="${x.d}" title="${dayLabel(x.d,true)}: ${fmt(x.sum)}${n>1?' · '+fmt(x.sum/n)+' por pessoa':''}. Abrir o dia">${barRow(dayLabel(x.d,true), x.sum, dmax, total, false)}</button>`).join('');
+  $('#c-byday').innerHTML = (gen>0?`<div class="day-row static" title="${tr('generalCosts')}: ${fmt(gen)}">${barRow(tr('generalPl'), gen, dmax, total, false)}</div>`:'')
+    + byDay.map(x=>`<button type="button" class="day-row" data-date="${x.d}" title="${dayLabel(x.d,true)}: ${fmt(x.sum)}${n>1?' · '+fmt(x.sum/n)+' '+tr('perPersonLower'):''}. ${tr('openDay')}">${barRow(dayLabel(x.d,true), x.sum, dmax, total, false)}</button>`).join('');
   $('#c-byday').querySelectorAll('button').forEach(b=>b.addEventListener('click',()=>openDay(b.dataset.date)));
   renderCostRows($('#c-general'), null, force);
 }
@@ -691,15 +696,15 @@ $('#d-addcost').addEventListener('click',()=>addCost($('#d-costs'), dayOpen));
 function renderCats(){
   const t=T(), box=$('#t-cats'); box.innerHTML='';
   cats(t).forEach(c=>{ const row=document.createElement('div'); row.className='place-row cat-edit';
-    row.innerHTML=`<input type="text" id="cat-${esc(c.id)}" value="${esc(c.name)}" aria-label="Nome da categoria" style="border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:6px 8px;min-width:0"><button class="btn danger" type="button">Remover</button>`;
+    row.innerHTML=`<input type="text" id="cat-${esc(c.id)}" value="${esc(c.name)}" aria-label="${tr('catNameAria')}" style="border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:6px 8px;min-width:0"><button class="btn danger" type="button">${tr('remove')}</button>`;
     const inp=row.querySelector('input'); let snap=false;
-    inp.addEventListener('input',()=>{ if(!snap){ pushHistory(); snap=true; } const own=ownCats(t).find(x=>x.id===c.id); if(own) own.name=inp.value||'Sem nome'; commit(); });
-    row.querySelector('button').addEventListener('click',()=>{ pushHistory(); t.costCats=ownCats(t).filter(x=>x.id!==c.id); commit(); renderCats(); toast(`"${c.name}" removida. O que estava nessa categoria passa a "Sem categoria" ou à categoria automática do tipo.`); });
+    inp.addEventListener('input',()=>{ if(!snap){ pushHistory(); snap=true; } const own=ownCats(t).find(x=>x.id===c.id); if(own) own.name=inp.value||tr('untitled'); commit(); });
+    row.querySelector('button').addEventListener('click',()=>{ pushHistory(); t.costCats=ownCats(t).filter(x=>x.id!==c.id); commit(); renderCats(); toast(tr('tCatRemoved',{name:c.name})); });
     box.appendChild(row); });
-  if(!cats(t).length) box.innerHTML='<p class="hint">Sem categorias.</p>';
+  if(!cats(t).length) box.innerHTML=`<p class="hint">${tr('noCats')}</p>`;
 }
 $('#t-addcat').addEventListener('click',()=>{ const t=T(), v=$('#t-newcat').value.trim(); if(!v) return;
-  if(cats(t).some(c=>c.name.toLowerCase()===v.toLowerCase())){ toast('Já existe uma categoria com esse nome.'); return; }
+  if(cats(t).some(c=>c.name.toLowerCase()===v.toLowerCase())){ toast(tr('tCatExists')); return; }
   pushHistory(); ownCats(t).push({id:newId('k'), name:v}); $('#t-newcat').value=''; commit(); renderCats(); });
 $('#t-newcat').addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); $('#t-addcat').click(); } });
 
@@ -708,35 +713,34 @@ $('#warn-btn').addEventListener('click',()=>{ const w=$('#warnings'); if(!w.hidd
 /* excel export */
 $('#export').addEventListener('click', async ()=>{
   const t=T(); if(!t) return;
-  if(!(await loadXLSX())){ toast('Não consegui carregar o módulo de Excel. Verifica a ligação à internet e tenta outra vez.'); return; }
+  if(!(await loadXLSX())){ toast(tr('tExcelFail')); return; }
   const v=view(t), ds=days(t);
-  const MONL=['JANEIRO','FEVEREIRO','MARÇO','ABRIL','MAIO','JUNHO','JULHO','AGOSTO','SETEMBRO','OUTUBRO','NOVEMBRO','DEZEMBRO'];
-  const WDX=['DOMINGO','2F','3F','4F','5F','6F','SÁBADO'];
-  const aoa=[[''].concat(ds.map(d=>{ const x=parseISO(d); return `${x.getDate()} DE ${MONL[x.getMonth()]} - ${WDX[x.getDay()]}`; }))];
+  const MONL=tr('xMonths'), WDX=tr('xWeekdays');
+  const aoa=[[''].concat(ds.map(d=>{ const x=parseISO(d); return tr('xDay',{d:x.getDate(), m:MONL[x.getMonth()], w:WDX[x.getDay()]}); }))];
   const rows=v.span/30; for(let r=0;r<rows;r++){ const row=[mlabel(v.T0+r*30)]; ds.forEach(()=>row.push('')); aoa.push(row); }
-  const merges=[]; const cell=b=>b.title+(b.pp?`\n${b.pp} PP`:'')+(b.total?`\n${b.total}`:'');
-  ds.forEach((d,ci)=>{ let g=null; const flush=()=>{ if(!g) return; aoa[g.r0+1][ci+1]=g.tx.join('\n— e —\n'); if(g.r1-g.r0>1) merges.push({s:{r:g.r0+1,c:ci+1},e:{r:g.r1,c:ci+1}}); g=null; };
+  const merges=[]; const cell=b=>b.title+(b.pp?`\n${b.pp} ${tr('xPP')}`:'')+(b.total?`\n${b.total}`:'');
+  ds.forEach((d,ci)=>{ let g=null; const flush=()=>{ if(!g) return; aoa[g.r0+1][ci+1]=g.tx.join('\n'+tr('xAnd')+'\n'); if(g.r1-g.r0>1) merges.push({s:{r:g.r0+1,c:ci+1},e:{r:g.r1,c:ci+1}}); g=null; };
     for(const b of blocksOf(d)){ let r0=Math.floor((b.start-v.T0)/30), r1=Math.ceil((b.start+b.len-v.T0)/30); r0=Math.max(0,Math.min(rows-1,r0)); r1=Math.max(r0+1,Math.min(rows,r1));
       if(g && r0<g.r1){ g.tx.push(cell(b)); g.r1=Math.max(g.r1,r1); } else { flush(); g={r0,r1,tx:[cell(b)]}; } }
     flush(); });
   const ws=XLSX.utils.aoa_to_sheet(aoa); ws['!merges']=merges; ws['!cols']=[{wch:7}].concat(ds.map(()=>({wch:24})));
-  const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Plano');
-  const head=['Dia','Início','Fim','Atividade','Tipo','Onde','Estado','Categoria de custo','Custo pp','Custo total','Morada','Link','Reserva','Notas'];
-  const rowOf=b=>[b.date?dayLabel(b.date,true):'Por agendar', b.date?mlabel(b.start):'', b.date?mlabel(b.start+b.len):durLabel(b.len), b.title, CATS[b.cat]||'', placeName(b.place)||'', b.status?STATUS[b.status]:'', (b.pp||b.total)?catName(t,blockCat(t,b)):'', b.pp||'', b.total||'', b.address||'', b.link||'', b.ref||'', b.note||''];
+  const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,tr('xPlan'));
+  const head=tr('xHead');
+  const rowOf=b=>[b.date?dayLabel(b.date,true):tr('unscheduled'), b.date?mlabel(b.start):'', b.date?mlabel(b.start+b.len):durLabel(b.len), b.title, CATS()[b.cat]||'', placeName(b.place)||'', b.status?STATUS()[b.status]:'', (b.pp||b.total)?catName(t,blockCat(t,b)):'', b.pp||'', b.total||'', b.address||'', b.link||'', b.ref||'', b.note||''];
   const det=t.blocks.filter(b=>b.cat!=='sleep').slice().sort((a,b)=>a.date.localeCompare(b.date)||a.start-b.start).map(rowOf).concat(t.tray.map(rowOf));
   const ws2=XLSX.utils.aoa_to_sheet([head].concat(det)); ws2['!cols']=[14,7,7,34,11,16,12,18,9,10,24,30,14,40].map(w=>({wch:w}));
-  XLSX.utils.book_append_sheet(wb,ws2,'Detalhes');
+  XLSX.utils.book_append_sheet(wb,ws2,tr('xDetails'));
   const items=costItems(t), np=nPeople(t), sumAll=items.reduce((s,i)=>s+i.total,0);
   const byCat=new Map(); items.forEach(i=>byCat.set(i.cat,(byCat.get(i.cat)||0)+i.total));
   const r2=x=>Math.round(x*100)/100;
-  const cs=[['Categoria','Total','Por pessoa','% do total']].concat([...byCat.entries()].sort((a,b)=>b[1]-a[1]).map(([id,v])=>[catName(t,id), r2(v), r2(v/np), sumAll?Math.round(v/sumAll*100):0]));
-  cs.push(['Total', r2(sumAll), r2(sumAll/np), sumAll?100:0]); if(t.budget>0){ cs.push(['Orçamento', t.budget, r2(t.budget/np), '']); cs.push(['Margem', r2(t.budget-sumAll), r2((t.budget-sumAll)/np), '']); }
-  cs.push([]); cs.push(['Dia','Descrição','Categoria','Total','Por pessoa','Pago']);
-  items.slice().sort((a,b)=>String(a.date||'').localeCompare(String(b.date||''))).forEach(i=>cs.push([i.date?dayLabel(i.date,true):'Geral', i.label, catName(t,i.cat), r2(i.total), r2(i.total/np), i.paid?'sim':'']));
+  const cs=[tr('xCatHead')].concat([...byCat.entries()].sort((a,b)=>b[1]-a[1]).map(([id,v])=>[catName(t,id), r2(v), r2(v/np), sumAll?Math.round(v/sumAll*100):0]));
+  cs.push([tr('total'), r2(sumAll), r2(sumAll/np), sumAll?100:0]); if(t.budget>0){ cs.push([tr('budget'), t.budget, r2(t.budget/np), '']); cs.push([tr('xMargin'), r2(t.budget-sumAll), r2((t.budget-sumAll)/np), '']); }
+  cs.push([]); cs.push(tr('xItemHead'));
+  items.slice().sort((a,b)=>String(a.date||'').localeCompare(String(b.date||''))).forEach(i=>cs.push([i.date?dayLabel(i.date,true):tr('general'), i.label, catName(t,i.cat), r2(i.total), r2(i.total/np), i.paid?tr('xYes'):'']));
   const ws3=XLSX.utils.aoa_to_sheet(cs); ws3['!cols']=[18,36,20,10,11,11].map(w=>({wch:w}));
-  XLSX.utils.book_append_sheet(wb,ws3,'Custos');
+  XLSX.utils.book_append_sheet(wb,ws3,tr('xCosts'));
   const out=XLSX.write(wb,{bookType:'xlsx',type:'array'});
-  const fname=(t.name||'Viagem').replace(/[\\/:*?"<>|]+/g,'').trim()+' - plano.xlsx';
+  const fname=tr('xFile',{name:(t.name||tr('trip')).replace(/[\\/:*?"<>|]+/g,'').trim()});
   saveFile(fname, new Blob([out],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));
 });
 
@@ -744,7 +748,7 @@ $('#export').addEventListener('click', async ()=>{
 $('#backup').addEventListener('click',()=>{
   const d=new Date(); const stamp=`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
   saveFile(`planeador-ferias-${stamp}.json`, new Blob([JSON.stringify({version:2, savedAt:Date.now(), trips:store.trips})],{type:'application/json'}));
-  toast('Cópia descarregada com todas as viagens.');
+  toast(tr('tBackup'));
 });
 $('#import').addEventListener('click',()=>$('#import-file').click());
 $('#import-file').addEventListener('change', async e=>{
@@ -763,8 +767,8 @@ $('#import-file').addEventListener('change', async e=>{
     activeId=first;
     try{ localStorage.setItem(ACTIVE_KEY,activeId); }catch(_){}
     closeSheets(); commit(); scroller.scrollTo(0,0);
-    toast(`Importação feita: ${added} ${added===1?'viagem nova':'viagens novas'}${replaced?` e ${replaced} ${replaced===1?'substituída':'substituídas'}`:''}. Usa Desfazer se foi engano.`);
-  }catch(err){ toast('Este ficheiro não é uma cópia do planeador. Escolhe um ficheiro descarregado com "Cópia de segurança".'); }
+    toast(tr('tImported',{added, replaced}));
+  }catch(err){ toast(tr('tImportBad')); }
 });
 
 

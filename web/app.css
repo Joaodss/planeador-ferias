@@ -266,3 +266,4 @@ body.is-dragging,body.is-dragging *{cursor:grabbing!important}
 .login-card h1{margin:0;font-family:var(--font-display);font-weight:700;font-size:22px;letter-spacing:-.01em}
 .login-card .btn{justify-content:center;padding:9px 12px}
 
+.login-card .lang-btn{align-self:center;border:0;background:none;color:var(--muted);font-size:12px;padding:4px 8px}

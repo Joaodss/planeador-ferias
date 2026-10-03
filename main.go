@@ -38,7 +38,7 @@ var webFS embed.FS
 
 const (
 	cookieName  = "planner_session"
-	sessionTTL  = 30 * 24 * time.Hour
+	sessionTTL  = 30 * 24 * time.Hour // renovada a cada uso (ver api)
 	maxBody     = 2 << 20 // 2 MB por viagem
 	backupsKept = 30
 )
@@ -165,17 +165,21 @@ func (s *server) newToken() string {
 	return payload + "." + s.sign(payload)
 }
 
-func (s *server) authed(r *http.Request) bool {
+// session devolve até quando vale a sessão do pedido (ok=false se não houver uma válida).
+func (s *server) session(r *http.Request) (exp time.Time, ok bool) {
 	c, err := r.Cookie(cookieName)
 	if err != nil {
-		return false
+		return
 	}
-	payload, sig, ok := strings.Cut(c.Value, ".")
-	if !ok || !hmac.Equal([]byte(sig), []byte(s.sign(payload))) {
-		return false
+	payload, sig, found := strings.Cut(c.Value, ".")
+	if !found || !hmac.Equal([]byte(sig), []byte(s.sign(payload))) {
+		return
 	}
-	exp, err := strconv.ParseInt(payload, 10, 64)
-	return err == nil && time.Now().Unix() < exp
+	unix, err := strconv.ParseInt(payload, 10, 64)
+	if err != nil || time.Now().Unix() >= unix {
+		return
+	}
+	return time.Unix(unix, 0), true
 }
 
 func isHTTPS(r *http.Request) bool {
@@ -283,9 +287,15 @@ func (s *server) api(w http.ResponseWriter, r *http.Request, path string) {
 		return
 	}
 
-	if !s.authed(r) {
+	exp, ok := s.session(r)
+	if !ok {
 		fail(w, http.StatusUnauthorized, "sessão em falta")
 		return
+	}
+	// Sessão deslizante: enquanto a página for usada, a validade volta aos 30 dias
+	// (no máximo uma renovação por dia). Só pede login quem não abrir a página durante um mês.
+	if time.Until(exp) < sessionTTL-24*time.Hour {
+		s.setCookie(w, r, s.newToken(), int(sessionTTL.Seconds()))
 	}
 
 	switch {
