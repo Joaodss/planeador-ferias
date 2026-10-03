@@ -1,0 +1,99 @@
+name: CI
+
+# Corre em cada PR e em cada push para master. Tem de passar antes de fazer merge.
+on:
+  pull_request:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    name: Go · formato, análise e testes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.26"
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "::error::Ficheiros por formatar (corre 'gofmt -w .'):"
+            echo "$unformatted"
+            exit 1
+          fi
+      - name: go mod tidy
+        run: |
+          go mod tidy
+          git diff --exit-code go.mod
+      - run: go vet ./...
+      - name: Testes (com detetor de corridas)
+        run: go test -race -count=1 -coverprofile=coverage.out ./...
+      - name: Cobertura
+        run: go tool cover -func=coverage.out | tail -1 | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: dominikh/staticcheck-action@v1
+        with:
+          version: latest
+          install-go: false
+      - uses: golang/govulncheck-action@v1
+        with:
+          go-version-input: "1.26"
+          go-package: ./...
+
+  web:
+    name: Página · sintaxe e traduções
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - run: node --test tests/*.test.mjs
+
+  docker:
+    name: Docker · lint, build e arranque
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: hadolint/hadolint-action@v3.5.0
+        with:
+          dockerfile: Dockerfile
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          load: true
+          push: false
+          tags: planeador-ferias:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Arrancar como em produção e testar o login
+        run: |
+          # Credenciais descartáveis, geradas em cada execução.
+          PASS=$(openssl rand -hex 16)
+          docker run -d --name planner --read-only --cap-drop ALL --security-opt no-new-privileges:true \
+            -e PLANNER_USER=ci -e PLANNER_PASSWORD="$PASS" -p 8080:8080 planeador-ferias:ci
+          for i in $(seq 1 30); do curl -fsS http://localhost:8080/healthz && break; sleep 1; done
+          echo
+          set -x
+          curl -fsS http://localhost:8080/ | grep -q 'src="js/main.js"'
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/api/trips)" = 401
+          test "$(curl -s -o /dev/null -w '%{http_code}' -c jar -X POST \
+            -H 'X-Requested-With: planner' -H 'Content-Type: application/json' \
+            -d "{\"user\":\"ci\",\"password\":\"$PASS\"}" http://localhost:8080/api/login)" = 200
+          curl -fsS -b jar -X PUT -H 'X-Requested-With: planner' -H 'Content-Type: application/json' \
+            -d '{"baseRev":0,"trip":{"id":"ci","name":"CI"}}' http://localhost:8080/api/trips/ci
+          curl -fsS -b jar http://localhost:8080/api/trips | grep -q '"name":"CI"'
+          docker inspect --format '{{.State.Health.Status}}' planner
+      - name: Registos do contentor
+        if: failure()
+        run: docker logs planner

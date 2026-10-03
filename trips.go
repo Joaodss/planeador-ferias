@@ -88,7 +88,7 @@ func (s *server) listTrips(w http.ResponseWriter) {
 		}
 		trips = append(trips, rec)
 	}
-	writeJSON(w, 200, map[string]any{"user": s.cfg.user, "trips": trips})
+	writeJSON(w, 200, map[string]any{"user": s.cfg.user, "trips": trips, "homeTz": s.cfg.homeTz})
 }
 
 func (s *server) putTrip(w http.ResponseWriter, r *http.Request, id string) {

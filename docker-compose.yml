@@ -9,6 +9,7 @@ services:
     environment:
       PLANNER_USER: ${PLANNER_USER:?define PLANNER_USER no ficheiro .env}
       PLANNER_PASSWORD: ${PLANNER_PASSWORD:?define PLANNER_PASSWORD no ficheiro .env}
+      PLANNER_HOME_TZ: ${PLANNER_HOME_TZ:-}
     volumes:
       - planner_data:/data
     networks:

@@ -5,6 +5,7 @@ import { S, T, ensureActive, pushHistory, dropHistory } from '../state.js';
 import { days, view, fmt, blockCostPP, placeById, placeName, findBlock, blocksOf } from '../trip.js';
 import { nPeople, tripTotal, dayCostPP } from '../costs.js';
 import { computeWarnings } from '../warnings.js';
+import { TZ, secondTz } from '../tz.js';
 import { commit, undo } from '../sync.js';
 import { closeSheets } from './sheets.js';
 import { openEditor, fillEditor } from './editor.js';
@@ -44,7 +45,7 @@ export function render(){
   const board=$('#board'); const sc=$('#scroller'); const sl=sc.scrollLeft, st=sc.scrollTop;
   board.innerHTML='';
   if(!t){
-    $('#trip-name').textContent=tr('appName'); $('#route').textContent='';
+    $('#trip-name').textContent=tr('appName'); $('#route').textContent=''; board.classList.remove('two-tz');
     board.style.gridTemplateColumns='1fr';
     board.innerHTML = `<div class="empty-board"><div class="card"><h2>${tr('emptyH')}</h2><p>${tr('emptyP')}</p><div class="actions"><button class="btn primary" type="button" id="empty-new">${tr('newTrip')}</button><button class="btn" type="button" id="empty-import">${tr('importBackup')}</button></div></div></div>`;
     $('#empty-new').addEventListener('click',()=>openTripSheet(true));
@@ -59,12 +60,18 @@ export function render(){
   const seq=[]; ds.forEach(d=>(t.dayPlaces[d]||[]).forEach(p=>{ if(seq[seq.length-1]!==p) seq.push(p); }));
   const s0=parseISO(t.start), s1=parseISO(t.end);
   const range = s0.getMonth()===s1.getMonth() ? `${s0.getDate()}–${s1.getDate()} ${MON()[s1.getMonth()]} ${s1.getFullYear()}` : `${s0.getDate()} ${MON()[s0.getMonth()]} – ${s1.getDate()} ${MON()[s1.getMonth()]} ${s1.getFullYear()}`;
-  $('#route').innerHTML = `<span>${range} · ${tr('nDays',{n:ds.length})}</span>` + (seq.length ? '<span class="arrow">·</span>'+seq.map(p=>`<b>${esc(short(placeName(p)))}</b>`).join('<span class="arrow">→</span>') : `<span class="arrow">·</span><span>${tr('clickDay')}</span>`);
-  board.style.gridTemplateColumns = `${isMobile()?48:58}px repeat(${ds.length}, minmax(${isMobile()?124:138}px,1fr))`;
+  const sec=secondTz(t);
+  $('#route').innerHTML = `<span>${range} · ${tr('nDays',{n:ds.length})}</span>` + (seq.length ? '<span class="arrow">·</span>'+seq.map(p=>`<b>${esc(short(placeName(p)))}</b>`).join('<span class="arrow">→</span>') : `<span class="arrow">·</span><span>${tr('clickDay')}</span>`)
+    + (TZ.valid(t.tz) ? `<span class="arrow">·</span><span title="${esc(t.tz)}">${tr('tzRoute',{city:esc(TZ.city(t.tz))})}${sec?` (${esc(TZ.city(sec.tz))} ${TZ.diffLabel(sec.diff)})`:''}</span>` : '');
+  const narrow=isMobile();
+  board.classList.toggle('two-tz', !!sec);
+  board.style.gridTemplateColumns = `${sec?(narrow?84:98):(narrow?48:58)}px repeat(${ds.length}, minmax(${narrow?124:138}px,1fr))`;
   // warnings
   const warns=computeWarnings(); const warnMap=new Map();
   for(const w of warns) for(const id of w.ids){ if(!warnMap.has(id)) warnMap.set(id,[]); warnMap.get(id).push(w); }
-  board.appendChild(Object.assign(document.createElement('div'),{className:'corner'}));
+  const corner=Object.assign(document.createElement('div'),{className:'corner'});
+  if(sec) corner.innerHTML=`<span class="sec" title="${esc(sec.tz)}">${esc(TZ.city(sec.tz))}</span><span title="${esc(t.tz)}">${esc(TZ.city(t.tz))}</span>`;
+  board.appendChild(corner);
   ds.forEach((date,i)=>{
     const d=parseISO(date), wd=d.getDay();
     const h=document.createElement('button'); h.type='button'; h.className='dh'+((wd===0||wd===6)?' weekend':''); h.dataset.date=date;
@@ -78,7 +85,8 @@ export function render(){
     board.appendChild(h);
   });
   const times=document.createElement('div'); times.className='times'; times.style.height=H+'px'; times.style.position='sticky';
-  for(let m=Math.ceil((v.T0+1)/60)*60; m<v.T1; m+=60){ const sp=document.createElement('span'); sp.style.top=((m-v.T0)*PXM())+'px'; sp.textContent=mlabel(m); if(m%1440===0) sp.className='mid'; times.appendChild(sp); }
+  for(let m=Math.ceil((v.T0+1)/60)*60; m<v.T1; m+=60){ const sp=document.createElement('span'); sp.style.top=((m-v.T0)*PXM())+'px'; sp.textContent=mlabel(m); if(m%1440===0) sp.className='mid'; times.appendChild(sp);
+    if(sec){ const m2=m+sec.diff, s2=document.createElement('span'); s2.className='sec'+(((m2%1440)+1440)%1440===0?' mid':''); s2.style.top=sp.style.top; s2.textContent=mlabel(m2); times.appendChild(s2); } }
   board.appendChild(times);
   ds.forEach(date=>{
     const col=document.createElement('div'); col.className='day-col'; col.dataset.date=date; col.style.height=H+'px';

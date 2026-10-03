@@ -64,6 +64,7 @@
       <div class="field"><label for="f-day" data-i18n="fDay">Dia</label><select id="f-day"></select></div>
       <div class="field"><label for="f-start" data-i18n="fStart">Começa</label><select id="f-start"></select></div>
     </div>
+    <p class="hint sec-time" id="f-sec" hidden></p>
     <div class="row2">
       <div class="field"><label for="f-len" data-i18n="fLen">Duração</label><select id="f-len"></select></div>
       <div class="field"><label for="f-cat" data-i18n="fType">Tipo</label><select id="f-cat">
@@ -128,6 +129,11 @@
         <div class="field"><label for="t-de" data-i18n="tDayEnd">E vai até às</label><select id="t-de"></select></div>
       </div>
       <div class="row2">
+        <div class="field"><label for="t-tz" data-i18n="tTz">Fuso horário da viagem</label><input type="text" id="t-tz" list="tz-list" autocomplete="off" autocapitalize="none" spellcheck="false" data-i18n-ph="tTzPh" placeholder="Ex.: Asia/Tokyo"></div>
+        <div class="field"><label for="t-hometz" data-i18n="tHomeTz">Segundo fuso (neste dispositivo)</label><input type="text" id="t-hometz" list="tz-list" autocomplete="off" autocapitalize="none" spellcheck="false"></div>
+      </div>
+      <p class="hint" data-i18n="tzHint">As horas do quadro são a hora local da viagem. Quando o segundo fuso é diferente, aparece numa coluna de horas ao lado.</p>
+      <div class="row2">
         <div class="field"><label for="t-people" data-i18n="people">Pessoas</label><input type="number" id="t-people" min="1" max="50" step="1" value="2"></div>
         <div class="field"><label for="t-cur" data-i18n="currency">Moeda</label><select id="t-cur"><option>€</option><option>$</option><option>£</option><option>R$</option><option>฿</option><option>¥</option></select></div>
       </div>
@@ -171,6 +177,7 @@
   <div class="body" id="w-list"></div>
 </aside>
 
+<datalist id="tz-list"></datalist>
 <div class="sr" aria-live="polite" id="announce"></div>
 <div class="toast" id="toast" hidden></div>
 

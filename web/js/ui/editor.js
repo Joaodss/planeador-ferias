@@ -4,6 +4,7 @@ import { $, esc, clone, short, newId, SNAP, WD, CATS, mlabel, durLabel, dayLabel
 import { S, T, pushHistory } from '../state.js';
 import { days, view, placeName, findBlock, moveTo, toTray } from '../trip.js';
 import { catName, hasCat, autoCat, catOptions } from '../costs.js';
+import { TZ, secondTz } from '../tz.js';
 import { commit } from '../sync.js';
 import { closeSheets } from './sheets.js';
 
@@ -36,6 +37,10 @@ export function fillEditor(full){
   const cur=t.currency||'€'; $('#f-pp-l').textContent=tr('costPPCur',{cur}); $('#f-total-l').textContent=tr('costTotalCur',{cur});
   const lo=$('#f-link-open'); if(/^https?:\/\//i.test(b.link||'')){ lo.hidden=false; lo.href=b.link; lo.textContent=tr('openLink'); } else lo.hidden=true;
   $('#f-tray').hidden=f.where==='tray'; $('#ed-h').textContent=CATS()[b.cat]||tr('activity');
+  const sec=secondTz(t), fs=$('#f-sec');
+  if(sec && f.where!=='tray'){ const a=b.start+sec.diff, sh=Math.floor(a/1440)-Math.floor(b.start/1440);
+    fs.textContent=tr('secAt',{city:TZ.city(sec.tz), range:`${mlabel(a)}–${mlabel(a+b.len)}`})+(sh<0?tr('prevDay'):sh>0?tr('nextDay'):''); fs.hidden=false; }
+  else fs.hidden=true;
 }
 /* Aplica uma alteração à atividade aberta (um só ponto de Desfazer por abertura do editor). */
 function edit(fn){ const f=findBlock(S.editingId); if(!f) return; if(!editorSnap){ pushHistory(); editorSnap=true; } fn(f.b,f); commit(); }

@@ -6,6 +6,7 @@ import { tr } from './i18n.js';
 import { $, toast, announce } from './util.js';
 import { S, ensureActive, clearHistory } from './state.js';
 import { normTrip } from './trip.js';
+import { setServerHomeTz } from './tz.js';
 import { render } from './ui/board.js';
 import { closeSheets } from './ui/sheets.js';
 
@@ -65,6 +66,7 @@ export function undo(){ if(!S.history.length) return; S.store=JSON.parse(S.histo
 function applyServer(d){
   for(const k of Object.keys(revs)) delete revs[k];
   for(const k of Object.keys(synced)) delete synced[k];
+  setServerHomeTz(d.homeTz);
   const trips=d.trips.map(x=>{ const t=normTrip(x.trip); revs[t.id]=x.rev; synced[t.id]=JSON.stringify(t); return t; });
   trips.sort((a,b)=>String(a.start).localeCompare(String(b.start)));
   S.store={version:2, trips};

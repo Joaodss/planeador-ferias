@@ -9,6 +9,7 @@
      trip.js      dias, horário, sítios, mover atividades
      costs.js     categorias e totais de custos
      warnings.js  regras dos pontos a rever
+     tz.js        fusos horários e segundo fuso
      sync.js      gravação no servidor, login e logout
    js/ui/         interface
      board.js     quadro, render() e teclado

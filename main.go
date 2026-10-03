@@ -18,12 +18,14 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
 
 type config struct {
 	user, password, dataDir, addr string
+	homeTz                        string // segundo fuso mostrado na grelha (opcional)
 }
 
 type server struct {
@@ -62,6 +64,7 @@ func main() {
 		password: env("PLANNER_PASSWORD", ""),
 		dataDir:  env("DATA_DIR", "./data"),
 		addr:     ":" + port,
+		homeTz:   strings.TrimSpace(env("PLANNER_HOME_TZ", "")),
 	}
 	if cfg.user == "" || cfg.password == "" {
 		log.Fatal("Define PLANNER_USER e PLANNER_PASSWORD antes de arrancar (ver .env.example).")

@@ -4,18 +4,21 @@ import { $, esc, pad, clone, newId, parseISO, iso, addDays, toast } from '../uti
 import { S, T, ensureActive, setActive, pushHistory } from '../state.js';
 import { days, toTray, addPlace } from '../trip.js';
 import { cats, ownCats } from '../costs.js';
+import { TZ, defaultHomeTz, ownHomeTz, homeTz, saveHomeTz, resolveTz } from '../tz.js';
 import { commit } from '../sync.js';
 import { render } from './board.js';
 import { closeSheets } from './sheets.js';
 
 let tripMode='edit';
 (function(){ const h=Array.from({length:24},(_,i)=>`<option value="${i}">${pad(i)}:00</option>`).join(''); $('#t-ds').innerHTML=h; $('#t-de').innerHTML=h; })();
+$('#tz-list').innerHTML=TZ.all.map(z=>`<option value="${z}">`).join('');
 export function openTripSheet(isNew){
   closeSheets(); tripMode=isNew?'new':'edit'; const t=T(); $('#tripsheet').hidden=false; $('#t-err').hidden=true; $('#t-del-confirm').hidden=true;
   $('#t-h').textContent=tr(isNew?'newTrip':'datesPlaces'); $('#t-submit').textContent=tr(isNew?'createTrip':'save');
   $('#t-places-wrap').hidden=isNew;
-  if(isNew||!t){ const n=new Date(); const s=iso(addDays(n,30)), e=iso(addDays(n,36)); $('#t-name').value=''; $('#t-start').value=s; $('#t-end').value=e; $('#t-ds').value='7'; $('#t-de').value='1'; $('#t-people').value='2'; $('#t-cur').value='€'; $('#t-budget').value=''; }
-  else { $('#t-name').value=t.name; $('#t-start').value=t.start; $('#t-end').value=t.end; $('#t-ds').value=String(t.dayStart); $('#t-de').value=String(t.dayEnd); $('#t-people').value=String(t.people||1); $('#t-cur').value=t.currency||'€'; $('#t-budget').value=t.budget||''; renderPlaces(); renderCats(); }
+  if(isNew||!t){ const n=new Date(); const s=iso(addDays(n,30)), e=iso(addDays(n,36)); $('#t-name').value=''; $('#t-start').value=s; $('#t-end').value=e; $('#t-ds').value='7'; $('#t-de').value='1'; $('#t-people').value='2'; $('#t-cur').value='€'; $('#t-budget').value=''; $('#t-tz').value=homeTz(); }
+  else { $('#t-name').value=t.name; $('#t-start').value=t.start; $('#t-end').value=t.end; $('#t-ds').value=String(t.dayStart); $('#t-de').value=String(t.dayEnd); $('#t-people').value=String(t.people||1); $('#t-cur').value=t.currency||'€'; $('#t-budget').value=t.budget||''; $('#t-tz').value=t.tz||''; renderPlaces(); renderCats(); }
+  $('#t-hometz').value=ownHomeTz(); $('#t-hometz').placeholder=tr('homeTzDefault',{tz:defaultHomeTz()||'—'});
   $('#t-name').focus();
 }
 
@@ -59,13 +62,17 @@ $('#t-form').addEventListener('submit',e=>{
   if(en<s) return fail(tr('errTripOrder'));
   const n=Math.round((parseISO(en)-parseISO(s))/864e5)+1; if(n>60) return fail(tr('errTripLong',{n}));
   const ds=+$('#t-ds').value, de=+$('#t-de').value, people=Math.max(1,parseInt($('#t-people').value)||1), cur=$('#t-cur').value, budget=parseFloat($('#t-budget').value)>0?parseFloat($('#t-budget').value):0;
+  const tz=resolveTz($('#t-tz').value), home=resolveTz($('#t-hometz').value);
+  if(tz===null) return fail(tr('errTz',{v:$('#t-tz').value.trim()}));
+  if(home===null) return fail(tr('errTz',{v:$('#t-hometz').value.trim()}));
+  saveHomeTz(home);
   pushHistory();
   if(tripMode==='new'){
-    const t={id:newId('t'), name, start:s, end:en, dayStart:ds, dayEnd:de, people, currency:cur, places:[], dayPlaces:{}, blocks:[], tray:[], costs:[]}; if(budget) t.budget=budget;
+    const t={id:newId('t'), name, start:s, end:en, dayStart:ds, dayEnd:de, people, currency:cur, places:[], dayPlaces:{}, blocks:[], tray:[], costs:[]}; if(budget) t.budget=budget; if(tz) t.tz=tz;
     S.store.trips.push(t); setActive(t.id);
     $('#tripsheet').hidden=true; commit(); $('#scroller').scrollTo(0,0); toast(tr('tTripCreated'));
   } else {
-    const t=T(); Object.assign(t,{name,start:s,end:en,dayStart:ds,dayEnd:de,people,currency:cur}); if(budget) t.budget=budget; else delete t.budget;
+    const t=T(); Object.assign(t,{name,start:s,end:en,dayStart:ds,dayEnd:de,people,currency:cur}); if(budget) t.budget=budget; else delete t.budget; if(tz) t.tz=tz; else delete t.tz;
     const dset=new Set(days(t)); const out=t.blocks.filter(b=>!dset.has(b.date));
     out.forEach(b=>toTray(b.id)); (t.costs||[]).forEach(c=>{ if(c.date && !dset.has(c.date)) delete c.date; }); Object.keys(t.dayPlaces).forEach(d=>{ if(!dset.has(d)) delete t.dayPlaces[d]; });
     $('#tripsheet').hidden=true; commit(); if(out.length) toast(tr('tOutOfDates',{n:out.length}));
