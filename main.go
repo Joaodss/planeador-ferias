@@ -47,6 +47,7 @@ var idRe = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 
 type config struct {
 	user, password, dataDir, addr string
+	homeTz                        string // segundo fuso mostrado na grelha (opcional)
 }
 
 type server struct {
@@ -98,6 +99,7 @@ func main() {
 		password: env("PLANNER_PASSWORD", ""),
 		dataDir:  env("DATA_DIR", "./data"),
 		addr:     ":" + port,
+		homeTz:   strings.TrimSpace(env("PLANNER_HOME_TZ", "")),
 	}
 	if cfg.user == "" || cfg.password == "" {
 		log.Fatal("Define PLANNER_USER e PLANNER_PASSWORD antes de arrancar (ver .env.example).")
@@ -406,7 +408,7 @@ func (s *server) listTrips(w http.ResponseWriter) {
 		}
 		trips = append(trips, rec)
 	}
-	writeJSON(w, 200, map[string]any{"user": s.cfg.user, "trips": trips})
+	writeJSON(w, 200, map[string]any{"user": s.cfg.user, "trips": trips, "homeTz": s.cfg.homeTz})
 }
 
 func (s *server) putTrip(w http.ResponseWriter, r *http.Request, id string) {

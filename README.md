@@ -8,7 +8,7 @@ A imagem Docker tem cerca de 7 MB e não precisa de base de dados: cada viagem �
 | Ficheiro | Para que serve |
 | --- | --- |
 | `main.go` | Servidor: login, API e leitura/escrita dos ficheiros. Só usa a biblioteca padrão do Go. |
-| `web/` | A página (`index.html`, `app.css`, `app.js`, e `i18n.js` com os textos em português e inglês). Fica embutida no binário. |
+| `web/` | A página (`index.html`, `app.css`, `app.js`, `i18n.js` com os textos em português e inglês, e `tz.js` com as contas dos fusos horários). Fica embutida no binário. |
 | `Dockerfile` | Compila e produz a imagem final (`FROM scratch`). |
 | `docker-compose.yml` | Arranque no servidor, com volume para os dados. |
 | `main_test.go`, `tests/` | Testes do servidor (Go) e da página (Node, sem dependências). |
@@ -56,6 +56,7 @@ A imagem Docker tem cerca de 7 MB e não precisa de base de dados: cada viagem �
 | --- | --- | --- | --- |
 | `PLANNER_USER` | sim | — | Nome de utilizador do login. |
 | `PLANNER_PASSWORD` | sim | — | Palavra-passe (mínimo 10 caracteres). |
+| `PLANNER_HOME_TZ` | não | fuso do browser | Segundo fuso mostrado na grelha, ao lado da hora da viagem (ex.: `Europe/Lisbon`). Cada dispositivo pode escolher outro. |
 | `DATA_DIR` | não | `/data` na imagem | Pasta dos dados. |
 | `PORT` | não | `8080` | Porta onde o servidor ouve. |
 
@@ -89,7 +90,7 @@ palavras-passe), ou fazes `docker login ghcr.io` no servidor com um token com pe
 └── .session-secret          segredo que assina as sessões
 ```
 
-- Dentro de cada viagem: `blocks` (atividades, com `pp`/`total` e `ccat` para a categoria de custo), `costs`
+- Dentro de cada viagem: `tz` (fuso da viagem, opcional: as horas da grelha são a hora local desse fuso), `blocks` (atividades, com `pp`/`total` e `ccat` para a categoria de custo), `costs`
   (custos do dia ou gerais), `costCats` (categorias) e `budget` (orçamento).
 - As escritas são atómicas (ficheiro temporário + troca), por isso uma falha de energia não corrompe uma viagem.
 - Cada viagem tem um número de revisão. Se dois dispositivos editarem a mesma viagem, o segundo a gravar
