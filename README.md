@@ -8,7 +8,7 @@ A imagem Docker tem cerca de 7 MB e não precisa de base de dados: cada viagem �
 | Ficheiro | Para que serve |
 | --- | --- |
 | `main.go` | Servidor: login, API e leitura/escrita dos ficheiros. Só usa a biblioteca padrão do Go. |
-| `web/` | A página (`index.html`, `app.css`, `app.js`). Fica embutida no binário. |
+| `web/` | A página (`index.html`, `app.css`, `app.js`, e `i18n.js` com os textos em português e inglês). Fica embutida no binário. |
 | `Dockerfile` | Compila e produz a imagem final (`FROM scratch`). |
 | `docker-compose.yml` | Arranque no servidor, com volume para os dados. |
 | `.github/workflows/docker.yml` | Publica a imagem em `ghcr.io` a cada push para `main`. |
@@ -101,7 +101,8 @@ palavras-passe), ou fazes `docker login ghcr.io` no servidor com um token com pe
 
 ## Segurança
 
-- Sessão por cookie assinado (`HttpOnly`, `SameSite=Strict`, `Secure` atrás de HTTPS), válida 30 dias.
+- Sessão por cookie assinado (`HttpOnly`, `SameSite=Strict`, `Secure` atrás de HTTPS), válida 30 dias
+  e renovada sempre que a página é usada: só volta a pedir login depois de um mês sem abrir o planeador.
 - Tentativas de login limitadas: 8 falhadas por endereço em 10 minutos.
 - O contentor corre sem root, com sistema de ficheiros só de leitura e sem capabilities.
 - A página carrega as fontes do Google Fonts. O módulo de Excel vem do cdnjs e só é pedido
