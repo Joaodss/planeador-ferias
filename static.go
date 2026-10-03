@@ -15,6 +15,32 @@ import (
 //go:embed web
 var webFS embed.FS
 
+// Tipos fixos para as extensões que a página usa. mime.TypeByExtension lê o
+// registo no Windows (e /etc/mime.types no Linux), que pode dar, por exemplo,
+// "application/javascript" para .js; assim a resposta é igual em qualquer SO.
+var staticTypes = map[string]string{
+	".html":        "text/html; charset=utf-8",
+	".css":         "text/css; charset=utf-8",
+	".js":          "text/javascript; charset=utf-8",
+	".json":        "application/json",
+	".webmanifest": "application/manifest+json",
+	".svg":         "image/svg+xml",
+	".png":         "image/png",
+	".ico":         "image/x-icon",
+	".txt":         "text/plain; charset=utf-8",
+}
+
+func contentType(p string) string {
+	ext := strings.ToLower(filepath.Ext(p))
+	if ct, ok := staticTypes[ext]; ok {
+		return ct
+	}
+	if ct := mime.TypeByExtension(ext); ct != "" {
+		return ct
+	}
+	return "application/octet-stream"
+}
+
 type staticFile struct {
 	body  []byte
 	ctype string
@@ -32,11 +58,7 @@ func (s *server) loadStatic() error {
 			return err
 		}
 		sum := sha256.Sum256(b)
-		ct := mime.TypeByExtension(filepath.Ext(p))
-		if ct == "" {
-			ct = "application/octet-stream"
-		}
-		s.static[strings.TrimPrefix(p, "web")] = staticFile{b, ct, `"` + hex.EncodeToString(sum[:8]) + `"`}
+		s.static[strings.TrimPrefix(p, "web")] = staticFile{b, contentType(p), `"` + hex.EncodeToString(sum[:8]) + `"`}
 		return nil
 	})
 }

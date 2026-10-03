@@ -458,9 +458,16 @@ func TestStaticFiles(t *testing.T) {
 			t.Errorf("%s: código %d", p, w.Code)
 		}
 	}
-	// O browser recusa módulos ES que não venham como JavaScript.
-	if ct := call(s, "GET", "/js/main.js", "").Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/javascript") {
-		t.Errorf("/js/main.js: tipo %q, esperava text/javascript", ct)
+	// O browser recusa módulos ES que não venham como JavaScript. Os tipos são
+	// fixos para não dependerem do registo do Windows nem de /etc/mime.types.
+	for p, want := range map[string]string{
+		"/":            "text/html; charset=utf-8",
+		"/js/main.js":  "text/javascript; charset=utf-8",
+		"/css/app.css": "text/css; charset=utf-8",
+	} {
+		if ct := call(s, "GET", p, "").Header().Get("Content-Type"); ct != want {
+			t.Errorf("%s: tipo %q, esperava %q", p, ct, want)
+		}
 	}
 	if w := call(s, "HEAD", "/js/main.js", ""); w.Code != http.StatusOK || w.Body.Len() != 0 {
 		t.Errorf("HEAD: código %d, corpo com %d bytes", w.Code, w.Body.Len())
