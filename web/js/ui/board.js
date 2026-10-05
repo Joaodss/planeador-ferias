@@ -145,7 +145,7 @@ export function render(){
   if(!$('#costsheet').hidden) renderDash();
 }
 export function focusBlock(id){
-  const el=document.querySelector(`.blk[data-id="${id}"], .hid-chip[data-id="${id}"]`); if(!el){ openEditor(id); return; }
+  const q=CSS.escape(id), el=document.querySelector(`.blk[data-id="${q}"], .hid-chip[data-id="${q}"]`); if(!el){ openEditor(id); return; }
   if(el.closest('.day-col')){ const scroller=$('#scroller'); const r=el.getBoundingClientRect(), sr=scroller.getBoundingClientRect(); scroller.scrollBy({left:r.left-sr.left-90, top:r.top-sr.top-90, behavior:matchMedia('(prefers-reduced-motion:reduce)').matches?'auto':'smooth'}); }
   el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); el.focus({preventScroll:true});
 }
@@ -181,7 +181,7 @@ document.addEventListener('keydown', e=>{
     if(ch) Object.assign(b, fromBoard(t,F,date,start)); }
   if(!ch){ dropHistory(); return; }
   commit(); announce(`${b.title}: ${dayLabel(date,true)} ${rangeLabel({start, len:b.len})}`);
-  const again=document.querySelector(`.blk[data-id="${b.id}"]`); if(again) again.focus();
+  const again=document.querySelector(`.blk[data-id="${CSS.escape(b.id)}"]`); if(again) again.focus();
 });
 
 let rz=null; window.addEventListener('resize',()=>{ clearTimeout(rz); rz=setTimeout(render,120); });

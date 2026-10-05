@@ -51,7 +51,7 @@ function clearTargets(){ document.querySelectorAll('.drop-target').forEach(x=>x.
 /* Contorno de onde a atividade vai ficar, em todas as colunas por onde passa (b na hora da viagem). */
 function preview(t, F, b, label, bad){
   segments(t,b,F.ds.length,F.sh).forEach((s,k)=>{
-    const col=document.querySelector(`.day-col[data-date="${F.ds[s.i]}"]`); if(!col) return;
+    const col=document.querySelector(`.day-col[data-date="${CSS.escape(F.ds[s.i])}"]`); if(!col) return;
     const p=document.createElement('div'); p.className='preview'+(bad?' bad':'')+(s.cutTop?' cut-top':'')+(s.cutBot?' cut-bot':'');
     p.style.top=(s.top*PXM())+'px'; p.style.height=((s.bot-s.top)*PXM())+'px';
     if(!k) p.innerHTML=`<span>${label}</span>`; col.appendChild(p);
