@@ -3,3 +3,4 @@ data/
 /planner
 /planeador-ferias
 *.log
+node_modules/

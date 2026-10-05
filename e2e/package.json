@@ -1,0 +1,12 @@
+{
+  "name": "planeador-ferias-e2e",
+  "private": true,
+  "type": "module",
+  "description": "Teste de fumo da página num Chromium a sério (#33). Só este teste precisa de npm.",
+  "scripts": {
+    "test": "node --test smoke.test.mjs"
+  },
+  "devDependencies": {
+    "playwright": "1.63.0"
+  }
+}
