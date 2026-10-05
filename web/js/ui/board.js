@@ -144,7 +144,7 @@ export function render(){
   // painéis abertos acompanham a alteração
   if(!$('#warnings').hidden) renderWarnings();
   if(S.editingId && !$('#editor').hidden) fillEditor(false, F);
-  if(S.dayOpen && !$('#daysheet').hidden) fillDay(undefined, L0);
+  if(S.dayOpen && !$('#daysheet').hidden) fillDay(false, L0);
   if(!$('#costsheet').hidden) renderDash();
 }
 export function focusBlock(id){
