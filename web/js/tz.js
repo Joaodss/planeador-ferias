@@ -11,6 +11,13 @@ function fmt(tz){
   return fmts[tz];
 }
 function valid(tz){ if(!tz) return false; try{ fmt(tz); return true; }catch{ return false; } }
+/* O Chrome e o Node listam os nomes antigos do CLDR (Asia/Calcutta, Europe/Kiev), mas aceitam os atuais.
+   A lista de sugestões mostra o nome atual quando o browser o aceita. */
+const RENAMED = {'Asia/Calcutta':'Asia/Kolkata', 'Europe/Kiev':'Europe/Kyiv', 'Asia/Saigon':'Asia/Ho_Chi_Minh', 'Asia/Katmandu':'Asia/Kathmandu',
+  'Asia/Rangoon':'Asia/Yangon', 'America/Godthab':'America/Nuuk', 'Atlantic/Faeroe':'Atlantic/Faroe', 'Africa/Asmera':'Africa/Asmara',
+  'Pacific/Truk':'Pacific/Chuuk', 'Pacific/Ponape':'Pacific/Pohnpei', 'Pacific/Enderbury':'Pacific/Kanton', 'America/Coral_Harbour':'America/Atikokan'};
+ALL = [...new Set(ALL.map(z=>RENAMED[z] && valid(RENAMED[z]) ? RENAMED[z] : z))].sort();
+const REGIONS = [...new Set(ALL.filter(z=>z.includes('/')).map(z=>z.split('/')[0]))];
 function local(){ try{ return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; }catch{ return ''; } }
 
 /* Diferença (minutos) entre a hora local de tz e UTC no instante ms. */
@@ -68,5 +75,10 @@ export function resolveTz(v){
   v=v.trim(); if(!v) return '';
   const n=v.toLowerCase().replace(/\s+/g,'_');
   const hit=ALL.find(z=>z.toLowerCase()===n) || ALL.find(z=>z.toLowerCase().endsWith('/'+n));
-  return hit || (valid(v) ? v : null);
+  if(hit) return hit;
+  if(valid(v)) return v;
+  // nome que falta na lista mas o browser aceita: "kolkata" → Asia/Kolkata (Chrome), "calcutta" → Asia/Calcutta (Firefox)
+  const title=n.split('_').map(w=>w.charAt(0).toUpperCase()+w.slice(1)).join('_');
+  for(const r of REGIONS){ const z=r+'/'+title; if(valid(z)) return z; }
+  return null;
 }

@@ -10,14 +10,20 @@ import { openEditor } from './editor.js';
 import { renderCostRows, addCost } from './costsheet.js';
 
 export function openDay(date){ closeSheets(); S.dayOpen=date; $('#daysheet').hidden=false; fillDay(true); $('#d-place').focus(); }
-/* L0: o layout em hora da viagem que render() já calculou (boardLayout(t, days(t))). */
+/* full: ao abrir e depois de Aplicar mostra o que está gravado. Num refresh (render(), full=false) os selects
+   são um rascunho que só conta em Aplicar: refazem-se as opções (os sítios ou as datas podem ter mudado),
+   mas fica o que estava escolhido, se ainda existir. O select com foco não se mexe.
+   L0: o layout em hora da viagem que render() já calculou (boardLayout(t, days(t))). */
 export function fillDay(full, L0){
   const t=T(); if(!t||!S.dayOpen) return; const ds=days(t); const cur=t.dayPlaces[S.dayOpen]||[];
   $('#d-h').textContent=dayLabel(S.dayOpen,true);
+  const refill=(el, html, saved)=>{ if(!full && el===document.activeElement) return;
+    const draft=el.value; el.innerHTML=html; el.value=full ? saved : draft; if(el.selectedIndex<0) el.value=saved; };
   const popts=t.places.map(p=>`<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('');
-  if(full!==false || document.activeElement!==$('#d-place')){ $('#d-place').innerHTML=`<option value="">${tr('noPlace')}</option>`+popts; $('#d-place').value=cur[0]||''; }
-  if(full!==false || document.activeElement!==$('#d-place2')){ $('#d-place2').innerHTML=`<option value="">${tr('noChange')}</option>`+popts; $('#d-place2').value=cur[1]||''; }
-  if(full!==false){ const i=ds.indexOf(S.dayOpen); $('#d-until').innerHTML=`<option value="">${tr('justThisDay')}</option>`+ds.slice(i+1).map(d=>`<option value="${d}">${dayLabel(d,true)}</option>`).join(''); }
+  refill($('#d-place'), `<option value="">${tr('noPlace')}</option>`+popts, cur[0]||'');
+  refill($('#d-place2'), `<option value="">${tr('noChange')}</option>`+popts, cur[1]||'');
+  const di=ds.indexOf(S.dayOpen);
+  refill($('#d-until'), `<option value="">${tr('justThisDay')}</option>`+ds.slice(di+1).map(d=>`<option value="${d}">${dayLabel(d,true)}</option>`).join(''), '');
   const list=blocksOf(S.dayOpen); const box=$('#d-list'); box.innerHTML='';
   const cost=list.reduce((s,b)=>s+blockCostPP(b),0);
   $('#d-list-h').textContent = tr('dayActivities')+(cost?' · '+fmt(cost)+' '+tr('perPersonLower'):'');
@@ -39,7 +45,7 @@ $('#d-apply').addEventListener('click',()=>{
   if(p2 && j>i && p2!==p1) toast(tr('tPlaceLastDay'));
   commit(); fillDay(true); announce(tr('placeSaved'));
 });
-$('#d-addplace').addEventListener('click',()=>{ const v=$('#d-newplace').value; if(!v.trim()) return; pushHistory(); const p=addPlace(v); $('#d-newplace').value=''; commit(); fillDay(true); $('#d-place').value=p.id; toast(tr('tPlaceAdded',{name:p.name})); });
+$('#d-addplace').addEventListener('click',()=>{ const v=$('#d-newplace').value; if(!v.trim()) return; pushHistory(); const p=addPlace(v); $('#d-newplace').value=''; commit(); fillDay(false); $('#d-place').value=p.id; toast(tr('tPlaceAdded',{name:p.name})); });
 $('#d-newplace').addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); $('#d-addplace').click(); } });
 $('#d-add').addEventListener('click',()=>{ const t=T(), v=view(t); let s=Math.max(v.T0,540);
   pushHistory(); const b={id:newId('a'), date:S.dayOpen, start:Math.min(s,v.T1-60), len:60, title:tr('newActivity'), cat:'tour', status:'ideia'}; t.blocks.push(b); commit(); openEditor(b.id,true); });
