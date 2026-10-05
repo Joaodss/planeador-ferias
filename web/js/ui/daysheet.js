@@ -3,7 +3,7 @@ import { tr } from '../i18n.js';
 import { esc, newId, statusLabel, dayLabel } from '../util.js';
 import { $, toast, announce } from './dom.js';
 import { S, T, pushHistory } from '../state.js';
-import { days, view, money, blockCostPP, blocksOf, addPlace, boardLayout, rangeLabel } from '../trip.js';
+import { days, view, money, blockCostPP, blocksOf, addPlace, boardLayout, rangeLabel, setDayPlaces, newBlock } from '../trip.js';
 import { dayCostPP } from '../costs.js';
 import { commit } from '../sync.js';
 import { closeSheets } from './sheets.js';
@@ -42,15 +42,13 @@ export function fillDay(full, L0){
 /* Botões do painel do dia (main.js chama-a uma vez ao arrancar). */
 export function initDaysheet(){
   $('#d-apply').addEventListener('click',()=>{
-    const t=T(); const p1=$('#d-place').value, p2=$('#d-place2').value, until=$('#d-until').value; const ds=days(t);
-    const i=ds.indexOf(S.dayOpen), j=until?ds.indexOf(until):i; pushHistory();
-    for(let k=i;k<=j;k++){ const d=ds[k]; const arr=[]; if(p1) arr.push(p1); if(p2 && p2!==p1 && k===j) arr.push(p2); if(arr.length) t.dayPlaces[d]=arr; else delete t.dayPlaces[d]; }
-    if(p2 && j>i && p2!==p1) toast(tr('tPlaceLastDay'));
+    pushHistory();
+    if(setDayPlaces(T(), S.dayOpen, $('#d-until').value, $('#d-place').value, $('#d-place2').value)) toast(tr('tPlaceLastDay'));
     commit(); fillDay(true); announce(tr('placeSaved'));
   });
   $('#d-addplace').addEventListener('click',()=>{ const v=$('#d-newplace').value; if(!v.trim()) return; pushHistory(); const p=addPlace(T(),v); $('#d-newplace').value=''; commit(); fillDay(false); $('#d-place').value=p.id; toast(tr('tPlaceAdded',{name:p.name})); });
   $('#d-newplace').addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); $('#d-addplace').click(); } });
   $('#d-add').addEventListener('click',()=>{ const t=T(), v=view(t); let s=Math.max(v.T0,540);
-    pushHistory(); const b={id:newId('a'), date:S.dayOpen, start:Math.min(s,v.T1-60), len:60, title:tr('newActivity'), cat:'tour', status:'ideia'}; t.blocks.push(b); commit(); openEditor(b.id,true); });
+    pushHistory(); const b=newBlock({date:S.dayOpen, start:Math.min(s,v.T1-60)}, newId); t.blocks.push(b); commit(); openEditor(b.id,true); });
   $('#d-addcost').addEventListener('click',()=>addCost($('#d-costs'), S.dayOpen));
 }

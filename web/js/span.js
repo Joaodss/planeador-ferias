@@ -85,3 +85,28 @@ export function boardLayout(t, ds, sh=0){
 
 /* Quantas meias-noites a atividade atravessa desde que começa (o "+1" dos voos). */
 export function dayShift(b){ return Math.floor((b.start+b.len-1)/DAY) - Math.floor(b.start/DAY); }
+
+/* Faixas lado a lado para os pedaços de uma coluna que se sobrepõem (segs ordenados por top, como em boardLayout).
+   Um grupo é uma cadeia de pedaços sobrepostos; dentro dele, cada pedaço fica na primeira faixa livre.
+   Devolve id da atividade → {lane, n}: a faixa e quantas faixas tem o seu grupo. */
+export function laneLayout(segs){
+  const res=new Map(); let group=[], end=-1;
+  const flush=()=>{
+    const lanes=[];   // onde acaba o último pedaço de cada faixa
+    for(const s of group){
+      let li=lanes.findIndex(e=>e<=s.top);
+      if(li<0){ li=lanes.length; lanes.push(0); }
+      lanes[li]=s.bot;
+      res.set(s.b.id, {lane:li});
+    }
+    for(const s of group) res.get(s.b.id).n=lanes.length;
+    group=[]; end=-1;
+  };
+  for(const s of segs){
+    if(group.length && s.top>=end) flush();
+    group.push(s);
+    end=Math.max(end, s.bot);
+  }
+  if(group.length) flush();
+  return res;
+}

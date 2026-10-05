@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { tr } from '../web/js/i18n.js';
 import { normTrip, days, boardLayout } from '../web/js/trip.js';
-import { computeWarnings } from '../web/js/warnings.js';
+import { computeWarnings, sortWarnings } from '../web/js/warnings.js';
 import { dayLabel } from '../web/js/util.js';
 
 // 5 a 8 de julho de 2027 (segunda a quinta), quadro das 08:00 às 02:00. Lisboa nos dois primeiros dias, Porto depois.
@@ -98,4 +98,11 @@ test('sem viagem → []; atividade fora das datas → só o aviso das datas', ()
   const t = small([fora, act('outra', '2027-08-01', H(4), H(1), 'tour')]);
   assert.deepEqual(brief(computeWarnings(t)), [['bad', 'fora', '2027-08-01'], ['bad', 'outra', '2027-08-01']]);
   assert.equal(computeWarnings(t)[0].t, tr('wDates', { a: 'fora' }));
+});
+
+test('sortWarnings: por data e, no mesmo dia, os graves primeiro, sem mudar a lista recebida', () => {
+  const ws = [{ date: '2027-07-06', sev: 'warn', t: '1' }, { date: '2027-07-05', sev: 'warn', t: '2' }, { date: '2027-07-06', sev: 'bad', t: '3' }, { date: '2027-07-05', sev: 'bad', t: '4' }, { date: '2027-07-05', sev: 'warn', t: '5' }];
+  assert.deepEqual(sortWarnings(ws).map(w => w.t), ['4', '2', '5', '3', '1']);
+  assert.deepEqual(ws.map(w => w.t), ['1', '2', '3', '4', '5']);
+  assert.deepEqual(sortWarnings(computeWarnings(trip())).map(w => w.date), [...computeWarnings(trip()).map(w => w.date)].sort());
 });

@@ -2,7 +2,7 @@
 // para o outro ou ficam nas horas que o quadro não mostra.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { view, absStart, segments, hiddenEdge, slotAt, dateAt, dayShift, frameShift, toFrame, fromFrame, boardLayout } from '../web/js/span.js';
+import { view, absStart, segments, hiddenEdge, slotAt, dateAt, dayShift, frameShift, toFrame, fromFrame, boardLayout, laneLayout } from '../web/js/span.js';
 
 const trip = (dayStart, dayEnd) => ({ start: '2027-07-01', end: '2027-07-03', dayStart, dayEnd });
 const N = 3;   // três colunas: 1, 2 e 3 de julho
@@ -107,4 +107,18 @@ test('dateAt põe a cópia logo a seguir, sem limitar às colunas da viagem', ()
   assert.deepEqual(dateAt(t, H(6)), { date: '2027-07-01', start: H(6) }, 'antes do quadro no 1.º dia fica nesse dia');
   assert.deepEqual(dateAt(t, -H(2)), { date: '2027-06-30', start: H(22) }, 'antes da viagem não salta para o 1.º dia');
   assert.deepEqual(dateAt(t, H(24 * 5 + 10)), { date: '2027-07-06', start: H(10) }, 'depois da viagem não fica no último dia');
+});
+
+test('laneLayout: faixas lado a lado nas sobreposições, também em cadeia, e o número de faixas por grupo', () => {
+  const seg = (id, top, bot) => ({ b: { id }, top, bot });
+  const L = laneLayout([
+    seg('a', 0, 60), seg('b', 30, 90), seg('c', 60, 120),   // cadeia: a-b e b-c sobrepõem-se; c cabe onde a acabou
+    seg('d', 120, 150),                                     // começa quando c acaba: grupo novo
+    seg('e', 200, 300), seg('f', 210, 250), seg('g', 220, 240), // três ao mesmo tempo
+  ]);
+  const got = id => [L.get(id).lane, L.get(id).n];
+  assert.deepEqual(['a', 'b', 'c'].map(got), [[0, 2], [1, 2], [0, 2]]);
+  assert.deepEqual(got('d'), [0, 1]);
+  assert.deepEqual(['e', 'f', 'g'].map(got), [[0, 3], [1, 3], [2, 3]]);
+  assert.equal(laneLayout([]).size, 0);
 });

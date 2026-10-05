@@ -7,7 +7,8 @@
 export const STATUSES = ['ideia', 'reservar', 'reservado', 'pago'];
 export const KINDS = ['tour', 'party', 'transport', 'food', 'rest', 'sleep'];
 
-const ISO = /^\d{4}-\d{2}-\d{2}$/, ID = /^[A-Za-z0-9_-]{1,64}$/;
+/* Data AAAA-MM-DD e identificador (o mesmo que o servidor aceita no caminho). backup.js também os usa. */
+export const ISO = /^\d{4}-\d{2}-\d{2}$/, ID = /^[A-Za-z0-9_-]{1,64}$/;
 /* Número finito a partir de um número ou de texto ("600"); qualquer outra coisa dá d. */
 function num(v, d){ const n = typeof v==='number' ? v : (typeof v==='string' && v.trim()) ? +v : NaN; return Number.isFinite(n) ? n : d; }
 const int = (v, lo, hi, d) => { const n = num(v, NaN); return Number.isInteger(n) && n>=lo && n<=hi ? n : d; };
@@ -47,7 +48,7 @@ export function cleanTrip(t, newId){
   t.dayStart = int(t.dayStart, 0, 23, 7); t.dayEnd = int(t.dayEnd, 0, 23, 1);
   t.people = Math.max(1, Math.round(num(t.people, 1)));
   const budget = num(t.budget, 0); if(budget>0) t.budget = budget; else delete t.budget;
-  // a moeda entra no HTML através de fmt
+  // a moeda entra no HTML através de money (trip.js)
   if(typeof t.currency!=='string' || !t.currency.trim() || t.currency.length>5 || /[<>&"'`]/.test(t.currency)) t.currency = '€';
   const pids = new Set();
   t.places = list(t.places).map(p => { p.id = uid(p.id, pids, 'p', newId); p.name = text(p.name); p.c = int(p.c, 1, 8, 1); return p; });

@@ -11,6 +11,10 @@
      clean.js     limpeza dos dados do servidor e das importações
      costs.js     categorias e totais de custos
      warnings.js  regras dos pontos a rever
+     moves.js     para onde vai uma atividade movida com as setas ou a arrastar
+     tripform.js  validar e aplicar o formulário da viagem
+     backup.js    cópia de segurança e importar
+     excel.js     as folhas do Excel exportado
      tz.js        fusos horários e segundo fuso
      sync.js      pedidos ao servidor, gravação e sessão
    js/ui/         interface

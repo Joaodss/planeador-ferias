@@ -2,11 +2,12 @@
    Rato: arrasta logo. Toque: carregar ~300 ms antes de arrastar (a pega de baixo arrasta logo).
    Mover para outra coluna/hora, para o tabuleiro "por agendar", ou mudar a duração pela pega. */
 import { tr } from '../i18n.js';
-import { SNAP, parseISO, mlabel, durLabel, dayLabel } from '../util.js';
+import { mlabel, durLabel, dayLabel } from '../util.js';
 import { $, PXM, toast, announce } from './dom.js';
 import { S, T, pushHistory, dropHistory } from '../state.js';
-import { view, findBlock, moveTo, toTray, rangeLabel, boardFrame, toBoard, fromBoard } from '../trip.js';
-import { absStart, slotAt, segments } from '../span.js';
+import { findBlock, moveTo, toTray, rangeLabel, boardFrame, toBoard } from '../trip.js';
+import { absStart, segments } from '../span.js';
+import { boardTime, dropSlot, resizeEnd, clashesOn } from '../moves.js';
 import { commit } from '../sync.js';
 import { render } from './board.js';
 import { openEditor } from './editor.js';
@@ -19,9 +20,8 @@ function onPointerDown(e){
   if(isGrip && e.pointerType!=='mouse'){ e.preventDefault(); startDrag(); }
   else if(e.pointerType!=='mouse' && !isGrip){ S.drag.timer=setTimeout(()=>{ const drag=S.drag; if(drag && !drag.active && !drag.cancelled) startDrag(); },300); }
 }
-/* Minuto absoluto do quadro (desde a meia-noite da 1.ª coluna) dy píxeis abaixo do topo da coluna do dia date.
-   Tudo aqui é na hora do quadro (F, ver boardFrame); só o que se grava passa para a hora da viagem. */
-function timeAt(t, F, date, dy){ return F.ds.indexOf(date)*1440 + view(t).T0 + dy/PXM(); }
+/* Tudo aqui é na hora do quadro (F, ver boardFrame); as contas de onde fica estão em moves.js.
+   As posições do rato passam a minutos com /PXM() antes de lá chegarem. */
 function startDrag(){
   const drag=S.drag; if(!drag) return;
   if(drag.locked){ toast(tr('tLocked')); drag.cancelled=true; return; }
@@ -34,7 +34,7 @@ function startDrag(){
     document.body.appendChild(g); drag.ghost=g; drag.offY=Math.min(drag.offY,hp-4); drag.el.classList.add('dragging');
   }
   // que minuto da atividade ficou debaixo do dedo ou do rato
-  drag.grab = col ? timeAt(t,drag.F,col.dataset.date,drag.y0-col.getBoundingClientRect().top)-absStart(t,f.b)-drag.F.sh : drag.offY/PXM();
+  drag.grab = col ? boardTime(t,drag.F,col.dataset.date,(drag.y0-col.getBoundingClientRect().top)/PXM())-absStart(t,f.b)-drag.F.sh : drag.offY/PXM();
   if(navigator.vibrate && drag.type==='touch'){ try{ navigator.vibrate(12); }catch{} }
   updateDrag(); autoScroll();
 }
@@ -62,7 +62,7 @@ function preview(t, F, b, label, bad){
 }
 function updateDrag(){
   const drag=S.drag; if(!drag||!drag.active) return;
-  const t=T(), f=findBlock(T(),drag.id); if(!f) return; const b=f.b, v=view(t), F=drag.F, ds=F.ds;
+  const t=T(), f=findBlock(T(),drag.id); if(!f) return; const b=f.b, F=drag.F;
   // primeiro as leituras do DOM e só depois as escritas, para o browser não ter de refazer o layout a meio
   const hit=document.elementFromPoint(drag.x,drag.y), tray=hit&&hit.closest('#tray');
   const col=(hit&&hit.closest('.day-col')) || (drag.mode==='resize' ? drag.el.closest('.day-col') : null);
@@ -72,20 +72,16 @@ function updateDrag(){
   const show=(key, target, draw)=>{ if(key===drag.key) return; drag.key=key; drag.target=target; clearTargets(); if(draw) draw(); };
   if(drag.mode==='resize'){
     if(!col) return show('', null);
-    // o fim pode ir para a coluna seguinte: a atividade passa a continuar no outro dia
-    const j=ds.indexOf(col.dataset.date), A=absStart(t,b)+F.sh;
-    let end=j*1440+v.T0+Math.round(dy/PXM()/SNAP)*SNAP; end=Math.max(A+SNAP, Math.min(j*1440+v.T1,end));
-    const nb={date:b.date, start:b.start, len:end-A};
+    // o fim pode ir para a coluna seguinte: a atividade passa a continuar no outro dia (resizeEnd em moves.js)
+    const nb={date:b.date, start:b.start, len:resizeEnd(t,F,b,col.dataset.date,dy/PXM())};
     return show('len'+nb.len, {len:nb.len}, ()=>preview(t, F, nb, `${rangeLabel({start:toBoard(t,F,b).start, len:nb.len})} · ${durLabel(nb.len)}`, false));
   }
   if(col){
     // bd/bs: onde fica no quadro; nb: o mesmo na hora da viagem (o que se grava)
-    const raw=timeAt(t,F,col.dataset.date,dy)-drag.grab; const sl=slotAt(t, Math.round(raw/SNAP)*SNAP, ds.length);
-    const bd=ds[sl.i], bs=sl.start, nb={...fromBoard(t,F,bd,bs), len:b.len};
+    const {date, start, bd, bs}=dropSlot(t,F,col.dataset.date,dy/PXM(),drag.grab), nb={date, start, len:b.len};
     return show(col.dataset.date+'|'+bd+'|'+bs, {date:nb.date, start:nb.start, bd, bs}, ()=>{
       col.classList.add('drop-target');
-      const wd=parseISO(nb.date).getDay(); const dp=t.dayPlaces[nb.date]||[];
-      const clash=(b.weekdays&&b.weekdays.length&&!b.weekdays.includes(wd)) || (b.place&&dp.length&&!dp.includes(b.place));
+      const clash=clashesOn(t,b,nb.date);
       preview(t, F, nb, `${dayLabel(bd)} · ${rangeLabel({start:bs, len:b.len})}${clash?tr('seeWarnings'):''}`, clash);
     });
   }

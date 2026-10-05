@@ -3,6 +3,7 @@ import { tr } from '../i18n.js';
 import { esc } from '../util.js';
 import { $, isMobile } from './dom.js';
 import { S } from '../state.js';
+import { sortWarnings } from '../warnings.js';
 import { closeSheets } from './sheets.js';
 import { focusBlock } from './board.js';
 
@@ -10,7 +11,7 @@ export function renderWarnings(){
   const box=$('#w-list'); box.innerHTML='';
   if(!S.lastWarnings.length){ box.innerHTML=`<div class="empty-ok">${tr('warnOk')}</div>`; return; }
   box.insertAdjacentHTML('beforeend',`<p class="hint">${tr('warnHint')}</p>`);
-  S.lastWarnings.slice().sort((a,b)=>String(a.date).localeCompare(String(b.date))||(a.sev==='bad'?-1:1)).forEach(w=>{
+  sortWarnings(S.lastWarnings).forEach(w=>{
     const it=document.createElement('button'); it.type='button'; it.className='warn-item'+(w.sev==='bad'?' bad':'');
     it.innerHTML=`<span class="sev"></span><span><div class="wt">${esc(w.t)}</div><div class="wd">${esc(w.d)}</div></span>`;
     it.addEventListener('click',()=>{ if(isMobile()) $('#warnings').hidden=true; focusBlock(w.ids[0]); });

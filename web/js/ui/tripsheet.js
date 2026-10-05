@@ -1,9 +1,10 @@
 /* Painel da viagem: criar/editar datas e horário, sítios, categorias de custo, duplicar e apagar. */
 import { tr } from '../i18n.js';
-import { esc, pad, newId, parseISO, iso, addDays } from '../util.js';
+import { esc, pad, newId, iso, addDays } from '../util.js';
 import { $, toast } from './dom.js';
 import { S, T, ensureActive, setActive, pushHistory } from '../state.js';
-import { days, toTray, addPlace } from '../trip.js';
+import { addPlace, removePlace } from '../trip.js';
+import { validateTrip, tripFields, newTrip, applyTripEdit } from '../tripform.js';
 import { cats, ownCats } from '../costs.js';
 import { TZ, defaultHomeTz, ownHomeTz, homeTz, saveHomeTz, resolveTz } from '../tz.js';
 import { commit } from '../sync.js';
@@ -29,7 +30,7 @@ function renderPlaces(){
     row.innerHTML=`<i aria-hidden="true"></i><input type="text" value="${esc(p.name)}" aria-label="${tr('placeNameAria')}" style="border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:6px 8px;min-width:0"><button class="btn danger" type="button">${tr('remove')}</button>`;
     const inp=row.querySelector('input'); let snap=false;
     inp.addEventListener('input',()=>{ if(!snap){ pushHistory(); snap=true; } p.name=inp.value||tr('untitled'); commit(true); });
-    row.querySelector('button').addEventListener('click',()=>{ pushHistory(); t.places=t.places.filter(x=>x!==p); Object.keys(t.dayPlaces).forEach(d=>{ t.dayPlaces[d]=t.dayPlaces[d].filter(x=>x!==p.id); if(!t.dayPlaces[d].length) delete t.dayPlaces[d]; }); t.blocks.concat(t.tray).forEach(b=>{ if(b.place===p.id) delete b.place; }); commit(); renderPlaces(); });
+    row.querySelector('button').addEventListener('click',()=>{ pushHistory(); removePlace(t, p.id); commit(); renderPlaces(); });
     box.appendChild(row); });
 }
 /* categorias de custo */
@@ -59,27 +60,19 @@ export function initTripsheet(){
   /* gravar / cancelar / duplicar / apagar */
   $('#t-form').addEventListener('submit',e=>{
     e.preventDefault(); const err=$('#t-err');
-    const name=$('#t-name').value.trim(), s=$('#t-start').value, en=$('#t-end').value;
-    const fail=m=>{ err.textContent=m; err.hidden=false; };
-    if(!name) return fail(tr('errTripName'));
-    if(!s||!en) return fail(tr('errTripDates'));
-    if(en<s) return fail(tr('errTripOrder'));
-    const n=Math.round((parseISO(en)-parseISO(s))/864e5)+1; if(n>60) return fail(tr('errTripLong',{n}));
-    const ds=+$('#t-ds').value, de=+$('#t-de').value, people=Math.max(1,parseInt($('#t-people').value)||1), cur=$('#t-cur').value, budget=parseFloat($('#t-budget').value)>0?parseFloat($('#t-budget').value):0;
-    const tz=resolveTz($('#t-tz').value), home=resolveTz($('#t-hometz').value);
-    if(tz===null) return fail(tr('errTz',{v:$('#t-tz').value.trim()}));
-    if(home===null) return fail(tr('errTz',{v:$('#t-hometz').value.trim()}));
-    saveHomeTz(home);
+    // os campos tal como estão; validar e converter é com tripform.js
+    const f={name:$('#t-name').value, start:$('#t-start').value, end:$('#t-end').value, dayStart:$('#t-ds').value, dayEnd:$('#t-de').value,
+      people:$('#t-people').value, currency:$('#t-cur').value, budget:$('#t-budget').value, tz:$('#t-tz').value, homeTz:$('#t-hometz').value};
+    const bad=validateTrip(f); if(bad){ err.textContent=tr(bad.key, bad.params); err.hidden=false; return; }
+    saveHomeTz(resolveTz(f.homeTz));
     pushHistory(tripMode==='new');   // criar uma viagem muda a store, editar só mexe nesta
     if(tripMode==='new'){
-      const t={id:newId('t'), name, start:s, end:en, dayStart:ds, dayEnd:de, people, currency:cur, places:[], dayPlaces:{}, blocks:[], tray:[], costs:[]}; if(budget) t.budget=budget; if(tz) t.tz=tz;
+      const t=newTrip(tripFields(f), newId);
       S.store.trips.push(t); setActive(t.id);
       $('#tripsheet').hidden=true; commit(); $('#scroller').scrollTo(0,0); toast(tr('tTripCreated'));
     } else {
-      const t=T(); Object.assign(t,{name,start:s,end:en,dayStart:ds,dayEnd:de,people,currency:cur}); if(budget) t.budget=budget; else delete t.budget; if(tz) t.tz=tz; else delete t.tz;
-      const dset=new Set(days(t)); const out=t.blocks.filter(b=>!dset.has(b.date));
-      out.forEach(b=>toTray(t,b.id)); (t.costs||[]).forEach(c=>{ if(c.date && !dset.has(c.date)) delete c.date; }); Object.keys(t.dayPlaces).forEach(d=>{ if(!dset.has(d)) delete t.dayPlaces[d]; });
-      $('#tripsheet').hidden=true; commit(); if(out.length) toast(tr('tOutOfDates',{n:out.length}));
+      const out=applyTripEdit(T(), tripFields(f));
+      $('#tripsheet').hidden=true; commit(); if(out) toast(tr('tOutOfDates',{n:out}));
     }
   });
   $('#t-cancel').addEventListener('click',()=>{ $('#tripsheet').hidden=true; render(); });

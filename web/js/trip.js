@@ -1,8 +1,8 @@
 /* Modelo de uma viagem: dias, horário do quadro, sítios e atividades.
    Todas as funções recebem a viagem t: quem chama na interface passa T(). */
-import { I18N } from './i18n.js';
-import { parseISO, iso, addDays, newId, mlabel } from './util.js';
-import { view, dayShift, absStart, addISO, frameShift, toFrame, fromFrame } from './span.js';
+import { I18N, tr } from './i18n.js';
+import { parseISO, iso, addDays, newId, mlabel, MON } from './util.js';
+import { view, dayShift, absStart, addISO, frameShift, toFrame, fromFrame, dateAt } from './span.js';
 import { viewOffset } from './tz.js';
 import { cleanTrip } from './clean.js';
 
@@ -55,3 +55,55 @@ export function boardFrame(t){
 export function toBoard(t,F,b){ return F.off ? toFrame(t,b,F.sh,F.d0) : {date:b.date, start:b.start}; }
 /* Dia e hora do quadro → date/start a guardar (hora da viagem). */
 export function fromBoard(t,F,date,start){ return F.off ? fromFrame(t,date,start,F.sh,F.d0) : {date, start}; }
+
+/* ---------- alterações feitas nos painéis ---------- */
+/* Atividade nova (por agendar, ou no dia e hora de where={date, start}), com os valores por omissão. */
+export function newBlock(where, newId){ return {id:newId('a'), ...where, len:60, title:tr('newActivity'), cat:'tour', status:'ideia'}; }
+/* Cópia da atividade id, logo a seguir à original (ou em "por agendar", se a original lá estiver). Não fica bloqueada.
+   Pode cair fora das datas da viagem: aí aparece o aviso próprio. Devolve a cópia, ou null se id não existir. */
+export function duplicateBlock(t, id, newId){
+  const f=findBlock(t,id);
+  if(!f) return null;
+  const c=structuredClone(f.b);
+  c.id=newId('a');
+  delete c.locked;
+  if(f.where==='tray') t.tray.push(c);
+  else { Object.assign(c, dateAt(t, absStart(t,f.b)+f.b.len)); t.blocks.push(c); }
+  return c;
+}
+/* Tira o sítio id da viagem, dos dias onde estava e das atividades (na grelha e por agendar). */
+export function removePlace(t, id){
+  t.places=t.places.filter(p=>p.id!==id);
+  for(const d of Object.keys(t.dayPlaces)){
+    t.dayPlaces[d]=t.dayPlaces[d].filter(p=>p!==id);
+    if(!t.dayPlaces[d].length) delete t.dayPlaces[d];
+  }
+  for(const b of t.blocks.concat(t.tray)) if(b.place===id) delete b.place;
+}
+/* Painel do dia, "Aplicar": o sítio p1 de from até until (inclusive; until vazio = só from).
+   O segundo sítio p2 (para onde se vai durante o dia) só fica no último dia do intervalo. Sem p1 nem p2, limpa.
+   Devolve true quando p2 ficou só no último dia de um intervalo com mais de um dia (a página avisa). */
+export function setDayPlaces(t, from, until, p1, p2){
+  const ds=days(t), i=ds.indexOf(from), j=until ? ds.indexOf(until) : i;
+  for(let k=i;k<=j;k++){
+    const arr=[];
+    if(p1) arr.push(p1);
+    if(p2 && p2!==p1 && k===j) arr.push(p2);
+    if(arr.length) t.dayPlaces[ds[k]]=arr; else delete t.dayPlaces[ds[k]];
+  }
+  return !!(p2 && j>i && p2!==p1);
+}
+
+/* ---------- cabeçalho do quadro ---------- */
+/* Os sítios por onde a viagem passa, pela ordem dos dias e sem repetir o mesmo sítio seguido. */
+export function routeSummary(t){
+  const seq=[];
+  for(const d of days(t)) for(const p of t.dayPlaces[d]||[]) if(seq[seq.length-1]!==p) seq.push(p);
+  return seq;
+}
+/* "5–8 jul 2027" no mesmo mês, "30 jun – 2 jul 2027" em meses diferentes. */
+export function dateRangeLabel(t){
+  const s0=parseISO(t.start), s1=parseISO(t.end), M=MON();
+  if(s0.getMonth()===s1.getMonth() && s0.getFullYear()===s1.getFullYear()) return `${s0.getDate()}–${s1.getDate()} ${M[s1.getMonth()]} ${s1.getFullYear()}`;
+  return `${s0.getDate()} ${M[s0.getMonth()]} – ${s1.getDate()} ${M[s1.getMonth()]} ${s1.getFullYear()}`;
+}
