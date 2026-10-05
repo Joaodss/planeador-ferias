@@ -45,3 +45,6 @@ export function computeWarnings(t, L0){
   for(const b of t.blocks) if(!byDate.has(b.date)) W.push({sev:'bad', ids:[b.id], date:b.date, t:tr('wDates',{a:b.title}), d:tr('wDatesD',{date:b.date})});
   return W;
 }
+
+/* Ordem do painel "Pontos a rever": por data e, no mesmo dia, os graves ('bad') primeiro. Não muda a lista recebida. */
+export function sortWarnings(ws){ return ws.slice().sort((a,b)=>String(a.date).localeCompare(String(b.date)) || (a.sev===b.sev ? 0 : a.sev==='bad' ? -1 : 1)); }

@@ -4,7 +4,9 @@ import { store, clearStore } from './env.mjs';
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { I18N } from '../web/js/i18n.js';
-import { normTrip, days, rangeLabel, money, blockCostPP, placeById, placeName, addPlace, findBlock, blocksOf, moveTo, toTray, boardFrame, toBoard, fromBoard } from '../web/js/trip.js';
+import { normTrip, days, rangeLabel, money, blockCostPP, placeById, placeName, addPlace, findBlock, blocksOf, moveTo, toTray, boardFrame, toBoard, fromBoard,
+  newBlock, duplicateBlock, removePlace, setDayPlaces, routeSummary, dateRangeLabel } from '../web/js/trip.js';
+import { tr } from '../web/js/i18n.js';
 
 process.env.TZ = 'Europe/Lisbon';   // TZ.local(): o segundo fuso quando não há outro escolhido
 const H = h => h * 60;
@@ -153,4 +155,74 @@ test('boardFrame, toBoard e fromBoard: nada muda na hora da viagem; no segundo f
   // dias fora da viagem não acrescentam colunas
   far.blocks[0] = { id: 'fora', date: '2027-06-01', start: 0, len: 60, title: 'Fora', cat: 'tour' };
   assert.deepEqual(boardFrame(far).ds, [D1, D2, D3]);
+});
+
+let ids = 0;
+const newId = p => `${p}novo${++ids}`;
+
+test('newBlock: os mesmos valores por omissão no quadro, no painel do dia e em "por agendar"', () => {
+  const base = { len: 60, title: tr('newActivity'), cat: 'tour', status: 'ideia' };
+  const tray = newBlock({}, newId);
+  assert.match(tray.id, /^anovo/);
+  assert.deepEqual({ ...tray, id: 'x' }, { id: 'x', ...base });
+  assert.deepEqual({ ...newBlock({ date: D2, start: H(9) }, newId), id: 'x' }, { id: 'x', date: D2, start: H(9), ...base });
+  assert.notEqual(newBlock({}, newId).id, tray.id);
+});
+
+test('duplicateBlock: na grelha fica logo a seguir, em "por agendar" fica lá, fora das datas também, e nunca bloqueada', () => {
+  const t = trip({
+    blocks: [{ id: 'a', date: D1, start: H(22), len: H(3), title: 'A', cat: 'tour', locked: true, pp: 5 }, { id: 'z', date: D3, start: H(10), len: H(24), title: 'Z', cat: 'tour' }],
+    tray: [{ id: 'b', len: 30, title: 'B', cat: 'tour' }],
+  });
+  const c = duplicateBlock(t, 'a', newId);
+  assert.deepEqual([c.date, c.start, c.len, c.pp, c.title], [D1, H(25), H(3), 5, 'A'], 'a A acaba à 01:00 dessa noite, que no quadro ainda é o dia 5');
+  assert.equal('locked' in c, false);
+  assert.equal(t.blocks[0].locked, true, 'a original continua bloqueada');
+  assert.equal(t.blocks.at(-1), c);
+  const d = duplicateBlock(t, 'b', newId);
+  assert.equal(t.tray.at(-1), d);
+  assert.equal('date' in d, false);
+  const z = duplicateBlock(t, 'z', newId);
+  assert.deepEqual([z.date, z.start], ['2027-07-08', H(10)], 'pode cair fora das datas (aí há um aviso)');
+  assert.equal(duplicateBlock(t, 'nada', newId), null);
+  t.blocks[0].pp = 9;
+  assert.equal(c.pp, 5, 'é uma cópia, não a mesma atividade');
+});
+
+test('removePlace: sai dos sítios, dos dias e das atividades na grelha e em "por agendar"', () => {
+  const t = trip({
+    places: [{ id: 'lx', name: 'Lisboa', c: 1 }, { id: 'po', name: 'Porto', c: 2 }],
+    dayPlaces: { [D1]: ['lx'], [D2]: ['lx', 'po'], [D3]: ['po'] },
+    blocks: [{ id: 'a', date: D1, start: H(10), len: 60, title: 'A', cat: 'tour', place: 'lx' }, { id: 'b', date: D3, start: H(10), len: 60, title: 'B', cat: 'tour', place: 'po' }],
+    tray: [{ id: 'c', len: 60, title: 'C', cat: 'tour', place: 'lx' }],
+  });
+  removePlace(t, 'lx');
+  assert.deepEqual(t.places.map(p => p.id), ['po']);
+  assert.deepEqual(t.dayPlaces, { [D2]: ['po'], [D3]: ['po'] });
+  assert.deepEqual([t.blocks[0].place, t.blocks[1].place, t.tray[0].place], [undefined, 'po', undefined]);
+});
+
+test('setDayPlaces: um dia, um intervalo, segundo sítio só no último dia, e limpar', () => {
+  const t = trip();
+  assert.equal(setDayPlaces(t, D1, '', 'lx', ''), false);
+  assert.deepEqual(t.dayPlaces, { [D1]: ['lx'] });
+  assert.equal(setDayPlaces(t, D1, D3, 'lx', 'po'), true, 'o Porto só fica no último dia: a página avisa');
+  assert.deepEqual(t.dayPlaces, { [D1]: ['lx'], [D2]: ['lx'], [D3]: ['lx', 'po'] });
+  assert.equal(setDayPlaces(t, D2, '', 'lx', 'po'), false, 'num dia só não há aviso');
+  assert.deepEqual(t.dayPlaces[D2], ['lx', 'po']);
+  assert.equal(setDayPlaces(t, D1, D2, 'lx', 'lx'), false, 'o mesmo sítio duas vezes conta uma');
+  assert.deepEqual(t.dayPlaces[D2], ['lx']);
+  setDayPlaces(t, D3, '', '', 'po');
+  assert.deepEqual(t.dayPlaces[D3], ['po'], 'só o segundo sítio');
+  setDayPlaces(t, D1, D3, '', '');
+  assert.deepEqual(t.dayPlaces, {}, 'sem sítios limpa');
+});
+
+test('routeSummary e dateRangeLabel: sítios seguidos sem repetir; mesmo mês ou meses diferentes', () => {
+  const t = trip({ dayPlaces: { [D1]: ['lx'], [D2]: ['lx', 'po'], [D3]: ['po', 'lx'] } });
+  assert.deepEqual(routeSummary(t), ['lx', 'po', 'lx']);
+  assert.deepEqual(routeSummary(trip()), []);
+  assert.equal(dateRangeLabel(t), '5–7 jul 2027');
+  assert.equal(dateRangeLabel(trip({ start: '2027-06-29', end: '2027-07-02' })), '29 jun – 2 jul 2027');
+  assert.equal(dateRangeLabel(trip({ start: '2026-12-20', end: '2027-12-02' })), '20 dez – 2 dez 2027', 'mesmo mês noutro ano');
 });

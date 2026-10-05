@@ -1,6 +1,7 @@
 /* Cálculo de custos: categorias, totais e parcelas. */
 import { tr } from './i18n.js';
 import { esc } from './util.js';
+import { days } from './trip.js';
 
 const DEFAULT_CAT_IDS = ['alojamento','transporte','alimentacao','atividades','festas','compras','outros'];
 const defaultCats = () => DEFAULT_CAT_IDS.map(id=>({id, name:tr('defaultCats')[id]}));
@@ -34,3 +35,37 @@ export function costItems(t){
   return out;
 }
 export function catOptions(t, sel, first){ return (first||'') + cats(t).map(c=>`<option value="${esc(c.id)}"${c.id===sel?' selected':''}>${esc(c.name)}</option>`).join(''); }
+
+/* Totais do rodapé do quadro: por pessoa, para o grupo e quantas atividades estão por reservar. */
+export function tripStats(t){
+  const pp=tripTotal(t)/nPeople(t);
+  return {pp, total:pp*(t.people||1), toBook:t.blocks.concat(t.tray).filter(b=>b.status==='reservar').length};
+}
+
+/* Tudo o que o painel de custos mostra, já somado (valores para o grupo):
+   total e pago; byCat com as parcelas de cada categoria (a mais cara primeiro; dentro, por data e depois pelo valor);
+   byDay com cada dia da viagem; general com os custos sem dia ou fora das datas;
+   budget {left, over, pct} se houver orçamento, senão null. */
+export function costSummary(t){
+  const items=costItems(t);
+  const sum=list=>list.reduce((s,i)=>s+i.total,0);
+  const total=sum(items), paid=sum(items.filter(i=>i.paid));
+  const groups=new Map();
+  for(const i of items){
+    if(!groups.has(i.cat)) groups.set(i.cat,[]);
+    groups.get(i.cat).push(i);
+  }
+  const byCat=[...groups.entries()]
+    .map(([id,list])=>({id, sum:sum(list), list:list.slice().sort((a,b)=>String(a.date||'').localeCompare(String(b.date||''))||b.total-a.total)}))
+    .sort((a,b)=>b.sum-a.sum);
+  const ds=days(t), inTrip=new Set(ds), sumOf=new Map();
+  for(const i of items) if(i.date) sumOf.set(i.date, (sumOf.get(i.date)||0)+i.total);
+  const byDay=ds.map(d=>({d, sum:sumOf.get(d)||0}));
+  const general=sum(items.filter(i=>!i.date || !inTrip.has(i.date)));
+  let budget=null;
+  if(t.budget>0){
+    const left=t.budget-total;
+    budget={left, over:left<0, pct:Math.round(total/t.budget*100)};
+  }
+  return {total, paid, byCat, byDay, general, budget};
+}

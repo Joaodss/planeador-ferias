@@ -3,7 +3,8 @@ import './env.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { I18N } from '../web/js/i18n.js';
-import { cats, ownCats, catName, hasCat, autoCat, blockCat, lineCat, nPeople, blockTotal, lineTotal, costLines, dayCostPP, dayTotalsPP, tripTotal, costItems, catOptions } from '../web/js/costs.js';
+import { cats, ownCats, catName, hasCat, autoCat, blockCat, lineCat, nPeople, blockTotal, lineTotal, costLines, dayCostPP, dayTotalsPP, tripTotal, costItems, catOptions,
+  tripStats, costSummary } from '../web/js/costs.js';
 
 const D1 = '2027-07-05', D2 = '2027-07-06';
 function trip(extra) {
@@ -114,4 +115,30 @@ test('catOptions escapa os nomes e marca a escolhida', () => {
   assert.equal(catOptions(t, 'k2', '<option value="">—</option>'),
     '<option value="">—</option><option value="a&quot;b">&lt;Festas &amp; cia&gt;</option><option value="k2" selected>Outros</option>');
   assert.equal(catOptions(t), '<option value="a&quot;b">&lt;Festas &amp; cia&gt;</option><option value="k2">Outros</option>');
+});
+
+test('tripStats: por pessoa, para o grupo e quantas estão por reservar (na grelha e por agendar)', () => {
+  const t = trip({ tray: [{ id: 'x', title: 'X', status: 'reservar', pp: 1 }] });
+  t.blocks[1].status = 'reservar';
+  assert.deepEqual(tripStats(t), { pp: (270 + 110) / 2, total: 270 + 110, toBook: 2 });
+  assert.equal(tripStats({ people: 0, blocks: [], tray: [], costs: [] }).total, 0);
+});
+
+test('costSummary: total e pago, por categoria (a maior primeiro), por dia, gerais e fora das datas', () => {
+  const t = trip({ costs: [...trip().costs, { id: 'fora', label: 'Fora', amount: 7, per: 'total', date: '2027-09-01' }] });
+  const s = costSummary(t);
+  assert.equal(s.total, 380 + 7);
+  assert.equal(s.paid, 20 + 100, 'o museu (estado pago) e o hotel (marcado pago)');
+  assert.deepEqual(s.byCat.map(c => [c.id, c.sum]), [['outros', 220], ['alojamento', 100], ['alimentacao', 30], ['atividades', 20], ['sem', 17]], 'o voo tem a categoria "outros" escolhida à mão');
+  assert.deepEqual(s.byCat.at(-1).list.map(i => i.label), ['Sem descrição', 'Fora'], 'sem data primeiro, e depois por data');
+  assert.deepEqual(s.byDay, [{ d: D1, sum: 20 + 30 + 100 }, { d: D2, sum: 220 }]);
+  assert.equal(s.general, 10 + 7, 'o seguro (sem dia) e o custo fora das datas');
+  assert.equal(s.budget, null);
+});
+
+test('costSummary: orçamento com margem e ultrapassado', () => {
+  assert.deepEqual(costSummary(trip({ budget: 400 })).budget, { left: 20, over: false, pct: 95 });
+  assert.deepEqual(costSummary(trip({ budget: 300 })).budget, { left: -80, over: true, pct: 127 });
+  const empty = costSummary(trip({ blocks: [], costs: [], budget: 50 }));
+  assert.deepEqual([empty.total, empty.byCat, empty.general, empty.budget], [0, [], 0, { left: 50, over: false, pct: 0 }]);
 });

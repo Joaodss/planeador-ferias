@@ -1,10 +1,12 @@
 /* O quadro: cabeçalho da viagem, grelha de dias e horas, tabuleiro "por agendar" e totais. */
 import { tr } from '../i18n.js';
-import { esc, short, SNAP, WD, MON, statusLabel, parseISO, mlabel, durLabel, dayLabel, newId } from '../util.js';
+import { esc, short, WD, MON, statusLabel, parseISO, mlabel, durLabel, dayLabel, newId } from '../util.js';
 import { $, isMobile, refreshSlot, PXM, announce } from './dom.js';
-import { S, T, ensureActive, pushHistory, dropHistory } from '../state.js';
-import { days, view, money, placeById, placeName, findBlock, boardLayout, rangeLabel, boardFrame, toBoard, fromBoard } from '../trip.js';
-import { nPeople, tripTotal, dayTotalsPP } from '../costs.js';
+import { S, T, ensureActive, pushHistory } from '../state.js';
+import { days, view, money, placeById, placeName, findBlock, boardLayout, rangeLabel, boardFrame, toBoard, fromBoard, newBlock, routeSummary, dateRangeLabel } from '../trip.js';
+import { laneLayout } from '../span.js';
+import { keyMove } from '../moves.js';
+import { tripStats, dayTotalsPP } from '../costs.js';
 import { computeWarnings } from '../warnings.js';
 import { TZ, secondTz, setViewingHome } from '../tz.js';
 import { commit, undo } from '../sync.js';
@@ -15,13 +17,6 @@ import { openTripSheet } from './tripsheet.js';
 import { renderDash } from './costsheet.js';
 import { renderWarnings } from './review.js';
 
-/* Faixas lado a lado para pedaços que se sobrepõem numa coluna (top/bot em minutos desde T0). */
-function laneLayout(list){
-  const res=new Map(); let cl=[], end=-1;
-  const flush=()=>{ const lanes=[]; for(const s of cl){ let li=lanes.findIndex(e=>e<=s.top); if(li<0){ li=lanes.length; lanes.push(0);} lanes[li]=s.bot; res.set(s.b.id,{lane:li}); } for(const s of cl) res.get(s.b.id).n=lanes.length; cl=[]; end=-1; };
-  for(const s of list){ if(cl.length && s.top>=end) flush(); cl.push(s); end=Math.max(end,s.bot); }
-  if(cl.length) flush(); return res;
-}
 /* seg: o pedaço visível numa coluna (null no tabuleiro). Um pedaço cortado continua noutro dia ou nas horas escondidas.
    vb: dia e hora da atividade no quadro (toBoard), que pode estar no segundo fuso. */
 function blockEl(t, b, warnMap, seg, vb){
@@ -61,10 +56,8 @@ export function render(){
   $('#trip-name').textContent=t.name;
   // F: colunas do quadro e deslocamento quando o quadro está no segundo fuso (ver boardFrame)
   const tds=days(t), v=view(t), H=v.span*PXM(), F=boardFrame(t), ds=F.ds;
-  // route summary
-  const seq=[]; tds.forEach(d=>(t.dayPlaces[d]||[]).forEach(p=>{ if(seq[seq.length-1]!==p) seq.push(p); }));
-  const s0=parseISO(t.start), s1=parseISO(t.end);
-  const range = s0.getMonth()===s1.getMonth() ? `${s0.getDate()}–${s1.getDate()} ${MON()[s1.getMonth()]} ${s1.getFullYear()}` : `${s0.getDate()} ${MON()[s0.getMonth()]} – ${s1.getDate()} ${MON()[s1.getMonth()]} ${s1.getFullYear()}`;
+  // sítios por onde passa e datas
+  const seq=routeSummary(t), range=dateRangeLabel(t);
   // sec: segundo fuso. off≠0 quando o quadro está na hora do segundo fuso: aí as duas cidades trocam de papel.
   const sec=secondTz(t), off=F.off;
   const main = off ? sec.tz : t.tz, other = sec && (off ? {tz:t.tz, diff:-sec.diff} : sec);
@@ -134,10 +127,10 @@ export function render(){
   const tl=$('#tray-list'); tl.innerHTML='';
   if(!t.tray.length) tl.innerHTML=`<span class="tray-empty">${tr('trayEmpty')}</span>`;
   for(const b of t.tray) tl.appendChild(blockEl(t,b,warnMap,null));
-  // stats
-  const pp=tripTotal(t)/nPeople(t);
-  $('#tot-pp').textContent=money(t,pp); $('#tot-n-k').textContent = t.people>1 ? tr('totalFor',{n:t.people}) : tr('total'); $('#tot-n').textContent=money(t,pp*(t.people||1));
-  const res=t.blocks.concat(t.tray).filter(b=>b.status==='reservar').length; $('#tot-res').textContent=String(res);
+  // totais
+  const stats=tripStats(t);
+  $('#tot-pp').textContent=money(t,stats.pp); $('#tot-n-k').textContent = t.people>1 ? tr('totalFor',{n:t.people}) : tr('total'); $('#tot-n').textContent=money(t,stats.total);
+  $('#tot-res').textContent=String(stats.toBook);
   const btn=$('#warn-btn'); const bad=warns.filter(w=>w.sev==='bad').length;
   btn.classList.toggle('has-warn', warns.length>0 && !bad); btn.classList.toggle('has-bad', bad>0);
   $('#warn-txt').textContent = warns.length ? tr('nToReview',{n:warns.length}) : tr('noConflicts');
@@ -154,7 +147,7 @@ export function focusBlock(id){
   el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); el.focus({preventScroll:true});
 }
 
-/* O botão Desfazer só fica ativo com pontos para desfazer (render() chama-a; também depois de um dropHistory sem render). */
+/* O botão Desfazer só fica ativo com pontos para desfazer (render() chama-a; quem fizer dropHistory sem render também). */
 export function refreshUndo(){ $('#undo').disabled=!S.history.length; }
 
 /* Eventos do quadro (main.js chama-a uma vez ao arrancar).
@@ -164,7 +157,7 @@ export function initBoard(){
     if(e.target.closest('.blk,.hid')) return; const col=e.target.closest('.day-col'); if(!col) return;
     const t=T(), v=view(t), r=col.getBoundingClientRect();
     const s=Math.max(v.T0, Math.min(v.T1-30, v.T0+Math.floor((e.clientY-r.top)/PXM()/30)*30));
-    pushHistory(); const b={id:newId('a'), ...fromBoard(t,boardFrame(t),col.dataset.date,s), len:60, title:tr('newActivity'), cat:'tour', status:'ideia'};
+    pushHistory(); const b=newBlock(fromBoard(t,boardFrame(t),col.dataset.date,s), newId);
     t.blocks.push(b); commit(); openEditor(b.id,true);
   });
   $('#board').addEventListener('click', e=>{
@@ -181,15 +174,10 @@ export function initBoard(){
     if(e.key==='Enter'||e.key===' '){ e.preventDefault(); openEditor(b.id); return; }
     if(f.where==='tray'||b.locked) return;
     const k=e.key; if(!['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(k)) return;
-    // as setas andam na hora do quadro (pode ser o segundo fuso); no fim converte-se para a hora da viagem
-    e.preventDefault(); const t=T(), v=view(t), F=boardFrame(t), ds=F.ds; let {date,start}=toBoard(t,F,b); const di=ds.indexOf(date); let ch=false; pushHistory();
-    // a duração não tem limite (pode passar para o dia seguinte); o início fica dentro do horário visível para não perder o foco
-    if(e.shiftKey){ if(k==='ArrowDown'){ b.len+=SNAP; ch=true; } if(k==='ArrowUp'&&b.len>SNAP){ b.len-=SNAP; ch=true; } }
-    else { if(k==='ArrowUp'&&start>v.T0){ start-=SNAP; ch=true; } if(k==='ArrowDown'&&start+SNAP<v.T1){ start+=SNAP; ch=true; }
-      if(k==='ArrowLeft'&&di>0){ date=ds[di-1]; ch=true; } if(k==='ArrowRight'&&di>=0&&di<ds.length-1){ date=ds[di+1]; ch=true; }
-      if(ch) Object.assign(b, fromBoard(t,F,date,start)); }
-    if(!ch){ dropHistory(); refreshUndo(); return; }
-    commit(); announce(`${b.title}: ${dayLabel(date,true)} ${rangeLabel({start, len:b.len})}`);
+    // as setas andam na hora do quadro (pode ser o segundo fuso); keyMove (moves.js) devolve o que se guarda
+    e.preventDefault(); const t=T(), m=keyMove(t, boardFrame(t), b, k, e.shiftKey); if(!m) return;
+    pushHistory(); b.date=m.date; b.start=m.start; b.len=m.len;
+    commit(); announce(`${b.title}: ${dayLabel(m.bd,true)} ${rangeLabel({start:m.bs, len:b.len})}`);
     const again=document.querySelector(`.blk[data-id="${CSS.escape(b.id)}"]`); if(again) again.focus();
   });
 
