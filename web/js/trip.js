@@ -4,10 +4,12 @@ import { parseISO, iso, addDays, newId, mlabel } from './util.js';
 import { T } from './state.js';
 import { view, segments, hiddenEdge, dayShift, absStart, addISO, frameShift, toFrame, fromFrame } from './span.js';
 import { viewOffset } from './tz.js';
+import { cleanTrip } from './clean.js';
 
 export { view } from './span.js';
 
-export function normTrip(t){ t.places=t.places||[]; t.dayPlaces=t.dayPlaces||{}; t.blocks=t.blocks||[]; t.tray=t.tray||[]; t.people=t.people||1; t.currency=t.currency||'€'; if(t.dayStart==null) t.dayStart=7; if(t.dayEnd==null) t.dayEnd=1; return t; }
+/* Preenche o que falta nos dados antigos e limpa o que vem malformado do servidor ou de uma importação (clean.js). */
+export function normTrip(t){ return cleanTrip(t, newId); }
 export function days(t){ const out=[]; if(!t) return out; let d=parseISO(t.start); const e=parseISO(t.end); while(d<=e && out.length<120){ out.push(iso(d)); d=addDays(d,1);} return out; }
 /* "22:00–06:00 +1": o +N conta as meias-noites atravessadas. */
 export function rangeLabel(b){ const n=dayShift(b); return `${mlabel(b.start)}–${mlabel(b.start+b.len)}${n?' +'+n:''}`; }

@@ -25,7 +25,7 @@ function timeAt(t, F, col, y){ return F.ds.indexOf(col.dataset.date)*1440 + view
 function startDrag(){
   const drag=S.drag; if(!drag) return;
   if(drag.locked){ toast(tr('tLocked')); drag.cancelled=true; return; }
-  drag.active=true; pushHistory(); document.body.classList.add('is-dragging');
+  drag.active=true; pushHistory(); drag.snap=S.history[S.history.length-1]; document.body.classList.add('is-dragging');
   const t=T(), f=findBlock(drag.id), col=drag.el.closest('.day-col'); drag.F=boardFrame(t);
   if(drag.mode==='move'){
     // no quadro, o fantasma tem o tamanho do pedaço agarrado (uma atividade de 30 h não cabe no ecrã)
@@ -92,13 +92,16 @@ function autoScroll(){
   if(dx||dy){ scroller.scrollBy(dx,dy); updateDrag(); }
   requestAnimationFrame(autoScroll);
 }
+/* Tira o ponto de Desfazer do arrasto, mas só se ainda for o do topo: um 409 ou o refetch podem tê-lo apagado. */
+function dropOwn(d){ if(S.history.length && S.history[S.history.length-1]===d.snap) dropHistory(); }
 function endDrag(e){
   if(!S.drag || e.pointerId!==S.drag.pointerId) return;
   clearTimeout(S.drag.timer); const d=S.drag; S.drag=null;
   document.body.classList.remove('is-dragging'); if(d.ghost) d.ghost.remove(); clearTargets();
   if(!d.active){ if(!d.cancelled && e.type==='pointerup' && Math.hypot(e.clientX-d.x0,e.clientY-d.y0)<8 && !(e.target.closest&&e.target.closest('.grip'))) openEditor(d.id); return; }
-  if(e.type==='pointercancel' || !d.target){ dropHistory(); render(); return; }
-  const f=findBlock(d.id);
+  if(e.type==='pointercancel' || !d.target){ dropOwn(d); render(); return; }
+  // desfeita, apagada ou substituída por um 409 ou pelo refetch durante o arrasto
+  const f=findBlock(d.id); if(!f){ dropOwn(d); render(); return; }
   if(d.mode==='resize'){ f.b.len=d.target.len; announce(`${f.b.title}: ${durLabel(f.b.len)}`); }
   else if(d.target.tray){ toTray(d.id); announce(tr('movedToTray',{a:f.b.title})); }
   else { moveTo(d.id,d.target.date,d.target.start); announce(`${f.b.title} → ${dayLabel(d.target.bd,true)}, ${mlabel(d.target.bs)}`); }

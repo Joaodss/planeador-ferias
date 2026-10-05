@@ -1,6 +1,6 @@
 /* O quadro: cabeçalho da viagem, grelha de dias e horas, tabuleiro "por agendar" e totais. */
 import { tr } from '../i18n.js';
-import { $, esc, short, isMobile, refreshSlot, PXM, SNAP, WD, MON, STATUS, parseISO, mlabel, durLabel, dayLabel, newId, announce } from '../util.js';
+import { $, esc, short, isMobile, refreshSlot, PXM, SNAP, WD, MON, statusLabel, parseISO, mlabel, durLabel, dayLabel, newId, announce } from '../util.js';
 import { S, T, ensureActive, pushHistory, dropHistory } from '../state.js';
 import { days, view, fmt, blockCostPP, placeById, placeName, findBlock, blocksOf, boardLayout, rangeLabel, boardFrame, toBoard, fromBoard } from '../trip.js';
 import { nPeople, tripTotal, dayCostPP } from '../costs.js';
@@ -29,14 +29,14 @@ function blockEl(b, warnMap, seg, vb){
   el.dataset.id=b.id; el.tabIndex=0; el.setAttribute('role','button');
   const w=warnMap.get(b.id);
   const cost = b.pp ? `<span class="eur">${fmt(b.pp)} pp</span>` : (b.total ? `<span class="eur">${fmt(b.total)}</span>` : '');
-  const st = b.status ? `<span class="st st-${b.status}">${(b.status==='reservado'||b.status==='pago')?'✓ ':''}${STATUS()[b.status]}</span>` : '';
+  const sl = statusLabel(b.status), st = sl ? `<span class="st st-${b.status}">${(b.status==='reservado'||b.status==='pago')?'✓ ':''}${esc(sl)}</span>` : '';
   const time = inTray ? durLabel(b.len) : rangeLabel({start:vb.start, len:b.len});
   el.innerHTML = `<div class="t">${esc(b.title)}</div><div class="m"><span>${time}</span>${cost}${st}</div>`
     + (w?`<span class="badge" title="${esc(w.map(x=>x.t).join('\n'))}">!</span>`:'')
     + (b.locked?`<svg class="lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>`:'')
     + (inTray||seg.cutBot?'':'<div class="grip" aria-hidden="true"></div>');
   if(w){ el.classList.add('has-badge'); if(w.some(x=>x.sev==='bad')) el.classList.add('bad'); }
-  el.setAttribute('aria-label', `${b.title}, ${inTray?tr('unscheduledLower'):dayLabel(vb.date,true)+' '+time}${b.status?', '+STATUS()[b.status]:''}${w?', '+tr('nWarnings',{n:w.length}):''}`);
+  el.setAttribute('aria-label', `${b.title}, ${inTray?tr('unscheduledLower'):dayLabel(vb.date,true)+' '+time}${sl?', '+sl:''}${w?', '+tr('nWarnings',{n:w.length}):''}`);
   return el;
 }
 export function render(){
@@ -164,7 +164,8 @@ $('#board').addEventListener('click', e=>{
 
 /* Teclado: Ctrl/⌘+Z, Esc, e setas para mover ou redimensionar a atividade com foco. */
 document.addEventListener('keydown', e=>{
-  if((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==='z' && !e.target.closest('input,textarea,select')){ e.preventDefault(); undo(); return; }
+  // durante um arrasto o Desfazer tiraria a atividade de debaixo do rato
+  if((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==='z' && !e.target.closest('input,textarea,select')){ e.preventDefault(); if(!(S.drag&&S.drag.active)) undo(); return; }
   if(e.key==='Escape'){ closeSheets(); return; }
   const el=e.target.closest&&e.target.closest('.blk'); if(!el) return;
   const f=findBlock(el.dataset.id); if(!f) return; const b=f.b;

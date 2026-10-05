@@ -1,6 +1,6 @@
 /* Ficheiros: exportar Excel, cópia de segurança e importar. */
 import { tr } from '../i18n.js';
-import { $, pad, newId, CATS, STATUS, parseISO, mlabel, durLabel, dayLabel, toast } from '../util.js';
+import { $, pad, newId, CATS, statusLabel, parseISO, mlabel, durLabel, dayLabel, toast } from '../util.js';
 import { S, T, setActive, pushHistory } from '../state.js';
 import { normTrip, days, view, placeName, boardLayout } from '../trip.js';
 import { dayShift } from '../span.js';
@@ -36,7 +36,7 @@ $('#export').addEventListener('click', async ()=>{
   const ws=XLSX.utils.aoa_to_sheet(aoa); ws['!merges']=merges; ws['!cols']=[{wch:7}].concat(ds.map(()=>({wch:24})));
   const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,tr('xPlan'));
   const head=tr('xHead');
-  const rowOf=b=>[b.date?dayLabel(b.date,true):tr('unscheduled'), b.date?mlabel(b.start):'', b.date?mlabel(b.start+b.len)+(dayShift(b)?' +'+dayShift(b):''):durLabel(b.len), b.title, CATS()[b.cat]||'', placeName(b.place)||'', b.status?STATUS()[b.status]:'', (b.pp||b.total)?catName(t,blockCat(t,b)):'', b.pp||'', b.total||'', b.address||'', b.link||'', b.ref||'', b.note||''];
+  const rowOf=b=>[b.date?dayLabel(b.date,true):tr('unscheduled'), b.date?mlabel(b.start):'', b.date?mlabel(b.start+b.len)+(dayShift(b)?' +'+dayShift(b):''):durLabel(b.len), b.title, CATS()[b.cat]||'', placeName(b.place)||'', statusLabel(b.status), (b.pp||b.total)?catName(t,blockCat(t,b)):'', b.pp||'', b.total||'', b.address||'', b.link||'', b.ref||'', b.note||''];
   const det=t.blocks.filter(b=>b.cat!=='sleep').slice().sort((a,b)=>a.date.localeCompare(b.date)||a.start-b.start).map(rowOf).concat(t.tray.map(rowOf));
   const ws2=XLSX.utils.aoa_to_sheet([head].concat(det)); ws2['!cols']=[14,7,7,34,11,16,12,18,9,10,24,30,14,40].map(w=>({wch:w}));
   XLSX.utils.book_append_sheet(wb,ws2,tr('xDetails'));
