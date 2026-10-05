@@ -1,86 +1,161 @@
-// Testes dos módulos com estado mas sem interface (trip.js, costs.js, warnings.js), num DOM mínimo.
-import { test } from 'node:test';
+// Testes de trip.js: dias, sítios, mover atividades e o quadro noutro fuso (num DOM mínimo).
+// Os avisos estão em warnings.test.mjs e os custos em costs.test.mjs.
+import { store, clearStore } from './dom.mjs';
+import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
+import { S } from '../web/js/state.js';
+import { I18N } from '../web/js/i18n.js';
+import { normTrip, days, rangeLabel, fmt, blockCostPP, placeById, placeName, addPlace, findBlock, blocksOf, moveTo, toTray, boardFrame, toBoard, fromBoard } from '../web/js/trip.js';
 
-const def = (k, value) => Object.defineProperty(globalThis, k, { value, configurable: true, writable: true });
-const store = {};
-def('navigator', { language: 'pt-PT' });
-def('localStorage', { getItem: k => store[k] ?? null, setItem: (k, v) => { store[k] = String(v); }, removeItem: k => { delete store[k]; } });
-def('document', { documentElement: {}, querySelector: () => ({}), querySelectorAll: () => [] });
-def('getComputedStyle', () => ({ getPropertyValue: () => '24' }));
-
-const { S } = await import('../web/js/state.js');
-const { I18N, tr } = await import('../web/js/i18n.js');
-const { normTrip, days, boardLayout, fmt } = await import('../web/js/trip.js');
-const { dayTotalsPP } = await import('../web/js/costs.js');
-const { computeWarnings } = await import('../web/js/warnings.js');
-const { dayLabel } = await import('../web/js/util.js');
-
-// 5 a 8 de julho de 2027 (segunda a quinta), quadro das 08:00 às 02:00. Lisboa nos dois primeiros dias, Porto depois.
+process.env.TZ = 'Europe/Lisbon';   // TZ.local(): o segundo fuso quando não há outro escolhido
 const H = h => h * 60;
-function trip() {
-  return normTrip({
-    id: 't', name: 'Teste', start: '2027-07-05', end: '2027-07-08', dayStart: 8, dayEnd: 2, people: 2, currency: '€',
-    places: [{ id: 'lx', name: 'Lisboa', c: 1 }, { id: 'po', name: 'Porto', c: 2 }],
-    dayPlaces: { '2027-07-05': ['lx'], '2027-07-06': ['lx'], '2027-07-07': ['po'], '2027-07-08': ['po'] },
-    blocks: [
-      { id: 'museu', date: '2027-07-05', start: H(10), len: H(2), title: 'Museu', cat: 'tour', pp: 10 },
-      { id: 'almoco', date: '2027-07-05', start: H(11), len: H(1), title: 'Almoço', cat: 'food', total: 30 },
-      { id: 'feira', date: '2027-07-05', start: H(15), len: H(1), title: 'Feira', cat: 'tour', weekdays: [3], place: 'lx' },
-      { id: 'mercado', date: '2027-07-05', start: H(17), len: H(1), title: 'Mercado', cat: 'tour', weekdays: [3] },
-      { id: 'sono', date: '2027-07-06', start: H(23), len: H(8), title: 'Dormir', cat: 'sleep' },
-      { id: 'jantar', date: '2027-07-06', start: H(23.5), len: H(1), title: 'Jantar tarde', cat: 'food' },
-      { id: 'cedo', date: '2027-07-06', start: H(4), len: H(1), title: 'Nascer do sol', cat: 'tour' },
-      { id: 'torre', date: '2027-07-07', start: H(9), len: H(1), title: 'Torre', cat: 'tour', place: 'lx' },
-      { id: 'festa', date: '2027-07-07', start: H(21), len: H(2.5), title: 'Festa', cat: 'party' },
-      { id: 'barco', date: '2027-07-08', start: H(9), len: H(1), title: 'Barco', cat: 'transport' },
-      { id: 'fora', date: '2027-07-20', start: H(10), len: H(1), title: 'Fora', cat: 'tour' },
-    ],
-    tray: [], costs: [{ id: 'c1', label: 'Hotel', amount: 100, per: 'total', date: '2027-07-05' }, { id: 'c2', label: 'Seguro', amount: 5, per: 'pp' }],
-  });
-}
+const D1 = '2027-07-05', D2 = '2027-07-06', D3 = '2027-07-07';
 const use = t => { S.store = { version: 2, trips: [t] }; S.activeId = t.id; return t; };
-const brief = W => W.map(w => [w.sev, w.ids.join('+'), w.date]);
+const trip = extra => normTrip({ id: 't', name: 'Teste', start: D1, end: D3, dayStart: 8, dayEnd: 2, people: 2, currency: '€', ...extra });
+beforeEach(clearStore);
 
-test('cada regra dos pontos a rever aparece com as atividades e o dia certos', () => {
-  use(trip());
-  assert.deepEqual(brief(computeWarnings()), [
-    ['bad', 'museu+almoco', '2027-07-05'],      // ao mesmo tempo
-    ['warn', 'sono+jantar', '2027-07-06'],      // entra no sono
-    ['bad', 'feira', '2027-07-05'],             // só acontece à quarta
-    ['bad', 'mercado', '2027-07-05'],
-    ['warn', 'cedo', '2027-07-06'],             // às 04:00, fora do horário do quadro
-    ['bad', 'torre', '2027-07-07'],             // é em Lisboa e nesse dia estão no Porto
-    ['warn', 'festa+barco', '2027-07-08'],      // festa até tarde e barco cedo no dia seguinte
-    ['bad', 'fora', '2027-07-20'],              // fora das datas da viagem
-  ]);
+test('days: datas inclusive; início depois do fim → []; máximo 120; sem viagem → []', () => {
+  assert.deepEqual(days(trip()), [D1, D2, D3]);
+  assert.deepEqual(days(trip({ end: D1 })), [D1]);
+  assert.deepEqual(days(trip({ start: D3, end: D1 })), []);
+  assert.deepEqual(days({ start: '2027-12-30', end: '2028-01-02' }), ['2027-12-30', '2027-12-31', '2028-01-01', '2028-01-02']);
+  const long = days({ start: '2027-01-01', end: '2028-12-31' });
+  assert.equal(long.length, 120);
+  assert.equal(long.at(-1), '2027-04-30');
+  assert.deepEqual(days(null), []);
 });
 
-test('com o layout de render() os avisos são os mesmos', () => {
-  const t = use(trip());
-  assert.deepEqual(computeWarnings(boardLayout(t, days(t))), computeWarnings());
-});
-
-test('os dias possíveis dependem dos dias da semana e do sítio de cada atividade', () => {
-  use(trip());
-  const W = computeWarnings(), d = id => W.find(w => w.ids[0] === id && w.sev === 'bad').d;
-  // a feira é em Lisboa e a única quarta é no Porto; o mercado não tem sítio
-  assert.ok(d('feira').endsWith(': ' + tr('none') + '.'), d('feira'));
-  assert.ok(d('mercado').endsWith(': ' + dayLabel('2027-07-07') + '.'), d('mercado'));
+test('rangeLabel: +1 e +2 nas que passam da meia-noite', () => {
+  assert.equal(rangeLabel({ start: H(10), len: H(2) }), '10:00–12:00');
+  assert.equal(rangeLabel({ start: H(22), len: H(2) }), '22:00–00:00', 'acabar à meia-noite em ponto não é +1');
+  assert.equal(rangeLabel({ start: H(22), len: H(8) }), '22:00–06:00 +1');
+  assert.equal(rangeLabel({ start: H(23), len: H(26) }), '23:00–01:00 +2');
+  assert.equal(rangeLabel({ start: H(25), len: H(1) }), '01:00–02:00', 'já começou depois da meia-noite');
 });
 
 test('fmt dá o mesmo que toLocaleString, nas duas línguas', () => {
   use(trip());
+  const L = (v, loc) => (Math.round(v * 100) / 100).toLocaleString(loc, { maximumFractionDigits: 2 });
   for (const v of [0, 7, 1234.5, 0.005, 98765.4321]) {
-    I18N.set('pt'); assert.equal(fmt(v), (Math.round(v * 100) / 100).toLocaleString('pt-PT', { maximumFractionDigits: 2 }) + ' €');
-    I18N.set('en'); assert.equal(fmt(v), '€' + (Math.round(v * 100) / 100).toLocaleString('en-GB', { maximumFractionDigits: 2 }));
+    I18N.set('pt'); assert.equal(fmt(v), L(v, 'pt-PT') + ' €');
+    I18N.set('en'); assert.equal(fmt(v), '€' + L(v, 'en-GB'));
   }
   I18N.set('pt');
 });
 
-test('dayTotalsPP soma por pessoa as atividades e os custos de cada dia', () => {
-  const m = dayTotalsPP(use(trip()));
-  assert.equal(m.get('2027-07-05'), 10 + 30 / 2 + 100 / 2);   // museu pp + almoço total + hotel do dia
-  assert.equal(m.get('2027-07-06'), 0);
-  assert.equal(m.has('2027-07-09'), false);                   // o seguro não tem dia
+test('fmt: moeda que não é € vem antes do número, em PT e EN', () => {
+  use(trip({ currency: 'R$' }));
+  assert.equal(fmt(1234.5), 'R$' + (1234.5).toLocaleString('pt-PT'));
+  I18N.set('en');
+  try { assert.equal(fmt(1234.5), 'R$1,234.5'); } finally { I18N.set('pt'); }
+  S.activeId = null;
+  assert.equal(fmt(5), '5 €', 'sem viagem ativa usa €');
+});
+
+test('blockCostPP: só pp, só total (people 0, 1 e 3), os dois', () => {
+  const t = use(trip());
+  assert.equal(blockCostPP({ pp: 10 }), 10);
+  assert.equal(blockCostPP({}), 0);
+  for (const [people, want] of [[0, 30], [1, 30], [3, 10]]) {
+    t.people = people;
+    assert.equal(blockCostPP({ total: 30 }), want, `${people} pessoas`);
+  }
+  assert.equal(blockCostPP({ pp: 10, total: 30 }), 20);
+});
+
+test('addPlace: tira espaços, não repete (sem olhar a maiúsculas), primeira cor livre e depois cíclica, vazio → null', () => {
+  const t = use(trip({ places: [{ id: 'p1', name: 'Lisboa', c: 1 }, { id: 'p2', name: 'Porto', c: 3 }] }));
+  const faro = addPlace('  Faro ');
+  assert.equal(faro.name, 'Faro');
+  assert.equal(faro.c, 2, 'a primeira cor livre');
+  assert.match(faro.id, /^p/);
+  assert.equal(placeById(faro.id), faro);
+  assert.equal(addPlace('LISBOA'), t.places[0]);
+  assert.equal(addPlace('   '), null);
+  assert.equal(t.places.length, 3);
+  assert.deepEqual(['A', 'B', 'C', 'D', 'E'].map(n => addPlace(n).c), [4, 5, 6, 7, 8]);
+  assert.equal(addPlace('Z').c, 1, 'com as 8 cores usadas, recomeça');
+  assert.equal(addPlace('Y').c, 2);
+  assert.equal(placeName('p2'), 'Porto');
+  assert.equal(placeName('nada'), '');
+  S.activeId = null;
+  assert.equal(placeById('p1'), null);
+});
+
+test('findBlock, moveTo e toTray: grelha ↔ por agendar, start nunca negativo, em "por agendar" sem date/start', () => {
+  const t = use(trip({
+    blocks: [{ id: 'a', date: D1, start: H(10), len: 60, title: 'A', cat: 'tour' }],
+    tray: [{ id: 'b', len: 30, title: 'B', cat: 'tour' }],
+  }));
+  assert.equal(findBlock('a').where, 'grid');
+  assert.equal(findBlock('b').where, 'tray');
+  assert.equal(findBlock('b').b, t.tray[0]);
+  assert.equal(findBlock('x'), null);
+
+  moveTo('b', D2, -30);
+  assert.equal(findBlock('b').where, 'grid');
+  assert.deepEqual(t.tray, []);
+  assert.equal(t.blocks[1].date, D2);
+  assert.equal(t.blocks[1].start, 0, 'start nunca fica negativo');
+  moveTo('a', D3, H(30));
+  assert.deepEqual([t.blocks[0].date, t.blocks[0].start], [D3, H(30)], 'pode começar depois da meia-noite');
+  moveTo('x', D1, 0);
+  assert.equal(t.blocks.length, 2);
+
+  toTray('a');
+  assert.equal(findBlock('a').where, 'tray');
+  assert.equal('date' in t.tray[0] || 'start' in t.tray[0], false);
+  toTray('a'); toTray('x');
+  assert.deepEqual([t.blocks.length, t.tray.length], [1, 1]);
+
+  S.activeId = null;
+  assert.equal(findBlock('b'), null);
+});
+
+test('blocksOf: por início, e as mais longas primeiro', () => {
+  const b = (id, date, start, len) => ({ id, date, start, len, title: id, cat: 'tour' });
+  use(trip({ blocks: [b('c', D1, H(12), 60), b('x', D2, H(9), 60), b('a', D1, H(9), 30), b('b', D1, H(9), 90)] }));
+  assert.deepEqual(blocksOf(D1).map(x => x.id), ['b', 'a', 'c']);
+  assert.deepEqual(blocksOf(D3), []);
+});
+
+test('boardFrame, toBoard e fromBoard: nada muda na hora da viagem; no segundo fuso há colunas extra (no máximo 2) e a ida e volta dá o mesmo', () => {
+  const blocks = [
+    { id: 'manha', date: D1, start: H(9), len: 60, title: 'Manhã', cat: 'tour' },
+    { id: 'noite', date: D2, start: H(25), len: 60, title: 'Noite', cat: 'tour' },
+    { id: 'fim', date: D3, start: H(20), len: 60, title: 'Fim', cat: 'tour' },
+  ];
+  const t = trip({ tz: 'Europe/Lisbon', blocks });
+  store['ferias-home-tz'] = 'America/New_York';   // 5 h atrás de Lisboa em julho
+
+  // Na hora da viagem: as colunas são os dias da viagem e nada é convertido.
+  const F0 = boardFrame(t);
+  assert.deepEqual(F0, { ds: [D1, D2, D3], d0: D1, sh: 0, off: 0 });
+  for (const b of blocks) {
+    assert.deepEqual(toBoard(t, F0, b), { date: b.date, start: b.start });
+    assert.deepEqual(fromBoard(t, F0, b.date, b.start), { date: b.date, start: b.start });
+  }
+
+  // No fuso de Nova Iorque: as 09:00 de dia 5 em Lisboa são as 04:00, antes do início do quadro (08:00),
+  // e ficam no fim da coluna de dia 4, que só aparece por isso.
+  store['ferias-view-home'] = '1';
+  const F = boardFrame(t);
+  assert.deepEqual(F.ds, ['2027-07-04', D1, D2, D3]);
+  assert.equal(F.off, -300);
+  assert.deepEqual(toBoard(t, F, blocks[0]), { date: '2027-07-04', start: H(28) });
+  assert.deepEqual(toBoard(t, F, blocks[1]), { date: D2, start: H(20) });
+  for (const b of blocks) {
+    const v = toBoard(t, F, b);
+    assert.deepEqual(fromBoard(t, F, v.date, v.start), { date: b.date, start: b.start }, b.id);
+  }
+
+  // Kiritimati (+14) visto de Pago Pago (−11): 25 h atrás, duas colunas antes da viagem.
+  const far = trip({ tz: 'Pacific/Kiritimati', blocks: [{ id: 'cedo', date: D1, start: 0, len: 60, title: 'Cedo', cat: 'tour' }] });
+  store['ferias-home-tz'] = 'Pacific/Pago_Pago';
+  assert.deepEqual(boardFrame(far).ds, ['2027-07-03', '2027-07-04', D1, D2, D3]);
+  far.blocks[0].start = -H(40);   // mais cedo ainda (só possível com dados à mão): continua a haver só duas
+  assert.equal(boardFrame(far).ds[0], '2027-07-03');
+  // dias fora da viagem não acrescentam colunas
+  far.blocks[0] = { id: 'fora', date: '2027-06-01', start: 0, len: 60, title: 'Fora', cat: 'tour' };
+  assert.deepEqual(boardFrame(far).ds, [D1, D2, D3]);
 });

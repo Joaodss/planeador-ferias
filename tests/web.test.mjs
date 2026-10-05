@@ -18,8 +18,12 @@ const modules = (function walk(dir) {
 })('js');
 
 // Carrega js/i18n.js num ambiente mínimo de browser. Cada chamada importa uma cópia nova
-// do módulo (o ?n= no URL), porque a língua é escolhida quando o módulo é avaliado.
+// do módulo, porque a língua é escolhida quando o módulo é avaliado.
+// A primeira é o próprio módulo; as outras vêm de um URL data: (o i18n.js não importa nada).
+// Uma cópia com ?n= no URL contava para a cobertura como o mesmo ficheiro e escondia o que
+// os testes tinham corrido no módulo verdadeiro (o i18n.js ficava com 20 % das funções).
 let loads = 0;
+const i18nSource = read('js/i18n.js');
 async function loadI18n({ stored = null, language = 'pt-PT' } = {}) {
   const store = stored ? { 'ferias-lang': stored } : {};
   const doc = { querySelectorAll: () => [], documentElement: {} };
@@ -27,7 +31,9 @@ async function loadI18n({ stored = null, language = 'pt-PT' } = {}) {
   set('navigator', { language });
   set('localStorage', { getItem: k => store[k] ?? null, setItem: (k, v) => { store[k] = v; } });
   set('document', doc);
-  const { I18N } = await import(new URL('../web/js/i18n.js?n=' + (++loads), import.meta.url));
+  // cada data: URL diferente é um módulo novo: o comentário no fim muda o URL sem mudar o código
+  const url = loads++ ? 'data:text/javascript;base64,' + Buffer.from(i18nSource + '\n// ' + loads).toString('base64') : new URL('../web/js/i18n.js', import.meta.url);
+  const { I18N } = await import(url);
   return { I18N, store, doc };
 }
 
@@ -137,6 +143,34 @@ test('tr substitui marcadores e recorre ao PT ou à própria chave', async () =>
   assert.equal(I18N.tr('wOverlap', { a: 'Jantar', b: '{b}' }), 'Jantar and {b} at the same time', 'valores não são reinterpretados');
   assert.equal(I18N.tr('totalFor'), 'For {n}');
   assert.equal(I18N.tr('chave-que-nao-existe'), 'chave-que-nao-existe');
+});
+
+test('I18N.apply preenche o texto, o placeholder, o title e o aria-label', () => {
+  const el = (key, value) => ({ dataset: { [key]: value }, attrs: {}, setAttribute(k, v) { this.attrs[k] = v; } });
+  const found = {
+    '[data-i18n]': [el('i18n', 'close'), el('i18n', 'chave-que-nao-existe')],
+    '[data-i18n-ph]': [el('i18nPh', 'placeNameAria')],
+    '[data-i18n-title]': [el('i18nTitle', 'langSwitchTitle')],
+    '[data-i18n-aria]': [el('i18nAria', 'close')],
+  };
+  const root = { querySelectorAll: s => found[s] || [] };
+  Object.defineProperty(globalThis, 'document', { value: { documentElement: {}, querySelectorAll: () => [] }, configurable: true, writable: true });
+  const before = I18N.lang;
+  try {
+    I18N.set('en');
+    I18N.apply(root);
+    assert.equal(found['[data-i18n]'][0].textContent, 'Close');
+    assert.equal(found['[data-i18n]'][1].textContent, 'chave-que-nao-existe');
+    assert.equal(found['[data-i18n-ph]'][0].placeholder, 'Place name');
+    assert.equal(found['[data-i18n-title]'][0].title, 'Switch to Portuguese');
+    assert.equal(found['[data-i18n-aria]'][0].attrs['aria-label'], 'Close');
+    assert.equal(document.documentElement.lang, 'en');
+    I18N.set('pt');
+    I18N.apply(root);
+    assert.equal(found['[data-i18n]'][0].textContent, 'Fechar');
+    assert.equal(found['[data-i18n-title]'][0].title, 'Mudar para inglês');
+    assert.equal(document.documentElement.lang, 'pt-PT');
+  } finally { I18N.set(before); }
 });
 
 test('língua por omissão segue o browser e a escolha fica guardada', async () => {
