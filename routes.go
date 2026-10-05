@@ -67,7 +67,7 @@ func (s *server) requireSession(next http.HandlerFunc) http.Handler {
 			fail(w, http.StatusUnauthorized, "sessão em falta")
 			return
 		}
-		if time.Until(exp) < sessionTTL-24*time.Hour {
+		if exp.Sub(s.now()) < sessionTTL-24*time.Hour {
 			s.setCookie(w, r, s.newToken(), int(sessionTTL.Seconds()))
 		}
 		next(w, r)

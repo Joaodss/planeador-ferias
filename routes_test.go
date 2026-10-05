@@ -11,6 +11,7 @@ import (
 )
 
 func TestCSRFHeaderRequired(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t)
 	tok := s.newToken()
 	for _, tc := range []struct{ method, path, body string }{
@@ -33,6 +34,7 @@ func TestCSRFHeaderRequired(t *testing.T) {
 }
 
 func TestTripIDValidation(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t)
 	for _, tc := range []struct {
 		id   string
@@ -51,6 +53,7 @@ func TestTripIDValidation(t *testing.T) {
 }
 
 // Um valor que não dá JSON fica registado no log e não rebenta o servidor.
+// Sem t.Parallel: o writeJSON escreve no log global, que este teste troca por um buffer.
 func TestWriteJSONEncodeError(t *testing.T) {
 	var logs strings.Builder
 	log.SetOutput(&logs)
@@ -63,6 +66,7 @@ func TestWriteJSONEncodeError(t *testing.T) {
 }
 
 func TestRoutes(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t)
 	for _, tc := range []struct {
 		method, path string
@@ -93,6 +97,7 @@ func TestRoutes(t *testing.T) {
 }
 
 func TestEtagMatch(t *testing.T) {
+	t.Parallel()
 	for inm, want := range map[string]bool{
 		`"abc"`:            true,
 		`W/"abc"`:          true,
@@ -112,6 +117,7 @@ func TestEtagMatch(t *testing.T) {
 }
 
 func TestSecurityHeaders(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t)
 	for _, p := range []string{"/", "/api/trips", "/healthz"} {
 		h := call(s, "GET", p, "").Header()
@@ -134,6 +140,7 @@ func TestSecurityHeaders(t *testing.T) {
 }
 
 func TestHealthz(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t)
 	if w := call(s, "GET", "/healthz", ""); w.Code != http.StatusOK || w.Body.String() != "ok" {
 		t.Fatalf("healthz: código %d, corpo %q", w.Code, w.Body)

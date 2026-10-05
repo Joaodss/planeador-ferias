@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -22,10 +21,6 @@ const (
 	backupsKept = 30
 )
 
-// maxCache limita os bytes de viagens guardados em memória (o contentor tem 64 MB).
-// É uma variável só para os testes poderem experimentar o caso em que a cache já está cheia.
-var maxCache int64 = 16 << 20
-
 // record é o que fica em disco para cada viagem.
 type record struct {
 	Rev       int64           `json:"rev"`
@@ -37,7 +32,7 @@ type record struct {
 // todos os ficheiros em cada pedido, e PUT não lê o ficheiro inteiro só para saber a revisão.
 type cachedRec struct {
 	rev  int64
-	raw  []byte    // o ficheiro tal como está em disco; nil quando já não coube em maxCache
+	raw  []byte    // o ficheiro tal como está em disco; nil quando já não coube em s.maxCache
 	mod  time.Time // data e tamanho do ficheiro quando foi lido: se mudarem, alguém mexeu nele à mão
 	size int64
 }
@@ -86,10 +81,10 @@ func (s *server) loadRecord(id string) (*cachedRec, error) {
 	return c, nil
 }
 
-// remember guarda c na cache. Acima de maxCache fica só a revisão e os bytes voltam a ser lidos do disco.
+// remember guarda c na cache. Acima de s.maxCache fica só a revisão e os bytes voltam a ser lidos do disco.
 func (s *server) remember(id string, c *cachedRec) {
 	s.forget(id)
-	if s.cacheBytes+int64(len(c.raw)) > maxCache {
+	if s.cacheBytes+int64(len(c.raw)) > s.maxCache {
 		c.raw = nil
 	}
 	if s.cache == nil {
@@ -202,7 +197,7 @@ func (s *server) tripList() ([][]byte, string, error) {
 			b, err = s.recordBytes(id, c)
 		}
 		if err != nil {
-			log.Printf("aviso: %s ilegível: %v", e.Name(), err)
+			s.log.Printf("aviso: %s ilegível: %v", e.Name(), err)
 			continue
 		}
 		seen[id] = true
@@ -274,15 +269,12 @@ func (s *server) putTrip(w http.ResponseWriter, r *http.Request, id string) {
 	// O registo monta-se à mão: a viagem já foi interpretada acima e aqui só é compactada.
 	var out bytes.Buffer
 	out.Grow(len(in.Trip) + 64)
-	now := time.Now().UTC().Format(time.RFC3339)
+	now := s.now().UTC().Format(time.RFC3339)
 	fmt.Fprintf(&out, `{"rev":%d,"updatedAt":%q,"trip":`, rev+1, now)
-	if err := json.Compact(&out, in.Trip); err != nil {
-		fail(w, http.StatusBadRequest, "JSON inválido")
-		return
-	}
+	json.Compact(&out, in.Trip) // não falha: o json.Unmarshal acima já validou in.Trip
 	out.WriteByte('}')
-	if err := writeAtomic(p, out.Bytes()); err != nil {
-		log.Printf("erro a gravar %s: %v", id, err)
+	if err := s.writeFile(p, out.Bytes()); err != nil {
+		s.log.Printf("erro a gravar %s: %v", id, err)
 		fail(w, 500, "não consegui gravar")
 		return
 	}
@@ -309,7 +301,7 @@ func (s *server) deleteTrip(w http.ResponseWriter, _ *http.Request, id string) {
 		fail(w, 500, "não consegui apagar")
 		return
 	}
-	dst := filepath.Join(dir, "apagada-"+time.Now().UTC().Format("2006-01-02T150405Z")+".json")
+	dst := filepath.Join(dir, "apagada-"+s.now().UTC().Format("2006-01-02T150405Z")+".json")
 	if err := os.Rename(p, dst); err != nil {
 		fail(w, 500, "não consegui apagar")
 		return
@@ -322,7 +314,7 @@ func (s *server) deleteTrip(w http.ResponseWriter, _ *http.Request, id string) {
 // primeira alteração desse dia) e mantém as últimas backupsKept.
 func (s *server) backup(id, src string) {
 	dir := filepath.Join(s.cfg.dataDir, "backups", id)
-	dst := filepath.Join(dir, time.Now().UTC().Format("2006-01-02")+".json")
+	dst := filepath.Join(dir, s.now().UTC().Format("2006-01-02")+".json")
 	if _, err := os.Stat(dst); err == nil {
 		return
 	}
@@ -333,8 +325,8 @@ func (s *server) backup(id, src string) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return
 	}
-	if err := os.WriteFile(dst, b, 0o600); err != nil {
-		log.Printf("aviso: cópia de %s falhou: %v", id, err)
+	if err := s.writeFile(dst, b); err != nil {
+		s.log.Printf("aviso: cópia de %s falhou: %v", id, err)
 		return
 	}
 	entries, _ := os.ReadDir(dir) // já vêm por ordem do nome, ou seja, da data

@@ -54,13 +54,14 @@ func newStaticFile(b []byte, ctype string) staticFile {
 	return staticFile{b, ctype, `"` + hex.EncodeToString(sum[:8]) + `"`}
 }
 
-func (s *server) loadStatic() error {
+// loadStatic carrega para memória os ficheiros da pasta web/ de fsys (webFS; os testes passam um fstest.MapFS).
+func (s *server) loadStatic(fsys fs.FS) error {
 	s.static = map[string]staticFile{}
-	err := fs.WalkDir(webFS, "web", func(p string, d fs.DirEntry, err error) error {
+	err := fs.WalkDir(fsys, "web", func(p string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return err
 		}
-		b, err := webFS.ReadFile(p)
+		b, err := fs.ReadFile(fsys, p)
 		if err != nil {
 			return err
 		}
