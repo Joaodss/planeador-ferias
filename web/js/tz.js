@@ -36,7 +36,12 @@ function diffLabel(min){
   return s + h + (m ? ':' + String(m).padStart(2,'0') : '') + 'h';
 }
 
-export const TZ = {all: ALL, valid, local, offsetAt, diff, city, diffLabel};
+/* Nomes atuais que o Chrome e o Node não listam (listam Asia/Calcutta, Europe/Kiev, …). Juntam-se às sugestões. */
+const CURRENT = ['Africa/Asmara','America/Atikokan','America/Nuuk','Asia/Ho_Chi_Minh','Asia/Kathmandu','Asia/Kolkata','Asia/Yangon',
+  'Atlantic/Faroe','Europe/Kyiv','Pacific/Chuuk','Pacific/Kanton','Pacific/Pohnpei'];
+const SUGGEST = ALL.length ? [...new Set(ALL.concat(CURRENT.filter(valid)))].sort() : ALL;
+
+export const TZ = {all: SUGGEST, valid, local, offsetAt, diff, city, diffLabel};
 
 /* ---------- segundo fuso ----------
    O segundo fuso aparece numa coluna de horas ao lado da grelha:
@@ -63,10 +68,17 @@ export function viewingHome(){ try{ return localStorage.getItem(VIEW_KEY)==='1';
 export function setViewingHome(on){ try{ if(on) localStorage.setItem(VIEW_KEY,'1'); else localStorage.removeItem(VIEW_KEY); }catch{} }
 /* Minutos que o fuso do quadro está à frente da hora da viagem (0 quando o quadro está na hora da viagem). */
 export function viewOffset(t){ const s=viewingHome() && secondTz(t); return s ? s.diff : 0; }
-/* Aceita "Asia/Tokyo", "asia/tokyo" ou só "Tokyo". Devolve '' se vazio e null se não reconhecer. */
+/* O Chrome e o Node listam os nomes antigos (Asia/Calcutta, Europe/Kiev), mas aceitam os atuais:
+   "kolkata" não está na lista e "Asia/Kolkata" é válido. Com as regiões da lista tenta-se "<região>/<Cidade>". */
+const REGIONS=[...new Set(ALL.filter(z=>z.includes('/')).map(z=>z.split('/')[0]))];
+const title=n=>n.split('_').map(w=>w.charAt(0).toUpperCase()+w.slice(1)).join('_');   // ho_chi_minh → Ho_Chi_Minh
+/* Aceita "Asia/Tokyo", "asia/tokyo" ou só "Tokyo" (também "Kolkata" ou "Kyiv", que faltam na lista do Chrome).
+   Devolve '' se vazio e null se não reconhecer. */
 export function resolveTz(v){
   v=v.trim(); if(!v) return '';
   const n=v.toLowerCase().replace(/\s+/g,'_');
   const hit=ALL.find(z=>z.toLowerCase()===n) || ALL.find(z=>z.toLowerCase().endsWith('/'+n));
-  return hit || (valid(v) ? v : null);
+  if(hit) return hit;
+  if(!n.includes('/')) for(const r of REGIONS){ const z=r+'/'+title(n); if(valid(z)) return z; }
+  return valid(v) ? v : null;
 }
