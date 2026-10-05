@@ -11,7 +11,7 @@ A imagem Docker tem cerca de 7 MB e não precisa de base de dados: cada viagem �
 | `web/` | A página: `index.html`, `css/app.css` e `js/` em módulos ES sem build (`js/main.js` é a entrada e lista o que cada módulo faz; `js/ui/` tem a interface; `js/i18n.js` tem os textos em português e inglês e `js/tz.js` as contas dos fusos horários). Fica embutida no binário. |
 | `Dockerfile` | Compila e produz a imagem final (`FROM scratch`). |
 | `docker-compose.yml` | Arranque no servidor, com volume para os dados. |
-| `main_test.go`, `tests/` | Testes do servidor (Go) e da página (Node, sem dependências). |
+| `*_test.go`, `tests/` | Testes do servidor (Go, um ficheiro de teste por ficheiro do servidor) e da página (Node, sem dependências). |
 | `.github/workflows/ci.yml` | Em cada PR: formato, análise estática, testes, vulnerabilidades e arranque da imagem Docker. |
 | `.github/workflows/docker.yml` | Publica a imagem em `ghcr.io` a cada push para `master`, depois de correr os testes. |
 
@@ -124,10 +124,14 @@ Não há passo de build para a página: edita os ficheiros em `web/` e volta a c
 
 ```sh
 go test ./...                 # servidor: login, sessões, viagens, cópias, cabeçalhos
-node --test tests/*.test.mjs  # página: sintaxe e traduções PT/EN completas
+node --test tests/*.test.mjs  # página: sintaxe, traduções PT/EN completas e a lógica de web/js/
 gofmt -l . && go vet ./...    # formato e análise
+
+# cobertura (o CI exige os mínimos que estão em .github/workflows/ci.yml)
+go test -coverprofile=coverage.out ./... && go tool cover -func=coverage.out | tail -1
+node --test --experimental-test-coverage --test-coverage-include='web/js/*.js' --test-coverage-exclude='web/js/main.js' --test-coverage-exclude='web/js/sync.js' tests/*.test.mjs
 ```
 
 O CI corre tudo isto em cada PR, mais `staticcheck`, `govulncheck`, `hadolint` e um arranque real
-da imagem Docker com login. Ao acrescentar um texto à página, põe-no em `web/js/i18n.js` nas duas
-línguas: o teste falha se faltar uma tradução.
+da imagem Docker com login, e falha se a cobertura descer abaixo dos mínimos. Ao acrescentar um
+texto à página, põe-no em `web/js/i18n.js` nas duas línguas: o teste falha se faltar uma tradução.

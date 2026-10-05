@@ -4,7 +4,10 @@ import { tr } from './i18n.js';
 export const $ = s => document.querySelector(s);
 export const pad = n => String(n).padStart(2,'0');
 export const esc = s => String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-export function newId(p){ return (p||'n')+Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
+/* Data + contador + 4 caracteres aleatórios. O contador separa os ids criados no mesmo milissegundo
+   (só com a parte aleatória, 10 000 seguidos repetiam-se sempre); a parte aleatória separa os de dispositivos diferentes. */
+let idSeq=0;
+export function newId(p){ return (p||'n')+Date.now().toString(36)+(idSeq++).toString(36)+Math.random().toString(36).slice(2,6); }
 export function short(n){ return n.split(' ·')[0]; }
 export const isMobile = () => matchMedia('(max-width:640px)').matches;
 

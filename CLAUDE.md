@@ -13,10 +13,11 @@ A vacation planner: a draggable hour grid per trip, served by a single Go binary
 PLANNER_USER=eu PLANNER_PASSWORD=uma-palavra-passe go run .
 # PowerShell: $env:PLANNER_USER='eu'; $env:PLANNER_PASSWORD='uma-palavra-passe'; go run .
 
-go test ./...                          # server tests (main_test.go)
+go test ./...                          # server tests (*_test.go)
 go test -run TestTripLifecycle ./...   # one Go test
 node --test tests/*.test.mjs           # page tests (Node 22+, no npm install)
 node --test --test-name-pattern="PT e EN" tests/*.test.mjs   # one page test (a bare tests/ path fails)
+node --test --experimental-test-coverage --test-coverage-include='web/js/*.js' --test-coverage-exclude='web/js/main.js' --test-coverage-exclude='web/js/sync.js' tests/*.test.mjs   # page coverage, as CI measures it
 gofmt -l . && go vet ./...             # CI fails if gofmt -l prints anything
 go test -run '^$' -bench . -benchmem   # GET/PUT benchmarks (not run by CI)
 
@@ -29,6 +30,7 @@ docker compose up -d --build           # production container
   - `PLANNER_HOME_TZ` is optional and sets the default second time zone.
 - `web/` is embedded with `//go:embed` and loaded into memory once at startup (`loadStatic`), which also injects a `<link rel="modulepreload">` for every `.js` into `index.html` (relative paths, sorted so the ETag is stable). **Restart `go run .` after editing any file in `web/`.** A browser reload alone won't show the change.
 - CI (`.github/workflows/ci.yml`) runs on every PR and must pass before merging. It runs all of the above plus `go test -race`, a `go mod tidy` diff check, `staticcheck`, `govulncheck`, `hadolint`, and a smoke test that starts the real Docker image read-only and checks login, `PUT` and `GET`.
+- CI also enforces coverage minimums (issue #33): the server total (`awk` on `go tool cover -func`) and lines/functions/branches of `web/js/*.js` without `main.js` and `sync.js` (Node's `--test-coverage-*` flags). The minimums are the current values rounded down: raise them in `ci.yml` in any PR that adds tests, and never lower them. `sync.js` joins the page measurement with #29.
 - `docker.yml` publishes multi-arch images to `ghcr.io` on pushes to `master` and on `v*` tags.
 - The PR template asks you to run both test suites and to try the page in both PT and EN when it changes.
 - Go versions differ: `go.mod` declares 1.22, CI uses 1.26 and the Dockerfile 1.27. Dependabot bumps actions, Go and the base image weekly.
@@ -48,7 +50,7 @@ docker compose up -d --build           # production container
 - Nothing is ever hard-deleted. `DELETE` moves the file to `backups/<id>/apagada-<timestamp>.json`. Before the first write of each UTC day, the server copies the previous version to `backups/<id>/YYYY-MM-DD.json` and keeps the last 30.
 - Sessions use a stateless HMAC cookie `<expiryUnix>.<sig>`. The signing key is `sha256(.session-secret + user + password)`, so changing the password invalidates every session. The cookie lasts 30 days and slides: it is re-issued at most once a day on authenticated API calls. Failed logins are rate-limited to 8 per IP and 40 overall per 10 minutes. The client IP comes from `X-Forwarded-For`, because the app is meant to run behind Caddy.
 - `-healthcheck` flag: the binary calls its own `/healthz`. The Docker `HEALTHCHECK` needs this because the image is `FROM scratch` and has no shell or curl.
-- Tests build a server with `newTestServer(t)`, which calls `newServer` with a temp `DATA_DIR`. Requests go through `call()` / `authedCall()` against `ServeHTTP` with `httptest`; no real listener is involved.
+- Each server file has its own test file (`auth_test.go`, `routes_test.go`, `trips_test.go`, `static_test.go`, `main_test.go`; the GET/PUT benchmarks are in `trips_test.go`). The shared helpers live in `helpers_test.go`. Tests build a server with `newTestServer(t)`, which calls `newServer` with a temp `DATA_DIR`. Requests go through `call()` / `authedCall()` against `ServeHTTP` with `httptest`; no real listener is involved. Error paths are tested by breaking the data folder (a folder where a file should be, or the reverse, or `trips/` removed), so they also work on Windows; permission checks are skipped there.
 
 ### Page (`web/`)
 - `index.html` holds all the markup: the board, the bottom "por agendar" tray, side sheets (`#editor`, `#daysheet`, `#tripsheet`, `#costsheet`, `#warnings`), plus the login and offline screens. It loads `css/app.css` and the single entry point `<script type="module" src="js/main.js">`. The web tests check both paths, and the CI Docker smoke test checks for `js/main.js`. If you rename either file, update `index.html`, `tests/web.test.mjs` and `ci.yml` together.
@@ -79,7 +81,8 @@ docker compose up -d --build           # production container
   - Every key used via `tr('…')` or a `data-i18n*` attribute exists.
   - Every module parses.
   - Every import resolves to a real export.
-- `tests/trip.test.mjs` loads `state`/`trip`/`costs`/`warnings` with a minimal DOM and checks each warning rule, `computeWarnings(L0)`, `fmt` (one cached `Intl.NumberFormat` per locale) and `dayTotalsPP`.
+- Each logic module has its own test file: `util`, `state`, `trip`, `costs`, `tz`, `warnings`, `span` and `clean` (`tests/<module>.test.mjs`). Modules that touch the browser load through `tests/dom.mjs`, a minimal fake DOM that must be the **first import**. It provides `localStorage` (contents in `store`; set `storage.fail = true` to make every call throw), `navigator`, a fake element per selector (`el('#undo')`), `matchMedia` (`media.mobile`) and the `--slot` CSS value (`css.slot`). It is not a `*.test.mjs` file, so it doesn't run on its own. Tests that depend on the local time zone set `process.env.TZ = 'Europe/Lisbon'`, which Node applies immediately.
+- `web.test.mjs` reloads `i18n.js` to test the language choice. The first load is the real module, and the others are `data:` URL copies. A `?n=` copy would count as the same file and hide the real module's coverage.
 - The test parses the source with regexes, so keep to these forms:
   - **Single-quoted literal keys** inside `tr(...)`.
   - **Single-line `import { a, b } from '…'`** statements.
