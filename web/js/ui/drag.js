@@ -35,7 +35,7 @@ function startDrag(){
   }
   // que minuto da atividade ficou debaixo do dedo ou do rato
   drag.grab = col ? timeAt(t,drag.F,col.dataset.date,drag.y0-col.getBoundingClientRect().top)-absStart(t,f.b)-drag.F.sh : drag.offY/PXM();
-  if(navigator.vibrate && drag.type==='touch'){ try{ navigator.vibrate(12); }catch(e){} }
+  if(navigator.vibrate && drag.type==='touch'){ try{ navigator.vibrate(12); }catch{} }
   updateDrag(); autoScroll();
 }
 document.addEventListener('pointermove', e=>{

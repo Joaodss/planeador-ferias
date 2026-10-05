@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -18,7 +19,7 @@ import (
 
 const (
 	cookieName = "planner_session"
-	sessionTTL = 30 * 24 * time.Hour // renovada a cada uso (ver api)
+	sessionTTL = 30 * 24 * time.Hour // renovada a cada uso (ver requireSession)
 )
 
 /* ---------- sessões ---------- */
@@ -108,18 +109,13 @@ func (s *server) tooManyFailures(ip string) bool {
 	cut := time.Now().Add(-10 * time.Minute)
 	total := 0
 	for k, ts := range s.failures {
-		keep := ts[:0]
-		for _, t := range ts {
-			if t.After(cut) {
-				keep = append(keep, t)
-			}
-		}
-		if len(keep) == 0 {
+		ts = slices.DeleteFunc(ts, func(t time.Time) bool { return !t.After(cut) })
+		if len(ts) == 0 {
 			delete(s.failures, k)
 			continue
 		}
-		s.failures[k] = keep
-		total += len(keep)
+		s.failures[k] = ts
+		total += len(ts)
 	}
 	return len(s.failures[ip]) >= 8 || total >= 40
 }
@@ -151,4 +147,9 @@ func (s *server) login(w http.ResponseWriter, r *http.Request) {
 	}
 	s.setCookie(w, r, s.newToken(), int(sessionTTL.Seconds()))
 	writeJSON(w, 200, map[string]string{"user": s.cfg.user})
+}
+
+func (s *server) logout(w http.ResponseWriter, r *http.Request) {
+	s.setCookie(w, r, "", -1)
+	writeJSON(w, 200, map[string]bool{"ok": true})
 }

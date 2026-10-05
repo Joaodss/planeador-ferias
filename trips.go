@@ -13,7 +13,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 )
@@ -223,12 +222,16 @@ func (s *server) putTrip(w http.ResponseWriter, r *http.Request, id string) {
 		BaseRev int64           `json:"baseRev"`
 		Trip    json.RawMessage `json:"trip"`
 	}
+	// Só um corpo acima de maxBody é "demasiado grande"; qualquer outra falha (ligação cortada a meio,
+	// JSON partido, lixo depois do objeto) é um pedido inválido. io.ReadAll + Unmarshal em vez de um
+	// json.Decoder: o buffer do Decoder cresce para o dobro de cada vez e uma viagem de 1,2 MB
+	// alocava mais 1,3 MB (BenchmarkPutTrip); Unmarshal também já recusa o que vem depois do objeto.
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBody))
-	if err != nil {
+	if errors.As(err, new(*http.MaxBytesError)) {
 		fail(w, http.StatusRequestEntityTooLarge, "viagem demasiado grande")
 		return
 	}
-	if err := json.Unmarshal(body, &in); err != nil {
+	if err != nil || json.Unmarshal(body, &in) != nil {
 		fail(w, http.StatusBadRequest, "JSON inválido")
 		return
 	}
@@ -292,7 +295,7 @@ func (s *server) putTrip(w http.ResponseWriter, r *http.Request, id string) {
 }
 
 // deleteTrip não apaga nada: move o ficheiro para a pasta de cópias.
-func (s *server) deleteTrip(w http.ResponseWriter, id string) {
+func (s *server) deleteTrip(w http.ResponseWriter, _ *http.Request, id string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	p := s.tripPath(id)
@@ -334,16 +337,14 @@ func (s *server) backup(id, src string) {
 		log.Printf("aviso: cópia de %s falhou: %v", id, err)
 		return
 	}
-	entries, _ := os.ReadDir(dir)
+	entries, _ := os.ReadDir(dir) // já vêm por ordem do nome, ou seja, da data
 	var daily []string
 	for _, e := range entries {
 		if !strings.HasPrefix(e.Name(), "apagada-") {
 			daily = append(daily, e.Name())
 		}
 	}
-	sort.Strings(daily)
-	for len(daily) > backupsKept {
-		os.Remove(filepath.Join(dir, daily[0]))
-		daily = daily[1:]
+	for _, name := range daily[:max(len(daily)-backupsKept, 0)] {
+		os.Remove(filepath.Join(dir, name))
 	}
 }

@@ -10,7 +10,7 @@ import (
 	"mime"
 	"net/http"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 )
 
@@ -90,7 +90,7 @@ func (s *server) preloadModules() {
 			mods = append(mods, p)
 		}
 	}
-	sort.Strings(mods) // ordem fixa: o ETag do index.html fica igual entre arranques
+	slices.Sort(mods) // ordem fixa: o ETag do index.html fica igual entre arranques
 	var links strings.Builder
 	for _, p := range mods {
 		fmt.Fprintf(&links, "<link rel=\"modulepreload\" href=\"%s\">\n", strings.TrimPrefix(p, "/"))
@@ -99,11 +99,8 @@ func (s *server) preloadModules() {
 	s.static["/index.html"] = newStaticFile(body, idx.ctype)
 }
 
+// serveStatic responde aos GET e HEAD que não são da API (o mux trata dos outros métodos).
 func (s *server) serveStatic(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		http.Error(w, "método não suportado", http.StatusMethodNotAllowed)
-		return
-	}
 	p := r.URL.Path
 	if p == "/" {
 		p = "/index.html"

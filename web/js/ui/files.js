@@ -77,5 +77,5 @@ $('#import-file').addEventListener('change', async e=>{
     setActive(first);
     closeSheets(); commit(); $('#scroller').scrollTo(0,0);
     toast(tr('tImported',{added, replaced}));
-  }catch(err){ toast(tr('tImportBad')); }
+  }catch{ toast(tr('tImportBad')); }
 });

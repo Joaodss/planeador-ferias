@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"testing/iotest"
 	"time"
 )
 
@@ -26,16 +27,8 @@ func newTestServer(t testing.TB) *server {
 
 func newTestServerAt(t testing.TB, dir, password string) *server {
 	t.Helper()
-	for _, d := range []string{"trips", "backups"} {
-		if err := os.MkdirAll(filepath.Join(dir, d), 0o700); err != nil {
-			t.Fatal(err)
-		}
-	}
-	s := &server{cfg: config{user: testUser, password: password, dataDir: dir}, failures: map[string][]time.Time{}}
-	if err := s.loadKey(); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.loadStatic(); err != nil {
+	s, err := newServer(config{user: testUser, password: password, dataDir: dir})
+	if err != nil {
 		t.Fatal(err)
 	}
 	return s
@@ -385,7 +378,9 @@ func TestTripValidation(t *testing.T) {
 		{"id diferente do caminho", "PUT", "/api/trips/x", tripBody("y", 0, "A"), http.StatusBadRequest},
 		{"id com caracteres proibidos", "PUT", "/api/trips/a.b", tripBody("a.b", 0, "A"), http.StatusBadRequest},
 		{"id demasiado longo", "PUT", "/api/trips/" + strings.Repeat("a", 65), "{}", http.StatusBadRequest},
+		{"id com barra codificada", "PUT", "/api/trips/a%2Fb", tripBody("a/b", 0, "A"), http.StatusBadRequest},
 		{"JSON inválido", "PUT", "/api/trips/x", "{", http.StatusBadRequest},
+		{"lixo depois do JSON", "PUT", "/api/trips/x", tripBody("x", 0, "A") + "x", http.StatusBadRequest},
 		{"viagem sem objeto", "PUT", "/api/trips/x", `{"baseRev":0}`, http.StatusBadRequest},
 		{"demasiado grande", "PUT", "/api/trips/x", huge, http.StatusRequestEntityTooLarge},
 		{"método errado", "POST", "/api/trips/x", "{}", http.StatusMethodNotAllowed},
@@ -397,6 +392,50 @@ func TestTripValidation(t *testing.T) {
 	}
 	if entries, _ := os.ReadDir(filepath.Join(s.cfg.dataDir, "trips")); len(entries) != 0 {
 		t.Errorf("pedidos inválidos não podem gravar nada, encontrei %d ficheiros", len(entries))
+	}
+}
+
+// Uma ligação cortada a meio do corpo é um pedido inválido, não uma viagem demasiado grande.
+func TestPutTripReadError(t *testing.T) {
+	s := newTestServer(t)
+	body := io.MultiReader(strings.NewReader(`{"baseRev":0,"trip":{"id":"x"`), iotest.ErrReader(io.ErrUnexpectedEOF))
+	r := httptest.NewRequest("PUT", "/api/trips/x", body)
+	r.Header.Set("X-Requested-With", "planner")
+	r.AddCookie(&http.Cookie{Name: cookieName, Value: s.newToken()})
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, r)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("código %d, esperava 400 (%s)", w.Code, w.Body)
+	}
+}
+
+func TestRoutes(t *testing.T) {
+	s := newTestServer(t)
+	for _, tc := range []struct {
+		method, path string
+		want         int
+		allow        []string // métodos que têm de vir em Allow num 405
+	}{
+		{"PATCH", "/api/trips/x", http.StatusMethodNotAllowed, []string{"PUT", "DELETE"}},
+		{"POST", "/api/trips", http.StatusMethodNotAllowed, []string{"GET"}},
+		{"PUT", "/api/login", http.StatusMethodNotAllowed, []string{"POST"}},
+		{"DELETE", "/healthz", http.StatusMethodNotAllowed, []string{"GET", "HEAD"}},
+		{"HEAD", "/healthz", http.StatusOK, nil},
+		{"GET", "/api/nada", http.StatusNotFound, nil},
+	} {
+		w := authedCall(s, tc.method, tc.path, "")
+		if w.Code != tc.want {
+			t.Errorf("%s %s: código %d, esperava %d", tc.method, tc.path, w.Code, tc.want)
+		}
+		for _, m := range tc.allow {
+			if allow := w.Header().Get("Allow"); !strings.Contains(allow, m) {
+				t.Errorf("%s %s: Allow %q sem %s", tc.method, tc.path, allow, m)
+			}
+		}
+		// as respostas do próprio mux também levam os cabeçalhos de segurança
+		if h := w.Header(); h.Get("X-Frame-Options") != "DENY" || h.Get("Content-Security-Policy") == "" {
+			t.Errorf("%s %s: faltam cabeçalhos de segurança", tc.method, tc.path)
+		}
 	}
 }
 

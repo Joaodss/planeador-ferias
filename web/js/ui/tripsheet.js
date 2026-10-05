@@ -1,6 +1,6 @@
 /* Painel da viagem: criar/editar datas e horário, sítios, categorias de custo, duplicar e apagar. */
 import { tr } from '../i18n.js';
-import { $, esc, pad, clone, newId, parseISO, iso, addDays, toast } from '../util.js';
+import { $, esc, pad, newId, parseISO, iso, addDays, toast } from '../util.js';
 import { S, T, ensureActive, setActive, pushHistory } from '../state.js';
 import { days, toTray, addPlace } from '../trip.js';
 import { cats, ownCats } from '../costs.js';
@@ -79,7 +79,7 @@ $('#t-form').addEventListener('submit',e=>{
   }
 });
 $('#t-cancel').addEventListener('click',()=>{ $('#tripsheet').hidden=true; render(); });
-$('#t-dup').addEventListener('click',()=>{ const t=T(); pushHistory(true); const c=clone(t); c.id=newId('t'); c.name=t.name+tr('copySuffix'); S.store.trips.push(c); setActive(c.id); $('#tripsheet').hidden=true; commit(); toast(tr('tTripDup')); });
+$('#t-dup').addEventListener('click',()=>{ const t=T(); pushHistory(true); const c=structuredClone(t); c.id=newId('t'); c.name=t.name+tr('copySuffix'); S.store.trips.push(c); setActive(c.id); $('#tripsheet').hidden=true; commit(); toast(tr('tTripDup')); });
 $('#t-del').addEventListener('click',()=>{ $('#t-del-confirm').hidden=false; $('#t-del-yes').focus(); });
 $('#t-del-no').addEventListener('click',()=>{ $('#t-del-confirm').hidden=true; });
 $('#t-del-yes').addEventListener('click',()=>{ const t=T(); pushHistory(true); S.store.trips=S.store.trips.filter(x=>x!==t); S.activeId=null; ensureActive(); $('#tripsheet').hidden=true; commit(); toast(tr('tTripDel',{name:t.name})); });
