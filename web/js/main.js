@@ -7,6 +7,7 @@
      util.js      DOM, datas, horas, toast
      state.js     estado partilhado (S) e Desfazer
      trip.js      dias, horário, sítios, mover atividades
+     clean.js     limpeza dos dados do servidor e das importações
      costs.js     categorias e totais de custos
      warnings.js  regras dos pontos a rever
      tz.js        fusos horários e segundo fuso

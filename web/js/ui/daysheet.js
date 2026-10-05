@@ -1,6 +1,6 @@
 /* Painel de um dia: onde estão, custos do dia e lista de atividades. */
 import { tr } from '../i18n.js';
-import { $, esc, newId, STATUS, dayLabel, toast, announce } from '../util.js';
+import { $, esc, newId, statusLabel, dayLabel, toast, announce } from '../util.js';
 import { S, T, pushHistory } from '../state.js';
 import { days, view, fmt, blockCostPP, blocksOf, addPlace, boardLayout, rangeLabel } from '../trip.js';
 import { dayCostPP } from '../costs.js';
@@ -28,7 +28,7 @@ export function fillDay(full){
   if(!list.length && !cont.length) box.innerHTML=`<p class="hint">${tr('dayEmpty')}</p>`;
   cont.concat(list).filter(b=>b.cat!=='sleep').forEach(b=>{ const it=document.createElement('button'); it.type='button'; it.className='day-item cat-'+b.cat;
     const from=b.date!==S.dayOpen ? `<span class="from">${tr('fromDay',{day:dayLabel(b.date)})}</span>` : '';
-    it.innerHTML=`<span class="tm">${rangeLabel(b)}</span><span class="nm">${esc(b.title)}${from}</span>${b.status?`<span class="st st-${b.status}" style="margin-left:auto;font-size:10px;font-weight:700;padding:0 5px;border-radius:4px">${STATUS()[b.status]}</span>`:''}`;
+    it.innerHTML=`<span class="tm">${rangeLabel(b)}</span><span class="nm">${esc(b.title)}${from}</span>${statusLabel(b.status)?`<span class="st st-${b.status}" style="margin-left:auto;font-size:10px;font-weight:700;padding:0 5px;border-radius:4px">${esc(statusLabel(b.status))}</span>`:''}`;
     it.addEventListener('click',()=>openEditor(b.id)); box.appendChild(it); });
 }
 $('#d-apply').addEventListener('click',()=>{

@@ -18,6 +18,8 @@ export const SNAP = 15;
 
 /* Textos que dependem da língua. */
 export const WD = () => tr('wd'), MON = () => tr('mon'), CATS = () => tr('cats'), STATUS = () => tr('status');
+/* Nome do estado, ou '' se não for um dos conhecidos: só o enum entra no HTML e nas classes (st-…). */
+export const statusLabel = s => typeof s==='string' && Object.hasOwn(STATUS(), s) ? STATUS()[s] : '';
 export const artDay = w => tr('onDay',{w});
 export const daysPhrase = ws => ws.slice().sort((x,y)=>((x||7)-(y||7))).map(artDay).join(', ').replace(/, ([^,]*)$/,' '+tr('and')+' $1');
 

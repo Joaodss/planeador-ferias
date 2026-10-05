@@ -14,7 +14,7 @@ export function buildWdays(){ $('#f-wdays').innerHTML=[1,2,3,4,5,6,0].map(w=>`<l
 buildWdays();
 function fillSelects(){
   const t=T(); if(!t) return; const v=view(t); const ds=boardFrame(t).ds;
-  $('#f-day').innerHTML=`<option value="tray">${tr('unscheduled')}</option>`+ds.map(d=>`<option value="${d}">${dayLabel(d,true)}${(t.dayPlaces[d]||[]).length?' · '+(t.dayPlaces[d]).map(p=>short(placeName(p))).join(' → '):''}</option>`).join('');
+  $('#f-day').innerHTML=`<option value="tray">${tr('unscheduled')}</option>`+ds.map(d=>`<option value="${d}">${dayLabel(d,true)}${(t.dayPlaces[d]||[]).length?' · '+(t.dayPlaces[d]).map(p=>esc(short(placeName(p)))).join(' → '):''}</option>`).join('');
   // qualquer hora do dia: o horário do quadro só decide o que se vê
   const grp=(key,a,b)=>{ let o=''; for(let m=a; m<b; m+=SNAP) o+=`<option value="${m}">${mlabel(m)}${m>=1440?tr('afterMidnight'):''}</option>`; return o?`<optgroup label="${esc(tr(key))}">${o}</optgroup>`:''; };
   $('#f-start').innerHTML=grp('startBefore',0,v.T0)+grp('startBoard',v.T0,v.T1)+grp('startAfter',v.T1,v.T0+1440);
