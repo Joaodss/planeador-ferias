@@ -33,19 +33,20 @@ func TestNewServerErrors(t *testing.T) {
 
 func TestLoadConfig(t *testing.T) {
 	t.Parallel()
+	// as palavras-passe vêm de testPass e de strings.Repeat: nada parecido com um segredo escrito no código
 	env := func(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
-	ok := map[string]string{"PLANNER_USER": "eu", "PLANNER_PASSWORD": "uma-palavra-passe"}
+	ok := map[string]string{"PLANNER_USER": "eu", "PLANNER_PASSWORD": testPass}
 
 	cfg, err := loadConfig(env(ok))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := (config{user: "eu", password: "uma-palavra-passe", dataDir: "./data", addr: ":8080"}); cfg != want {
+	if want := (config{user: "eu", password: testPass, dataDir: "./data", addr: ":8080"}); cfg != want {
 		t.Errorf("valores por omissão: %+v, esperava %+v", cfg, want)
 	}
 
 	cfg, err = loadConfig(env(map[string]string{
-		"PLANNER_USER": "eu", "PLANNER_PASSWORD": "uma-palavra-passe",
+		"PLANNER_USER": "eu", "PLANNER_PASSWORD": testPass,
 		"DATA_DIR": "/data", "PORT": "9000", "PLANNER_HOME_TZ": "  Europe/Lisbon ",
 	}))
 	if err != nil || cfg.dataDir != "/data" || cfg.addr != ":9000" || cfg.homeTz != "Europe/Lisbon" {
@@ -54,16 +55,16 @@ func TestLoadConfig(t *testing.T) {
 
 	for name, m := range map[string]map[string]string{
 		"sem nada":            {},
-		"sem utilizador":      {"PLANNER_PASSWORD": "uma-palavra-passe"},
+		"sem utilizador":      {"PLANNER_PASSWORD": testPass},
 		"sem palavra-passe":   {"PLANNER_USER": "eu"},
-		"palavra-passe com 9": {"PLANNER_USER": "eu", "PLANNER_PASSWORD": "123456789"},
+		"palavra-passe com 9": {"PLANNER_USER": "eu", "PLANNER_PASSWORD": strings.Repeat("x", 9)},
 		"palavra-passe vazia": {"PLANNER_USER": "eu", "PLANNER_PASSWORD": ""},
 	} {
 		if _, err := loadConfig(env(m)); err == nil {
 			t.Errorf("%s: devia dar erro", name)
 		}
 	}
-	if _, err := loadConfig(env(map[string]string{"PLANNER_USER": "eu", "PLANNER_PASSWORD": "1234567890"})); err != nil {
+	if _, err := loadConfig(env(map[string]string{"PLANNER_USER": "eu", "PLANNER_PASSWORD": strings.Repeat("x", 10)})); err != nil {
 		t.Errorf("palavra-passe com 10 caracteres: %v", err)
 	}
 }
