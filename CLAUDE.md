@@ -18,6 +18,7 @@ go test -run TestTripLifecycle ./...   # one Go test
 node --test tests/*.test.mjs           # page tests (Node 22+, no npm install)
 node --test --test-name-pattern="PT e EN" tests/*.test.mjs   # one page test (a bare tests/ path fails)
 node --test --experimental-test-coverage --test-coverage-include='web/js/*.js' --test-coverage-exclude='web/js/main.js' tests/*.test.mjs   # page coverage, as CI measures it
+cd e2e && npm ci && npx playwright install chromium && npm test   # Chromium smoke test (the only npm in the repo)
 gofmt -l . && go vet ./...             # CI fails if gofmt -l prints anything
 go test -run '^$' -bench . -benchmem   # GET/PUT benchmarks (not run by CI)
 
@@ -30,7 +31,8 @@ docker compose up -d --build           # production container
   - `PLANNER_HOME_TZ` is optional and sets the default second time zone.
 - `web/` is embedded with `//go:embed` and loaded into memory once at startup (`loadStatic`), which also injects a `<link rel="modulepreload">` for every `.js` into `index.html` (relative paths, sorted so the ETag is stable). **Restart `go run .` after editing any file in `web/`.** A browser reload alone won't show the change.
 - CI (`.github/workflows/ci.yml`) runs on every PR and must pass before merging. It runs all of the above plus `go test -race`, a `go mod tidy` diff check, `staticcheck`, `govulncheck`, `hadolint`, and a smoke test that starts the real Docker image read-only and checks login, `PUT` and `GET`.
-- CI also enforces coverage minimums (issue #33): the server total (`awk` on `go tool cover -func`) and lines/functions/branches of `web/js/*.js` without `main.js` (Node's `--test-coverage-*` flags). The minimums are the current values rounded down: raise them in `ci.yml` in any PR that adds tests, and never lower them. `ui/` is outside the glob: it only holds DOM code, to be covered later by #30.
+- CI also enforces coverage minimums (issue #33): the server total (`awk` on `go tool cover -func`) and lines/functions/branches of `web/js/*.js` without `main.js` (Node's `--test-coverage-*` flags). The minimums are the current values rounded down: raise them in `ci.yml` in any PR that adds tests, and never lower them. `ui/` is outside the glob: it only holds DOM code, and the E2E job covers it.
+- The `e2e` CI job (`e2e/smoke.test.mjs`, Playwright + `node:test`, its own `package.json`) builds the real server with a temp `DATA_DIR`, then drives Chromium (`pt-PT`, `Europe/Lisbon`, Google Fonts stubbed): login (wrong password, then right), create a trip, new activity, drag to another day, Undo, day place, general cost, warnings, reload, Sair, switch to EN and sign in again. It fails on any console error or page exception (CSP violations included). It writes the function coverage of `ui/` to the job summary with no minimum (V8 lists only compiled functions, so it overestimates). It relies on element ids and a few PT/EN strings: update it when you rename them. `e2e/` is in `.dockerignore`, and Dependabot bumps Playwright weekly.
 - `docker.yml` publishes multi-arch images to `ghcr.io` on pushes to `master` and on `v*` tags.
 - The PR template asks you to run both test suites and to try the page in both PT and EN when it changes.
 - Go versions differ: `go.mod` declares 1.22, CI uses 1.26 and the Dockerfile 1.27. Dependabot bumps actions, Go and the base image weekly.

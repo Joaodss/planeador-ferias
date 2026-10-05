@@ -6,3 +6,4 @@ README.md
 docker-compose.yml
 tests
 .gitattributes
+e2e

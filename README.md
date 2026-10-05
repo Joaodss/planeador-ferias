@@ -12,6 +12,7 @@ A imagem Docker tem cerca de 7 MB e não precisa de base de dados: cada viagem �
 | `Dockerfile` | Compila e produz a imagem final (`FROM scratch`). |
 | `docker-compose.yml` | Arranque no servidor, com volume para os dados. |
 | `*_test.go`, `tests/` | Testes do servidor (Go, um ficheiro de teste por ficheiro do servidor) e da página (Node, sem dependências). |
+| `e2e/` | Teste de fumo da página num Chromium (Playwright, o único com `npm`). |
 | `.github/workflows/ci.yml` | Em cada PR: formato, análise estática, testes, vulnerabilidades e arranque da imagem Docker. |
 | `.github/workflows/docker.yml` | Publica a imagem em `ghcr.io` a cada push para `master`, depois de correr os testes. |
 
@@ -130,6 +131,18 @@ gofmt -l . && go vet ./...    # formato e análise
 # cobertura (o CI exige os mínimos que estão em .github/workflows/ci.yml)
 go test -coverprofile=coverage.out ./... && go tool cover -func=coverage.out | tail -1
 node --test --experimental-test-coverage --test-coverage-include='web/js/*.js' --test-coverage-exclude='web/js/main.js' tests/*.test.mjs
+```
+
+Há ainda um teste de fumo num Chromium a sério (`e2e/`), o único que precisa de `npm`. Compila o
+servidor, entra, cria uma viagem e uma atividade, arrasta-a, desfaz, recarrega, sai e volta a entrar em
+inglês, e falha com qualquer erro na consola (uma violação da CSP, por exemplo). No fim mostra a
+cobertura de funções de `web/js/ui/`, sem mínimo:
+
+```sh
+cd e2e
+npm ci
+npx playwright install chromium
+npm test
 ```
 
 O CI corre tudo isto em cada PR, mais `staticcheck`, `govulncheck`, `hadolint` e um arranque real

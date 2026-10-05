@@ -72,6 +72,29 @@ jobs:
           --test-coverage-lines=100 --test-coverage-functions=99 --test-coverage-branches=96
           tests/*.test.mjs
 
+  # Teste de fumo num Chromium a sério (#33): login, criar viagem, nova atividade, arrastar, Desfazer, recarregar, EN.
+  # Cobre ui/, que os testes de cima não medem. Fica num job à parte por ser o único que precisa de npm.
+  # A cobertura de funções de ui/ vai para o resumo do job, sem mínimo.
+  e2e:
+    name: Página · E2E no Chromium
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: e2e
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.26"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: e2e/package-lock.json
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm test
+
   docker:
     name: Docker · lint, build e arranque
     runs-on: ubuntu-latest
