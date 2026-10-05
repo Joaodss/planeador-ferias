@@ -1,6 +1,7 @@
 /* Painel "Pontos a rever": lista os avisos calculados no último render. */
 import { tr } from '../i18n.js';
-import { $, esc, isMobile } from '../util.js';
+import { esc } from '../util.js';
+import { $, isMobile } from './dom.js';
 import { S } from '../state.js';
 import { closeSheets } from './sheets.js';
 import { focusBlock } from './board.js';
@@ -16,4 +17,6 @@ export function renderWarnings(){
     box.appendChild(it);
   });
 }
-$('#warn-btn').addEventListener('click',()=>{ const w=$('#warnings'); if(!w.hidden){ w.hidden=true; return; } closeSheets(); renderWarnings(); w.hidden=false; w.querySelector('[data-close]').focus(); });
+export function initReview(){
+  $('#warn-btn').addEventListener('click',()=>{ const w=$('#warnings'); if(!w.hidden){ w.hidden=true; return; } closeSheets(); renderWarnings(); w.hidden=false; w.querySelector('[data-close]').focus(); });
+}

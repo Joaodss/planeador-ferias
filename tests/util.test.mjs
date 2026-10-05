@@ -1,10 +1,10 @@
-// Testes de util.js: texto, datas e horas, e os avisos ao utilizador (num DOM mínimo).
-import { el, media, css } from './dom.mjs';
-import { test, mock } from 'node:test';
+// Testes de util.js: texto, datas e horas (sem DOM).
+import './env.mjs';
+import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { I18N } from '../web/js/i18n.js';
-import { $, pad, esc, newId, short, isMobile, refreshSlot, PXM, SNAP, WD, MON, CATS, STATUS, statusLabel, artDay, daysPhrase,
-  parseISO, iso, addDays, mlabel, durLabel, dayLabel, toast, announce } from '../web/js/util.js';
+import { pad, esc, newId, short, SNAP, WD, MON, CATS, STATUS, statusLabel, artDay, daysPhrase,
+  parseISO, iso, addDays, mlabel, durLabel, dayLabel } from '../web/js/util.js';
 
 // as datas locais têm de atravessar a mudança de hora; o Node aplica o TZ novo logo, e as datas só se leem dentro dos testes
 process.env.TZ = 'Europe/Lisbon';
@@ -92,34 +92,8 @@ test('daysPhrase: domingo no fim, e "e"/"and" antes do último', () => {
   inLang('en', () => assert.equal(daysPhrase([0, 5, 2]), 'on Tuesday, on Friday and on Sunday'));
 });
 
-test('short corta o que vem depois de " ·"', () => {
+test('short corta o que vem depois de " ·"; SNAP é 15 min', () => {
+  assert.equal(SNAP, 15);
   assert.equal(short('Lisboa · centro'), 'Lisboa');
   assert.equal(short('Porto'), 'Porto');
-});
-
-test('isMobile, PXM e refreshSlot leem o CSS e o tamanho do ecrã', () => {
-  media.mobile = true; assert.equal(isMobile(), true);
-  media.mobile = false; assert.equal(isMobile(), false);
-  assert.equal(SNAP, 15);
-  assert.equal(PXM(), 24 / 30);
-  css.slot = '36'; refreshSlot(); assert.equal(PXM(), 36 / 30);
-  css.slot = ''; refreshSlot(); assert.equal(PXM(), 24 / 30, 'sem --slot volta aos 24 px');
-  css.slot = '24'; refreshSlot();
-});
-
-test('toast mostra a mensagem e esconde-a 4,2 s depois; announce escreve para os leitores de ecrã', () => {
-  mock.timers.enable({ apis: ['setTimeout'] });
-  try {
-    toast('Gravado');
-    assert.equal($('#toast').textContent, 'Gravado');
-    assert.equal(el('#toast').hidden, false);
-    mock.timers.tick(4000);
-    toast('Outra');                    // uma mensagem nova recomeça a contagem
-    mock.timers.tick(4000);
-    assert.equal(el('#toast').hidden, false);
-    mock.timers.tick(200);
-    assert.equal(el('#toast').hidden, true);
-  } finally { mock.timers.reset(); }
-  announce('3 pontos a rever');
-  assert.equal(el('#announce').textContent, '3 pontos a rever');
 });

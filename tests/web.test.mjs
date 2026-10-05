@@ -181,9 +181,12 @@ test('língua por omissão segue o browser e a escolha fica guardada', async () 
   assert.equal((await loadI18n({ language: 'pt-PT', stored: 'xx' })).I18N.lang, 'pt', 'valor guardado inválido é ignorado');
 
   const { I18N, store, doc } = await loadI18n({ language: 'pt-PT' });
+  assert.equal(doc.documentElement.lang, undefined, 'carregar o módulo não mexe na página');
   I18N.set(I18N.other());
   assert.equal(I18N.lang, 'en');
   assert.equal(store['ferias-lang'], 'en');
+  assert.equal(doc.documentElement.lang, undefined, 'mudar de língua também não: isso é o apply()');
+  I18N.apply();
   assert.equal(doc.documentElement.lang, 'en');
   assert.equal(I18N.locale, 'en-GB');
   I18N.set('xx');

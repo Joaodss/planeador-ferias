@@ -1,8 +1,7 @@
-// Testes de costs.js: categorias, totais e parcelas de custo (num DOM mínimo).
-import './dom.mjs';
+// Testes de costs.js: categorias, totais e parcelas de custo (sem DOM).
+import './env.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { S } from '../web/js/state.js';
 import { I18N } from '../web/js/i18n.js';
 import { cats, ownCats, catName, hasCat, autoCat, blockCat, lineCat, nPeople, blockTotal, lineTotal, costLines, dayCostPP, dayTotalsPP, tripTotal, costItems, catOptions } from '../web/js/costs.js';
 
@@ -24,7 +23,6 @@ function trip(extra) {
     ...extra,
   };
 }
-const use = t => { S.store = { version: 2, trips: [t] }; S.activeId = t.id; return t; };
 
 test('cats: categorias por omissão traduzidas; ownCats copia uma vez e depois devolve sempre a mesma lista', () => {
   const t = trip();
@@ -85,13 +83,13 @@ test('lineCat, lineTotal (pp × pessoas ou total), nPeople (0 ou undefined → 1
 });
 
 test('costLines(null) só dá os gerais; costLines(data) só os desse dia; dayCostPP', () => {
-  const t = use(trip());
+  const t = trip();
   assert.deepEqual(costLines(t, null).map(c => c.id), ['c2']);
   assert.deepEqual(costLines(t, D1).map(c => c.id), ['c1']);
   assert.deepEqual(costLines(t, '2027-07-09'), []);
   assert.deepEqual(costLines({}, null), []);
-  assert.equal(dayCostPP(D1), 50);
-  assert.equal(dayCostPP(null), 5);
+  assert.equal(dayCostPP(t, D1), 50);
+  assert.equal(dayCostPP(t, null), 5);
 });
 
 test('dayTotalsPP soma por pessoa as atividades e os custos de cada dia', () => {

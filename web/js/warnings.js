@@ -1,13 +1,12 @@
 /* Regras que geram os "pontos a rever" (sobreposições, dias errados, etc.). */
 import { tr } from './i18n.js';
 import { parseISO, mlabel, dayLabel, artDay, daysPhrase } from './util.js';
-import { T } from './state.js';
 import { days, placeName, boardLayout } from './trip.js';
 import { absStart } from './span.js';
 
-/* L0: o layout em hora da viagem, boardLayout(t, days(t)), quando quem chama já o calculou (render). */
-export function computeWarnings(L0){
-  const t=T(); if(!t) return []; const W=[]; const ds=days(t);
+/* Pontos a rever da viagem t. L0: o layout em hora da viagem, boardLayout(t, days(t)), quando quem chama já o calculou (render). */
+export function computeWarnings(t, L0){
+  if(!t) return []; const W=[]; const ds=days(t);
   // agrupa uma vez: as atividades de cada dia (pela ordem de blocksOf) e o dia da semana de cada data
   const byDate=new Map(ds.map(d=>[d,[]])), wdOf=new Map(ds.map(d=>[d,parseISO(d).getDay()]));
   for(const b of t.blocks){ const a=byDate.get(b.date); if(a) a.push(b); }
@@ -32,7 +31,7 @@ export function computeWarnings(L0){
         W.push({sev:'bad', ids:[b.id], date, t:tr('wWeekday',{a:b.title,day:artDay(wd)}), d:tr('wWeekdayD',{days:daysPhrase(b.weekdays), ok:okOf(b)})});
       }
       if(b.place && dp.length && !dp.includes(b.place)){
-        W.push({sev:'bad', ids:[b.id], date, t:tr('wPlace',{a:b.title,place:placeName(b.place)}), d:tr('wPlaceD',{day:dayLabel(date,true), places:dp.map(placeName).join(' → ')})});
+        W.push({sev:'bad', ids:[b.id], date, t:tr('wPlace',{a:b.title,place:placeName(t,b.place)}), d:tr('wPlaceD',{day:dayLabel(date,true), places:dp.map(p=>placeName(t,p)).join(' → ')})});
       }
       if(hidden.has(b)){
         W.push({sev:'warn', ids:[b.id], date, t:tr('wHours',{a:b.title}), d:tr('wHoursD',{time:mlabel(b.start)})});
