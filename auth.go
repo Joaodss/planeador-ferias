@@ -52,7 +52,7 @@ func (s *server) sign(payload string) string {
 }
 
 func (s *server) newToken() string {
-	payload := strconv.FormatInt(time.Now().Add(sessionTTL).Unix(), 10)
+	payload := strconv.FormatInt(s.now().Add(sessionTTL).Unix(), 10)
 	return payload + "." + s.sign(payload)
 }
 
@@ -67,7 +67,7 @@ func (s *server) session(r *http.Request) (exp time.Time, ok bool) {
 		return
 	}
 	unix, err := strconv.ParseInt(payload, 10, 64)
-	if err != nil || time.Now().Unix() >= unix {
+	if err != nil || s.now().Unix() >= unix {
 		return
 	}
 	return time.Unix(unix, 0), true
@@ -106,7 +106,7 @@ func clientIP(r *http.Request) string {
 func (s *server) tooManyFailures(ip string) bool {
 	s.limMu.Lock()
 	defer s.limMu.Unlock()
-	cut := time.Now().Add(-10 * time.Minute)
+	cut := s.now().Add(-10 * time.Minute)
 	total := 0
 	for k, ts := range s.failures {
 		ts = slices.DeleteFunc(ts, func(t time.Time) bool { return !t.After(cut) })
@@ -122,7 +122,7 @@ func (s *server) tooManyFailures(ip string) bool {
 
 func (s *server) noteFailure(ip string) {
 	s.limMu.Lock()
-	s.failures[ip] = append(s.failures[ip], time.Now())
+	s.failures[ip] = append(s.failures[ip], s.now())
 	s.limMu.Unlock()
 }
 
@@ -141,7 +141,7 @@ func (s *server) login(w http.ResponseWriter, r *http.Request) {
 	okPass := equalStr(in.Password, s.cfg.password)
 	if !okUser || !okPass {
 		s.noteFailure(ip)
-		time.Sleep(400 * time.Millisecond)
+		time.Sleep(s.failDelay)
 		fail(w, http.StatusUnauthorized, "credenciais erradas")
 		return
 	}

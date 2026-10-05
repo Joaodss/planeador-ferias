@@ -1,12 +1,16 @@
 package main
 
 import (
+	"errors"
+	"io/fs"
 	"net/http"
 	"strings"
 	"testing"
+	"testing/fstest"
 )
 
 func TestStaticFiles(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t)
 
 	w := call(s, "GET", "/", "")
@@ -52,6 +56,7 @@ func TestStaticFiles(t *testing.T) {
 }
 
 func TestStaticModulePreload(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t)
 	body := call(s, "GET", "/", "").Body.String()
 	head, _, ok := strings.Cut(body, "</head>")
@@ -78,6 +83,7 @@ func TestStaticModulePreload(t *testing.T) {
 }
 
 func TestContentType(t *testing.T) {
+	t.Parallel()
 	for p, want := range map[string]string{
 		"web/js/main.js":       "text/javascript; charset=utf-8",
 		"web/IMG/LOGO.PNG":     "image/png", // extensão em maiúsculas
@@ -89,5 +95,63 @@ func TestContentType(t *testing.T) {
 		if got := contentType(p); got != want {
 			t.Errorf("contentType(%q) = %q, esperava %q", p, got, want)
 		}
+	}
+}
+
+// fsComFalhas é um sistema de ficheiros em memória em que ler badFile ou listar badDir falha.
+type fsComFalhas struct {
+	fstest.MapFS
+	badFile, badDir string
+}
+
+func (f fsComFalhas) ReadFile(name string) ([]byte, error) {
+	if name == f.badFile {
+		return nil, errors.New("erro de leitura")
+	}
+	return f.MapFS.ReadFile(name)
+}
+
+func (f fsComFalhas) ReadDir(name string) ([]fs.DirEntry, error) {
+	if name == f.badDir {
+		return nil, errors.New("erro a listar")
+	}
+	return f.MapFS.ReadDir(name)
+}
+
+func TestLoadStatic(t *testing.T) {
+	t.Parallel()
+	files := fstest.MapFS{
+		"web/index.html":  {Data: []byte("<html><head></head><body></body></html>")},
+		"web/js/main.js":  {Data: []byte("import './a.js';")},
+		"web/js/a.js":     {Data: []byte("export {};")},
+		"web/css/app.css": {Data: []byte("body{}")},
+	}
+	s := &server{}
+	if err := s.loadStatic(files); err != nil {
+		t.Fatal(err)
+	}
+	if len(s.static) != 4 || s.static["/css/app.css"].ctype != "text/css; charset=utf-8" {
+		t.Errorf("ficheiros carregados: %v", s.static)
+	}
+	want := "<html><head><link rel=\"modulepreload\" href=\"js/a.js\">\n<link rel=\"modulepreload\" href=\"js/main.js\">\n</head><body></body></html>"
+	if got := string(s.static["/index.html"].body); got != want {
+		t.Errorf("index.html:\n%s\nesperava:\n%s", got, want)
+	}
+
+	// Sem index.html não há onde pôr os modulepreload: os outros ficheiros ficam como estão.
+	delete(files, "web/index.html")
+	if err := s.loadStatic(files); err != nil || len(s.static) != 3 || string(s.static["/js/a.js"].body) != "export {};" {
+		t.Errorf("sem index.html: %v, %v", err, s.static)
+	}
+
+	// Um erro a ler um ficheiro ou a listar uma pasta não deixa arrancar com a página a meio.
+	if err := s.loadStatic(fsComFalhas{MapFS: files, badFile: "web/js/a.js"}); err == nil {
+		t.Error("um ficheiro ilegível devia dar erro")
+	}
+	if err := s.loadStatic(fsComFalhas{MapFS: files, badDir: "web/js"}); err == nil {
+		t.Error("uma pasta ilegível devia dar erro")
+	}
+	if err := s.loadStatic(fstest.MapFS{}); err == nil {
+		t.Error("sem a pasta web/ devia dar erro")
 	}
 }

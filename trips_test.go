@@ -2,9 +2,9 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -18,8 +18,11 @@ import (
 )
 
 func TestTripLifecycle(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t)
 	dir := s.cfg.dataDir
+	// relógio parado: os nomes das cópias não dependem do dia em que o teste corre
+	withClock(s, time.Date(2027, 7, 5, 23, 59, 30, 0, time.UTC))
 
 	w := authedCall(s, "PUT", "/api/trips/x", tripBody("x", 0, "A"))
 	if w.Code != http.StatusOK || decode[record](t, w).Rev != 1 {
@@ -39,10 +42,10 @@ func TestTripLifecycle(t *testing.T) {
 	}
 
 	w = authedCall(s, "PUT", "/api/trips/x", tripBody("x", 1, "B"))
-	if w.Code != http.StatusOK || decode[record](t, w).Rev != 2 {
+	if rec := decode[record](t, w); w.Code != http.StatusOK || rec.Rev != 2 || rec.UpdatedAt != "2027-07-05T23:59:30Z" {
 		t.Fatalf("atualizar: código %d, %s", w.Code, w.Body)
 	}
-	backup := filepath.Join(dir, "backups", "x", time.Now().UTC().Format("2006-01-02")+".json")
+	backup := filepath.Join(dir, "backups", "x", "2027-07-05.json")
 	if b, err := os.ReadFile(backup); err != nil || !strings.Contains(string(b), `"name":"A"`) {
 		t.Errorf("devia existir uma cópia do dia com a versão A: %v %s", err, b)
 	}
@@ -63,13 +66,8 @@ func TestTripLifecycle(t *testing.T) {
 	if _, err := os.Stat(s.tripPath("x")); !os.IsNotExist(err) {
 		t.Error("a viagem apagada ainda está em trips/")
 	}
-	entries, _ := os.ReadDir(filepath.Join(dir, "backups", "x"))
-	found := false
-	for _, e := range entries {
-		found = found || strings.HasPrefix(e.Name(), "apagada-")
-	}
-	if !found {
-		t.Error("a viagem apagada devia ficar em backups/x/apagada-*.json")
+	if b, err := os.ReadFile(filepath.Join(dir, "backups", "x", "apagada-2027-07-05T235930Z.json")); err != nil || !strings.Contains(string(b), `"name":"B"`) {
+		t.Errorf("a viagem apagada devia ficar em backups/x/apagada-<hora UTC>.json: %v %s", err, b)
 	}
 
 	// Gravar uma viagem que foi apagada noutro dispositivo.
@@ -85,6 +83,7 @@ func TestTripLifecycle(t *testing.T) {
 }
 
 func TestTripListSkipsUnreadableFiles(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t)
 	authedCall(s, "PUT", "/api/trips/ok", tripBody("ok", 0, "Boa"))
 	os.WriteFile(filepath.Join(s.cfg.dataDir, "trips", "estragada.json"), []byte("{"), 0o600)
@@ -96,6 +95,7 @@ func TestTripListSkipsUnreadableFiles(t *testing.T) {
 }
 
 func TestTripValidation(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t)
 	huge := `{"baseRev":0,"trip":{"id":"x","note":"` + strings.Repeat("a", maxBody) + `"}}`
 	for _, tc := range []struct {
@@ -124,6 +124,7 @@ func TestTripValidation(t *testing.T) {
 
 // Uma ligação cortada a meio do corpo é um pedido inválido, não uma viagem demasiado grande.
 func TestPutTripReadError(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t)
 	body := io.MultiReader(strings.NewReader(`{"baseRev":0,"trip":{"id":"x"`), iotest.ErrReader(io.ErrUnexpectedEOF))
 	r := httptest.NewRequest("PUT", "/api/trips/x", body)
@@ -137,6 +138,7 @@ func TestPutTripReadError(t *testing.T) {
 }
 
 func TestBackupRetention(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t)
 	dir := filepath.Join(s.cfg.dataDir, "backups", "x")
 	os.MkdirAll(dir, 0o700)
@@ -171,6 +173,7 @@ func TestBackupRetention(t *testing.T) {
 }
 
 func TestTripListETag(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t)
 	tok := s.newToken()
 	list := func(inm string) *httptest.ResponseRecorder {
@@ -219,6 +222,7 @@ func TestTripListETag(t *testing.T) {
 }
 
 func TestTripListSeesHandEdits(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t)
 	authedCall(s, "PUT", "/api/trips/x", tripBody("x", 0, "A"))
 	w := authedCall(s, "GET", "/api/trips", "") // a viagem fica na cache
@@ -254,10 +258,9 @@ func TestTripListSeesHandEdits(t *testing.T) {
 }
 
 func TestTripListWithFullCache(t *testing.T) {
-	old := maxCache
-	maxCache = 100 // só cabe a primeira viagem: as outras vêm do disco
-	defer func() { maxCache = old }()
+	t.Parallel()
 	s := newTestServer(t)
+	s.maxCache = 100 // só cabe a primeira viagem: as outras vêm do disco
 	for _, id := range []string{"a", "b", "c"} {
 		authedCall(s, "PUT", "/api/trips/"+id, tripBody(id, 0, "Viagem "+id))
 	}
@@ -273,7 +276,7 @@ func TestTripListWithFullCache(t *testing.T) {
 			t.Errorf("registo errado: rev %d, %+v", rec.Rev, tn)
 		}
 	}
-	if s.cacheBytes > maxCache {
+	if s.cacheBytes > s.maxCache {
 		t.Errorf("a cache passou do limite: %d bytes", s.cacheBytes)
 	}
 	// Conflito com a viagem que não coube na cache: devolve o registo lido do disco.
@@ -283,6 +286,7 @@ func TestTripListWithFullCache(t *testing.T) {
 }
 
 func TestTripListSkipsTripsThatAreNotObjects(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t)
 	authedCall(s, "PUT", "/api/trips/ok", tripBody("ok", 0, "Boa"))
 	for name, body := range map[string]string{"nula": `{"rev":1,"trip":null}`, "sem": `{"rev":1}`, "lista": `[1]`} {
@@ -296,6 +300,7 @@ func TestTripListSkipsTripsThatAreNotObjects(t *testing.T) {
 
 // O limite é maxBody bytes de corpo: exatamente maxBody passa, um byte a mais dá 413.
 func TestPutTripBody(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t)
 	body := func(n int) string {
 		head, tail := `{"baseRev":0,"trip":{"id":"x","note":"`, `"}}`
@@ -309,7 +314,22 @@ func TestPutTripBody(t *testing.T) {
 	}
 }
 
+// updatedAt vem sempre em RFC 3339 e em UTC, seja qual for o fuso do servidor.
+func TestPutTripUpdatedAt(t *testing.T) {
+	t.Parallel()
+	s := newTestServer(t)
+	withClock(s, time.Date(2027, 7, 5, 10, 30, 0, 0, time.FixedZone("Lisboa", 3600)))
+	w := authedCall(s, "PUT", "/api/trips/x", tripBody("x", 0, "A"))
+	if got := decode[record](t, w).UpdatedAt; got != "2027-07-05T09:30:00Z" {
+		t.Errorf("resposta com updatedAt %q, esperava 2027-07-05T09:30:00Z", got)
+	}
+	if b, _ := os.ReadFile(s.tripPath("x")); !strings.HasPrefix(string(b), `{"rev":1,"updatedAt":"2027-07-05T09:30:00Z","trip":{"id":"x"`) {
+		t.Errorf("registo em disco: %s", b)
+	}
+}
+
 func TestPutTripErrors(t *testing.T) {
+	t.Parallel()
 	t.Run("registo corrompido", func(t *testing.T) {
 		s := newTestServer(t)
 		os.WriteFile(s.tripPath("x"), []byte(`{"rev":1,"trip":`), 0o600)
@@ -330,9 +350,7 @@ func TestPutTripErrors(t *testing.T) {
 	t.Run("pasta trips/ apagada", func(t *testing.T) {
 		s := newTestServer(t)
 		os.RemoveAll(filepath.Join(s.cfg.dataDir, "trips"))
-		var logs strings.Builder
-		log.SetOutput(&logs)
-		defer log.SetOutput(os.Stderr)
+		logs := captureLog(s)
 		w := authedCall(s, "PUT", "/api/trips/x", tripBody("x", 0, "A"))
 		if w.Code != http.StatusInternalServerError || !strings.Contains(w.Body.String(), "não consegui gravar") {
 			t.Errorf("código %d, esperava 500 \"não consegui gravar\" (%s)", w.Code, w.Body)
@@ -344,9 +362,44 @@ func TestPutTripErrors(t *testing.T) {
 			t.Error("uma gravação falhada não pode ficar na cache")
 		}
 	})
+	t.Run("disco cheio", func(t *testing.T) {
+		s := newTestServer(t)
+		authedCall(s, "PUT", "/api/trips/x", tripBody("x", 0, "A"))
+		before, cached := s.cache["x"], s.cacheBytes
+		s.writeFile = func(string, []byte) error { return errors.New("sem espaço") }
+		logs := captureLog(s)
+		if w := authedCall(s, "PUT", "/api/trips/x", tripBody("x", 1, "B")); w.Code != http.StatusInternalServerError {
+			t.Errorf("código %d, esperava 500 (%s)", w.Code, w.Body)
+		}
+		if !strings.Contains(logs.String(), "erro a gravar x: sem espaço") {
+			t.Errorf("a falha devia ficar no log: %q", logs.String())
+		}
+		if s.cache["x"] != before || s.cacheBytes != cached {
+			t.Error("uma gravação falhada não pode mexer na cache")
+		}
+		if b, _ := os.ReadFile(s.tripPath("x")); !strings.Contains(string(b), `"name":"A"`) {
+			t.Errorf("a versão gravada antes tem de ficar: %s", b)
+		}
+		// a próxima gravação continua a partir da revisão 1
+		s.writeFile = writeAtomic
+		if w := authedCall(s, "PUT", "/api/trips/x", tripBody("x", 1, "B")); w.Code != http.StatusOK || decode[record](t, w).Rev != 2 {
+			t.Errorf("depois de haver espaço: código %d, %s", w.Code, w.Body)
+		}
+	})
+	t.Run("o ficheiro gravado desaparece logo", func(t *testing.T) {
+		s := newTestServer(t)
+		s.writeFile = func(string, []byte) error { return nil } // diz que gravou, mas não fica nada
+		if w := authedCall(s, "PUT", "/api/trips/x", tripBody("x", 0, "A")); w.Code != http.StatusOK {
+			t.Errorf("código %d, esperava 200 (%s)", w.Code, w.Body)
+		}
+		if len(s.cache) != 0 {
+			t.Error("sem ficheiro em disco não pode ficar nada na cache")
+		}
+	})
 }
 
 func TestListTripsErrors(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t)
 	authedCall(s, "PUT", "/api/trips/x", tripBody("x", 0, "A"))
 	os.RemoveAll(filepath.Join(s.cfg.dataDir, "trips"))
@@ -356,6 +409,7 @@ func TestListTripsErrors(t *testing.T) {
 }
 
 func TestDeleteTripErrors(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t)
 	authedCall(s, "PUT", "/api/trips/x", tripBody("x", 0, "A"))
 	os.WriteFile(filepath.Join(s.cfg.dataDir, "backups", "x"), []byte("não é uma pasta"), 0o600)
@@ -365,24 +419,84 @@ func TestDeleteTripErrors(t *testing.T) {
 	if _, err := os.Stat(s.tripPath("x")); err != nil {
 		t.Errorf("se não há onde guardar a cópia, a viagem fica onde estava: %v", err)
 	}
+
+	// Já existe uma pasta com o nome que a cópia ia ter: não dá para mover o ficheiro.
+	authedCall(s, "PUT", "/api/trips/y", tripBody("y", 0, "A"))
+	withClock(s, time.Date(2027, 7, 5, 12, 0, 0, 0, time.UTC))
+	dst := filepath.Join(s.cfg.dataDir, "backups", "y", "apagada-2027-07-05T120000Z.json")
+	os.MkdirAll(dst, 0o700)
+	os.WriteFile(filepath.Join(dst, "ocupado"), []byte("x"), 0o600)
+	if w := authedCall(s, "DELETE", "/api/trips/y", ""); w.Code != http.StatusInternalServerError {
+		t.Errorf("sem conseguir mover: código %d, esperava 500", w.Code)
+	}
+	if _, err := os.Stat(s.tripPath("y")); err != nil {
+		t.Errorf("se não conseguiu mover, a viagem fica onde estava: %v", err)
+	}
+	if _, ok := s.cache["y"]; !ok {
+		t.Error("se não conseguiu mover, a viagem continua na cache")
+	}
 }
 
 func TestDailyBackup(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t)
-	today := time.Now().UTC().Format("2006-01-02") + ".json"
+	clk := withClock(s, time.Date(2027, 7, 5, 9, 0, 0, 0, time.UTC))
 	dir := filepath.Join(s.cfg.dataDir, "backups", "x")
-	for i, name := range []string{"A", "B", "C"} {
-		if w := authedCall(s, "PUT", "/api/trips/x", tripBody("x", int64(i), name)); w.Code != http.StatusOK {
+	put := func(rev int64, name string) {
+		t.Helper()
+		if w := authedCall(s, "PUT", "/api/trips/x", tripBody("x", rev, name)); w.Code != http.StatusOK {
 			t.Fatalf("PUT %s: código %d", name, w.Code)
 		}
 	}
-	entries, _ := os.ReadDir(dir)
-	if len(entries) != 1 || entries[0].Name() != today {
-		t.Fatalf("esperava só a cópia %s, encontrei %v", today, entries)
+	copies := func() map[string]string {
+		t.Helper()
+		out := map[string]string{}
+		entries, _ := os.ReadDir(dir)
+		for _, e := range entries {
+			var tn tripName
+			b, _ := os.ReadFile(filepath.Join(dir, e.Name()))
+			var rec record
+			json.Unmarshal(b, &rec)
+			json.Unmarshal(rec.Trip, &tn)
+			out[e.Name()] = tn.Name
+		}
+		return out
 	}
-	if b, _ := os.ReadFile(filepath.Join(dir, today)); !strings.Contains(string(b), `"name":"A"`) {
-		t.Errorf("a cópia do dia devia ter a versão anterior à primeira alteração (A): %s", b)
+
+	// Três gravações no mesmo dia: uma cópia, com a versão anterior à primeira alteração.
+	for i, name := range []string{"A", "B", "C"} {
+		put(int64(i), name)
+		clk.add(time.Hour)
 	}
+	if got := copies(); len(got) != 1 || got["2027-07-05.json"] != "A" {
+		t.Fatalf("esperava só a cópia de dia 5 com a versão A, encontrei %v", got)
+	}
+
+	// No dia seguinte (em UTC), a primeira gravação faz outra cópia, com a versão C.
+	clk.add(14 * time.Hour) // 2027-07-06 00:00 UTC
+	put(3, "D")
+	put(4, "E")
+	if got := copies(); len(got) != 2 || got["2027-07-05.json"] != "A" || got["2027-07-06.json"] != "C" {
+		t.Errorf("esperava as cópias de dia 5 (A) e de dia 6 (C), encontrei %v", got)
+	}
+
+	// Sem conseguir escrever a cópia: fica um aviso no log e a gravação continua.
+	clk.add(24 * time.Hour)
+	logs := captureLog(s)
+	s.writeFile = func(p string, b []byte) error {
+		if strings.Contains(p, "backups") {
+			return errors.New("sem espaço")
+		}
+		return writeAtomic(p, b)
+	}
+	put(5, "F")
+	if !strings.Contains(logs.String(), "cópia de x falhou: sem espaço") {
+		t.Errorf("a falha da cópia devia ficar no log: %q", logs.String())
+	}
+	if got := copies(); len(got) != 2 {
+		t.Errorf("a cópia falhada não pode deixar ficheiros: %v", got)
+	}
+	s.writeFile = writeAtomic
 
 	// Sem pasta para a cópia, a gravação continua.
 	authedCall(s, "PUT", "/api/trips/y", tripBody("y", 0, "A"))
@@ -399,6 +513,7 @@ func TestDailyBackup(t *testing.T) {
 }
 
 func TestWriteAtomic(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	if err := writeAtomic(filepath.Join(dir, "nao-existe", "x.json"), []byte("{}")); err == nil {
 		t.Error("numa pasta que não existe devia dar erro")
@@ -422,6 +537,7 @@ func TestWriteAtomic(t *testing.T) {
 
 // cacheBytes tem de ser sempre a soma dos bytes guardados na cache.
 func TestTripCache(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t)
 	check := func(when string, n int) {
 		t.Helper()
@@ -448,6 +564,7 @@ func TestTripCache(t *testing.T) {
 
 // Vários dispositivos a criar a mesma viagem ao mesmo tempo: só um ganha, os outros recebem 409.
 func TestConcurrentPuts(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t)
 	const n = 10
 	codes := make(chan int, n)

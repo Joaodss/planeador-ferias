@@ -14,6 +14,7 @@ import (
 )
 
 func TestLogin(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t)
 
 	w := call(s, "POST", "/api/login", loginBody(testUser, "errada-errada"))
@@ -44,6 +45,7 @@ func TestLogin(t *testing.T) {
 }
 
 func TestLoginSecureCookieBehindHTTPS(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t)
 	w := call(s, "POST", "/api/login", loginBody(testUser, testPass), func(r *http.Request) {
 		r.Header.Set("X-Forwarded-Proto", "https")
@@ -54,6 +56,7 @@ func TestLoginSecureCookieBehindHTTPS(t *testing.T) {
 }
 
 func TestLoginBadRequest(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t)
 	for _, tc := range []struct {
 		name, body string
@@ -72,41 +75,69 @@ func TestLoginBadRequest(t *testing.T) {
 }
 
 func TestLoginRateLimit(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t)
+	clk := withClock(s, time.Date(2027, 7, 5, 12, 0, 0, 0, time.UTC))
+	login := func(ip, pass string) int {
+		return call(s, "POST", "/api/login", loginBody(testUser, pass), withIP(ip)).Code
+	}
 	for i := 0; i < 8; i++ {
-		s.noteFailure("192.0.2.1")
+		if code := login("192.0.2.1", "errada-errada"); code != http.StatusUnauthorized {
+			t.Fatalf("falha %d: código %d, esperava 401", i+1, code)
+		}
 	}
-	if w := call(s, "POST", "/api/login", loginBody(testUser, testPass), withIP("192.0.2.1")); w.Code != http.StatusTooManyRequests {
-		t.Fatalf("depois de 8 falhas: código %d, esperava 429", w.Code)
+	if code := login("192.0.2.1", testPass); code != http.StatusTooManyRequests {
+		t.Fatalf("depois de 8 falhas, mesmo com a palavra-passe certa: código %d, esperava 429", code)
 	}
-	if w := call(s, "POST", "/api/login", loginBody(testUser, testPass), withIP("198.51.100.7")); w.Code != http.StatusOK {
-		t.Fatalf("outro endereço não deve ficar bloqueado: código %d", w.Code)
+	if code := login("198.51.100.7", testPass); code != http.StatusOK {
+		t.Fatalf("outro endereço não deve ficar bloqueado: código %d", code)
 	}
 
-	// Limite global: 40 falhas no total bloqueiam todos.
-	for i := 0; i < 40; i++ {
-		s.noteFailure(fmt.Sprintf("203.0.113.%d", i))
+	// A janela é de 10 minutos, contados desde cada falha.
+	clk.add(10*time.Minute - time.Second)
+	if code := login("192.0.2.1", testPass); code != http.StatusTooManyRequests {
+		t.Errorf("9:59 depois: código %d, esperava 429", code)
 	}
-	if w := call(s, "POST", "/api/login", loginBody(testUser, testPass), withIP("198.51.100.8")); w.Code != http.StatusTooManyRequests {
-		t.Fatalf("limite global: código %d, esperava 429", w.Code)
+	clk.add(time.Second)
+	if code := login("192.0.2.1", testPass); code != http.StatusOK {
+		t.Errorf("10 minutos depois: código %d, esperava 200", code)
+	}
+	if _, ok := s.failures["192.0.2.1"]; ok {
+		t.Error("as falhas antigas deviam ser limpas")
+	}
+
+	// Limite global: 40 falhas no total, de endereços diferentes, bloqueiam todos.
+	for i := 0; i < 40; i++ {
+		login(fmt.Sprintf("203.0.113.%d", i), "errada-errada")
+	}
+	if code := login("198.51.100.8", testPass); code != http.StatusTooManyRequests {
+		t.Fatalf("limite global: código %d, esperava 429", code)
 	}
 }
 
-func TestLoginFailuresExpire(t *testing.T) {
+// A espera de failDelay só acontece nos logins falhados.
+func TestLoginFailDelay(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t)
-	old := time.Now().Add(-11 * time.Minute)
-	for i := 0; i < 8; i++ {
-		s.failures["192.0.2.1"] = append(s.failures["192.0.2.1"], old)
+	s.failDelay = 100 * time.Millisecond
+	start := time.Now()
+	if w := call(s, "POST", "/api/login", loginBody(testUser, "errada-errada")); w.Code != http.StatusUnauthorized {
+		t.Fatalf("código %d, esperava 401", w.Code)
 	}
-	if s.tooManyFailures("192.0.2.1") {
-		t.Fatal("falhas com mais de 10 minutos não devem contar")
+	if d := time.Since(start); d < s.failDelay {
+		t.Errorf("o login falhado só esperou %v, esperava pelo menos %v", d, s.failDelay)
 	}
-	if _, ok := s.failures["192.0.2.1"]; ok {
-		t.Error("falhas antigas deviam ser limpas")
+	start = time.Now()
+	if w := call(s, "POST", "/api/login", loginBody(testUser, testPass)); w.Code != http.StatusOK {
+		t.Fatalf("código %d, esperava 200", w.Code)
+	}
+	if d := time.Since(start); d >= s.failDelay {
+		t.Errorf("o login certo esperou %v", d)
 	}
 }
 
 func TestLogout(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t)
 	w := authedCall(s, "POST", "/api/logout", "")
 	c := sessionCookie(w)
@@ -123,6 +154,7 @@ func TestLogout(t *testing.T) {
 }
 
 func TestSessionValidation(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t)
 	valid := tokenUntil(s, time.Now().Add(time.Hour))
 	payload, _, _ := strings.Cut(valid, ".")
@@ -146,7 +178,31 @@ func TestSessionValidation(t *testing.T) {
 	}
 }
 
+// A sessão vale até ao segundo anterior a exp, e o login dá sessões de 30 dias.
+func TestSessionExpiry(t *testing.T) {
+	t.Parallel()
+	s := newTestServer(t)
+	t0 := time.Date(2027, 7, 5, 12, 0, 0, 0, time.UTC)
+	clk := withClock(s, t0)
+	c := sessionCookie(call(s, "POST", "/api/login", loginBody(testUser, testPass)))
+	exp, ok := s.session(&http.Request{Header: http.Header{"Cookie": {cookieName + "=" + c.Value}}})
+	if !ok || !exp.Equal(t0.Add(sessionTTL)) {
+		t.Fatalf("a sessão do login devia valer até %v, vale até %v (%v)", t0.Add(sessionTTL), exp, ok)
+	}
+
+	tok := tokenUntil(s, t0.Add(time.Hour))
+	clk.add(time.Hour - time.Second)
+	if w := call(s, "GET", "/api/trips", "", withCookie(tok)); w.Code != http.StatusOK {
+		t.Errorf("um segundo antes de expirar: código %d, esperava 200", w.Code)
+	}
+	clk.add(time.Second)
+	if w := call(s, "GET", "/api/trips", "", withCookie(tok)); w.Code != http.StatusUnauthorized {
+		t.Errorf("no instante em que expira: código %d, esperava 401", w.Code)
+	}
+}
+
 func TestSessionSlidingRenewal(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t)
 
 	// Sessão com 10 dias de validade: é renovada para 30.
@@ -167,9 +223,25 @@ func TestSessionSlidingRenewal(t *testing.T) {
 	if c := sessionCookie(authedCall(s, "GET", "/api/trips", "")); c != nil {
 		t.Errorf("sessão recente não devia ser renovada: %+v", c)
 	}
+
+	// Fronteira: com exatamente sessionTTL-24h ainda não renova; um segundo abaixo já renova.
+	t0 := time.Date(2027, 7, 5, 12, 0, 0, 0, time.UTC)
+	withClock(s, t0)
+	limit := t0.Add(sessionTTL - 24*time.Hour)
+	if c := sessionCookie(call(s, "GET", "/api/trips", "", withCookie(tokenUntil(s, limit)))); c != nil {
+		t.Errorf("com sessionTTL-24h não devia renovar: %+v", c)
+	}
+	c = sessionCookie(call(s, "GET", "/api/trips", "", withCookie(tokenUntil(s, limit.Add(-time.Second)))))
+	if c == nil {
+		t.Fatal("um segundo abaixo de sessionTTL-24h devia renovar")
+	}
+	if exp, _ := s.session(&http.Request{Header: http.Header{"Cookie": {cookieName + "=" + c.Value}}}); !exp.Equal(t0.Add(sessionTTL)) {
+		t.Errorf("a sessão renovada devia valer até %v, vale até %v", t0.Add(sessionTTL), exp)
+	}
 }
 
 func TestSessionSurvivesRestartButNotPasswordChange(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	s1 := newTestServerAt(t, dir, testPass)
 	tok := s1.newToken()
@@ -185,6 +257,7 @@ func TestSessionSurvivesRestartButNotPasswordChange(t *testing.T) {
 }
 
 func TestClientIP(t *testing.T) {
+	t.Parallel()
 	r := httptest.NewRequest("GET", "/", nil)
 	r.RemoteAddr = "10.0.0.1:5555"
 	if got := clientIP(r); got != "10.0.0.1" {
@@ -203,6 +276,7 @@ func TestClientIP(t *testing.T) {
 }
 
 func TestEqualStr(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		a, b string
 		want bool
@@ -221,6 +295,7 @@ func TestEqualStr(t *testing.T) {
 }
 
 func TestLoadKey(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	p := filepath.Join(dir, ".session-secret")
 	s := newTestServerAt(t, dir, testPass)

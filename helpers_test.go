@@ -3,12 +3,16 @@ package main
 // Funções de apoio partilhadas pelos testes do servidor (um *_test.go por ficheiro do servidor).
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -23,13 +27,68 @@ func newTestServer(t testing.TB) *server {
 	return newTestServerAt(t, t.TempDir(), testPass)
 }
 
+// newTestServerAt cria um servidor com os dados em dir, sem a espera dos logins falhados e com os
+// avisos descartados (os testes que os querem ver usam captureLog). O relógio é o verdadeiro: os
+// testes que dependem da data usam withClock.
 func newTestServerAt(t testing.TB, dir, password string) *server {
 	t.Helper()
 	s, err := newServer(config{user: testUser, password: password, dataDir: dir})
 	if err != nil {
 		t.Fatal(err)
 	}
+	s.failDelay = 0
+	s.log = log.New(io.Discard, "", 0)
 	return s
+}
+
+// clock é um relógio de teste: fica parado até alguém o adiantar.
+type clock struct {
+	mu sync.Mutex
+	t  time.Time
+}
+
+func (c *clock) now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.t
+}
+
+func (c *clock) add(d time.Duration) {
+	c.mu.Lock()
+	c.t = c.t.Add(d)
+	c.mu.Unlock()
+}
+
+// withClock põe o servidor num relógio parado em t.
+func withClock(s *server, t time.Time) *clock {
+	c := &clock{t: t}
+	s.now = c.now
+	return c
+}
+
+// syncBuffer é um bytes.Buffer que aguenta escritas de vários pedidos ao mesmo tempo.
+type syncBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.b.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.b.String()
+}
+
+// captureLog passa os avisos do servidor para um buffer.
+func captureLog(s *server) *syncBuffer {
+	b := &syncBuffer{}
+	s.log = log.New(b, "", 0)
+	return b
 }
 
 // tokenUntil cria um cookie de sessão válido até exp.

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +12,7 @@ import (
 /* ---------- arranque ---------- */
 
 func TestNewServerErrors(t *testing.T) {
+	t.Parallel()
 	t.Run("DATA_DIR é um ficheiro", func(t *testing.T) {
 		p := filepath.Join(t.TempDir(), "dados")
 		os.WriteFile(p, []byte("x"), 0o600)
@@ -26,4 +29,59 @@ func TestNewServerErrors(t *testing.T) {
 			t.Fatalf("esperava um erro da chave das sessões, veio %v", err)
 		}
 	})
+}
+
+func TestLoadConfig(t *testing.T) {
+	t.Parallel()
+	env := func(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
+	ok := map[string]string{"PLANNER_USER": "eu", "PLANNER_PASSWORD": "uma-palavra-passe"}
+
+	cfg, err := loadConfig(env(ok))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := (config{user: "eu", password: "uma-palavra-passe", dataDir: "./data", addr: ":8080"}); cfg != want {
+		t.Errorf("valores por omissão: %+v, esperava %+v", cfg, want)
+	}
+
+	cfg, err = loadConfig(env(map[string]string{
+		"PLANNER_USER": "eu", "PLANNER_PASSWORD": "uma-palavra-passe",
+		"DATA_DIR": "/data", "PORT": "9000", "PLANNER_HOME_TZ": "  Europe/Lisbon ",
+	}))
+	if err != nil || cfg.dataDir != "/data" || cfg.addr != ":9000" || cfg.homeTz != "Europe/Lisbon" {
+		t.Errorf("com todas as variáveis: %+v, %v", cfg, err)
+	}
+
+	for name, m := range map[string]map[string]string{
+		"sem nada":            {},
+		"sem utilizador":      {"PLANNER_PASSWORD": "uma-palavra-passe"},
+		"sem palavra-passe":   {"PLANNER_USER": "eu"},
+		"palavra-passe com 9": {"PLANNER_USER": "eu", "PLANNER_PASSWORD": "123456789"},
+		"palavra-passe vazia": {"PLANNER_USER": "eu", "PLANNER_PASSWORD": ""},
+	} {
+		if _, err := loadConfig(env(m)); err == nil {
+			t.Errorf("%s: devia dar erro", name)
+		}
+	}
+	if _, err := loadConfig(env(map[string]string{"PLANNER_USER": "eu", "PLANNER_PASSWORD": "1234567890"})); err != nil {
+		t.Errorf("palavra-passe com 10 caracteres: %v", err)
+	}
+}
+
+func TestHealthcheck(t *testing.T) {
+	t.Parallel()
+	s := newTestServer(t)
+	ok := httptest.NewServer(s)
+	defer ok.Close()
+	if err := healthcheck(ok.URL + "/healthz"); err != nil {
+		t.Errorf("servidor a responder: %v", err)
+	}
+	if err := healthcheck(ok.URL + "/nao-existe"); err == nil || !strings.Contains(err.Error(), "404") {
+		t.Errorf("um 404 devia dar erro com o código: %v", err)
+	}
+	down := httptest.NewServer(http.NotFoundHandler())
+	down.Close()
+	if err := healthcheck(down.URL + "/healthz"); err == nil {
+		t.Error("sem servidor devia dar erro")
+	}
 }
