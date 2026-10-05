@@ -1,5 +1,5 @@
 // Testes de tz.js: contas de fusos e mudança de hora, o segundo fuso e reconhecer o fuso escrito pelo utilizador.
-import { store, storage, clearStore } from './dom.mjs';
+import { store, storage, clearStore } from './env.mjs';
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { resolveTz, TZ, setServerHomeTz, defaultHomeTz, ownHomeTz, homeTz, saveHomeTz, secondTz, viewingHome, setViewingHome, viewOffset } from '../web/js/tz.js';

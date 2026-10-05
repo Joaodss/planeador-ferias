@@ -1,6 +1,7 @@
 /* Painel da viagem: criar/editar datas e horário, sítios, categorias de custo, duplicar e apagar. */
 import { tr } from '../i18n.js';
-import { $, esc, pad, newId, parseISO, iso, addDays, toast } from '../util.js';
+import { esc, pad, newId, parseISO, iso, addDays } from '../util.js';
+import { $, toast } from './dom.js';
 import { S, T, ensureActive, setActive, pushHistory } from '../state.js';
 import { days, toTray, addPlace } from '../trip.js';
 import { cats, ownCats } from '../costs.js';
@@ -10,8 +11,6 @@ import { render } from './board.js';
 import { closeSheets } from './sheets.js';
 
 let tripMode='edit';
-(function(){ const h=Array.from({length:24},(_,i)=>`<option value="${i}">${pad(i)}:00</option>`).join(''); $('#t-ds').innerHTML=h; $('#t-de').innerHTML=h; })();
-$('#tz-list').innerHTML=TZ.all.map(z=>`<option value="${z}">`).join('');
 export function openTripSheet(isNew){
   closeSheets(); tripMode=isNew?'new':'edit'; const t=T(); $('#tripsheet').hidden=false; $('#t-err').hidden=true; $('#t-del-confirm').hidden=true;
   $('#t-h').textContent=tr(isNew?'newTrip':'datesPlaces'); $('#t-submit').textContent=tr(isNew?'createTrip':'save');
@@ -33,9 +32,6 @@ function renderPlaces(){
     row.querySelector('button').addEventListener('click',()=>{ pushHistory(); t.places=t.places.filter(x=>x!==p); Object.keys(t.dayPlaces).forEach(d=>{ t.dayPlaces[d]=t.dayPlaces[d].filter(x=>x!==p.id); if(!t.dayPlaces[d].length) delete t.dayPlaces[d]; }); t.blocks.concat(t.tray).forEach(b=>{ if(b.place===p.id) delete b.place; }); commit(); renderPlaces(); });
     box.appendChild(row); });
 }
-$('#t-addplace').addEventListener('click',()=>{ const v=$('#t-newplace').value; if(!v.trim()) return; pushHistory(); addPlace(v); $('#t-newplace').value=''; commit(); renderPlaces(); });
-$('#t-newplace').addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); $('#t-addplace').click(); } });
-
 /* categorias de custo */
 function renderCats(){
   const t=T(), box=$('#t-cats'); box.innerHTML='';
@@ -47,39 +43,48 @@ function renderCats(){
     box.appendChild(row); });
   if(!cats(t).length) box.innerHTML=`<p class="hint">${tr('noCats')}</p>`;
 }
-$('#t-addcat').addEventListener('click',()=>{ const t=T(), v=$('#t-newcat').value.trim(); if(!v) return;
-  if(cats(t).some(c=>c.name.toLowerCase()===v.toLowerCase())){ toast(tr('tCatExists')); return; }
-  pushHistory(); ownCats(t).push({id:newId('k'), name:v}); $('#t-newcat').value=''; commit(); renderCats(); });
-$('#t-newcat').addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); $('#t-addcat').click(); } });
+/* Opções fixas e botões do painel (main.js chama-a uma vez ao arrancar). */
+export function initTripsheet(){
+  const h=Array.from({length:24},(_,i)=>`<option value="${i}">${pad(i)}:00</option>`).join(''); $('#t-ds').innerHTML=h; $('#t-de').innerHTML=h;
+  $('#tz-list').innerHTML=TZ.all.map(z=>`<option value="${z}">`).join('');
 
-/* gravar / cancelar / duplicar / apagar */
-$('#t-form').addEventListener('submit',e=>{
-  e.preventDefault(); const err=$('#t-err');
-  const name=$('#t-name').value.trim(), s=$('#t-start').value, en=$('#t-end').value;
-  const fail=m=>{ err.textContent=m; err.hidden=false; };
-  if(!name) return fail(tr('errTripName'));
-  if(!s||!en) return fail(tr('errTripDates'));
-  if(en<s) return fail(tr('errTripOrder'));
-  const n=Math.round((parseISO(en)-parseISO(s))/864e5)+1; if(n>60) return fail(tr('errTripLong',{n}));
-  const ds=+$('#t-ds').value, de=+$('#t-de').value, people=Math.max(1,parseInt($('#t-people').value)||1), cur=$('#t-cur').value, budget=parseFloat($('#t-budget').value)>0?parseFloat($('#t-budget').value):0;
-  const tz=resolveTz($('#t-tz').value), home=resolveTz($('#t-hometz').value);
-  if(tz===null) return fail(tr('errTz',{v:$('#t-tz').value.trim()}));
-  if(home===null) return fail(tr('errTz',{v:$('#t-hometz').value.trim()}));
-  saveHomeTz(home);
-  pushHistory(tripMode==='new');   // criar uma viagem muda a store, editar só mexe nesta
-  if(tripMode==='new'){
-    const t={id:newId('t'), name, start:s, end:en, dayStart:ds, dayEnd:de, people, currency:cur, places:[], dayPlaces:{}, blocks:[], tray:[], costs:[]}; if(budget) t.budget=budget; if(tz) t.tz=tz;
-    S.store.trips.push(t); setActive(t.id);
-    $('#tripsheet').hidden=true; commit(); $('#scroller').scrollTo(0,0); toast(tr('tTripCreated'));
-  } else {
-    const t=T(); Object.assign(t,{name,start:s,end:en,dayStart:ds,dayEnd:de,people,currency:cur}); if(budget) t.budget=budget; else delete t.budget; if(tz) t.tz=tz; else delete t.tz;
-    const dset=new Set(days(t)); const out=t.blocks.filter(b=>!dset.has(b.date));
-    out.forEach(b=>toTray(b.id)); (t.costs||[]).forEach(c=>{ if(c.date && !dset.has(c.date)) delete c.date; }); Object.keys(t.dayPlaces).forEach(d=>{ if(!dset.has(d)) delete t.dayPlaces[d]; });
-    $('#tripsheet').hidden=true; commit(); if(out.length) toast(tr('tOutOfDates',{n:out.length}));
-  }
-});
-$('#t-cancel').addEventListener('click',()=>{ $('#tripsheet').hidden=true; render(); });
-$('#t-dup').addEventListener('click',()=>{ const t=T(); pushHistory(true); const c=structuredClone(t); c.id=newId('t'); c.name=t.name+tr('copySuffix'); S.store.trips.push(c); setActive(c.id); $('#tripsheet').hidden=true; commit(); toast(tr('tTripDup')); });
-$('#t-del').addEventListener('click',()=>{ $('#t-del-confirm').hidden=false; $('#t-del-yes').focus(); });
-$('#t-del-no').addEventListener('click',()=>{ $('#t-del-confirm').hidden=true; });
-$('#t-del-yes').addEventListener('click',()=>{ const t=T(); pushHistory(true); S.store.trips=S.store.trips.filter(x=>x!==t); S.activeId=null; ensureActive(); $('#tripsheet').hidden=true; commit(); toast(tr('tTripDel',{name:t.name})); });
+  $('#t-addplace').addEventListener('click',()=>{ const v=$('#t-newplace').value; if(!v.trim()) return; pushHistory(); addPlace(T(),v); $('#t-newplace').value=''; commit(); renderPlaces(); });
+  $('#t-newplace').addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); $('#t-addplace').click(); } });
+
+  $('#t-addcat').addEventListener('click',()=>{ const t=T(), v=$('#t-newcat').value.trim(); if(!v) return;
+    if(cats(t).some(c=>c.name.toLowerCase()===v.toLowerCase())){ toast(tr('tCatExists')); return; }
+    pushHistory(); ownCats(t).push({id:newId('k'), name:v}); $('#t-newcat').value=''; commit(); renderCats(); });
+  $('#t-newcat').addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); $('#t-addcat').click(); } });
+
+  /* gravar / cancelar / duplicar / apagar */
+  $('#t-form').addEventListener('submit',e=>{
+    e.preventDefault(); const err=$('#t-err');
+    const name=$('#t-name').value.trim(), s=$('#t-start').value, en=$('#t-end').value;
+    const fail=m=>{ err.textContent=m; err.hidden=false; };
+    if(!name) return fail(tr('errTripName'));
+    if(!s||!en) return fail(tr('errTripDates'));
+    if(en<s) return fail(tr('errTripOrder'));
+    const n=Math.round((parseISO(en)-parseISO(s))/864e5)+1; if(n>60) return fail(tr('errTripLong',{n}));
+    const ds=+$('#t-ds').value, de=+$('#t-de').value, people=Math.max(1,parseInt($('#t-people').value)||1), cur=$('#t-cur').value, budget=parseFloat($('#t-budget').value)>0?parseFloat($('#t-budget').value):0;
+    const tz=resolveTz($('#t-tz').value), home=resolveTz($('#t-hometz').value);
+    if(tz===null) return fail(tr('errTz',{v:$('#t-tz').value.trim()}));
+    if(home===null) return fail(tr('errTz',{v:$('#t-hometz').value.trim()}));
+    saveHomeTz(home);
+    pushHistory(tripMode==='new');   // criar uma viagem muda a store, editar só mexe nesta
+    if(tripMode==='new'){
+      const t={id:newId('t'), name, start:s, end:en, dayStart:ds, dayEnd:de, people, currency:cur, places:[], dayPlaces:{}, blocks:[], tray:[], costs:[]}; if(budget) t.budget=budget; if(tz) t.tz=tz;
+      S.store.trips.push(t); setActive(t.id);
+      $('#tripsheet').hidden=true; commit(); $('#scroller').scrollTo(0,0); toast(tr('tTripCreated'));
+    } else {
+      const t=T(); Object.assign(t,{name,start:s,end:en,dayStart:ds,dayEnd:de,people,currency:cur}); if(budget) t.budget=budget; else delete t.budget; if(tz) t.tz=tz; else delete t.tz;
+      const dset=new Set(days(t)); const out=t.blocks.filter(b=>!dset.has(b.date));
+      out.forEach(b=>toTray(t,b.id)); (t.costs||[]).forEach(c=>{ if(c.date && !dset.has(c.date)) delete c.date; }); Object.keys(t.dayPlaces).forEach(d=>{ if(!dset.has(d)) delete t.dayPlaces[d]; });
+      $('#tripsheet').hidden=true; commit(); if(out.length) toast(tr('tOutOfDates',{n:out.length}));
+    }
+  });
+  $('#t-cancel').addEventListener('click',()=>{ $('#tripsheet').hidden=true; render(); });
+  $('#t-dup').addEventListener('click',()=>{ const t=T(); pushHistory(true); const c=structuredClone(t); c.id=newId('t'); c.name=t.name+tr('copySuffix'); S.store.trips.push(c); setActive(c.id); $('#tripsheet').hidden=true; commit(); toast(tr('tTripDup')); });
+  $('#t-del').addEventListener('click',()=>{ $('#t-del-confirm').hidden=false; $('#t-del-yes').focus(); });
+  $('#t-del-no').addEventListener('click',()=>{ $('#t-del-confirm').hidden=true; });
+  $('#t-del-yes').addEventListener('click',()=>{ const t=T(); pushHistory(true); S.store.trips=S.store.trips.filter(x=>x!==t); S.activeId=null; ensureActive(); $('#tripsheet').hidden=true; commit(); toast(tr('tTripDel',{name:t.name})); });
+}

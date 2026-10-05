@@ -63,12 +63,12 @@ jobs:
           node-version: "22"
       # Os mesmos testes de "node --test tests/*.test.mjs", com cobertura dos módulos de web/js/ (sem ui/).
       # Mínimos = cobertura atual, arredondada para baixo; sobem em cada PR que acrescente testes (#33).
-      # O sync.js fica de fora até ter testes (#29); o main.js só importa os outros.
+      # Mede web/js/*.js com o sync.js; ficam de fora o main.js (só liga as partes) e ui/ (só DOM, ver #30).
       - name: Testes e cobertura
         run: >-
           node --test --experimental-test-coverage
           --test-coverage-include='web/js/*.js'
-          --test-coverage-exclude='web/js/main.js' --test-coverage-exclude='web/js/sync.js'
+          --test-coverage-exclude='web/js/main.js'
           --test-coverage-lines=100 --test-coverage-functions=99 --test-coverage-branches=96
           tests/*.test.mjs
 

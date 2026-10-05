@@ -1,7 +1,6 @@
 /* Cálculo de custos: categorias, totais e parcelas. */
 import { tr } from './i18n.js';
 import { esc } from './util.js';
-import { T } from './state.js';
 
 const DEFAULT_CAT_IDS = ['alojamento','transporte','alimentacao','atividades','festas','compras','outros'];
 const defaultCats = () => DEFAULT_CAT_IDS.map(id=>({id, name:tr('defaultCats')[id]}));
@@ -18,7 +17,7 @@ export function nPeople(t){ return Math.max(1, t.people||1); }
 export function blockTotal(t,b){ return (b.pp||0)*nPeople(t) + (b.total||0); }
 export function lineTotal(t,c){ return c.per==='pp' ? (c.amount||0)*nPeople(t) : (c.amount||0); }
 export function costLines(t,date){ return (t.costs||[]).filter(c=> date===null ? !c.date : c.date===date); }
-export function dayCostPP(date){ const t=T(); return costLines(t,date).reduce((s,c)=>s+lineTotal(t,c),0)/nPeople(t); }
+export function dayCostPP(t, date){ return costLines(t,date).reduce((s,c)=>s+lineTotal(t,c),0)/nPeople(t); }
 /* Custo por pessoa de cada dia (atividades + custos do dia) numa só passagem: date → valor. */
 export function dayTotalsPP(t){
   const n=nPeople(t), m=new Map(), add=(d,v)=>m.set(d,(m.get(d)||0)+v);

@@ -249,11 +249,10 @@ const en = {
   xItemHead:['Day','Description','Category','Total','Per person','Paid'], xYes:'yes',
   xFile:'{name} - plan.xlsx',
 };
-
 const DICT = {pt, en}, KEY = 'ferias-lang';
 let lang = null;
 try{ lang = localStorage.getItem(KEY); }catch{}
-if(!DICT[lang]) lang = /^pt\b/i.test(navigator.language||'') ? 'pt' : 'en';
+if(!DICT[lang]) lang = /^pt\b/i.test((typeof navigator!=='undefined' && navigator.language)||'') ? 'pt' : 'en';
 
 function tr(k, p){
   let v = DICT[lang][k]; if(v===undefined) v = pt[k]; if(v===undefined) return k;
@@ -261,6 +260,8 @@ function tr(k, p){
   if(typeof v!=='string' || !p) return v;
   return v.replace(/\{(\w+)\}/g, (m,n) => n in p ? p[n] : m);
 }
+/* Escreve os textos fixos do HTML (data-i18n*) e a língua da página. main.js chama-a ao arrancar
+   e a barra de ferramentas depois de mudar de língua: este módulo não toca no DOM sozinho. */
 function apply(root){
   const r = root||document;
   r.querySelectorAll('[data-i18n]').forEach(el => el.textContent = tr(el.dataset.i18n));
@@ -269,10 +270,10 @@ function apply(root){
   r.querySelectorAll('[data-i18n-aria]').forEach(el => el.setAttribute('aria-label', tr(el.dataset.i18nAria)));
   document.documentElement.lang = lang==='pt' ? 'pt-PT' : 'en';
 }
+/* Muda a língua e guarda a escolha. Os textos da página só mudam com apply(). */
 function set(l){
   if(!DICT[l]) return; lang = l;
   try{ localStorage.setItem(KEY, l); }catch{}
-  apply();
 }
 
 export const I18N = {
@@ -281,6 +282,5 @@ export const I18N = {
   get locale(){ return lang==='pt' ? 'pt-PT' : 'en-GB'; },
   other(){ return lang==='pt' ? 'en' : 'pt'; },
 };
-apply();
 
 export { tr };

@@ -1,16 +1,14 @@
-// Testes de trip.js: dias, sítios, mover atividades e o quadro noutro fuso (num DOM mínimo).
+// Testes de trip.js: dias, sítios, mover atividades e o quadro noutro fuso (sem DOM).
 // Os avisos estão em warnings.test.mjs e os custos em costs.test.mjs.
-import { store, clearStore } from './dom.mjs';
+import { store, clearStore } from './env.mjs';
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { S } from '../web/js/state.js';
 import { I18N } from '../web/js/i18n.js';
-import { normTrip, days, rangeLabel, fmt, blockCostPP, placeById, placeName, addPlace, findBlock, blocksOf, moveTo, toTray, boardFrame, toBoard, fromBoard } from '../web/js/trip.js';
+import { normTrip, days, rangeLabel, money, blockCostPP, placeById, placeName, addPlace, findBlock, blocksOf, moveTo, toTray, boardFrame, toBoard, fromBoard } from '../web/js/trip.js';
 
 process.env.TZ = 'Europe/Lisbon';   // TZ.local(): o segundo fuso quando não há outro escolhido
 const H = h => h * 60;
 const D1 = '2027-07-05', D2 = '2027-07-06', D3 = '2027-07-07';
-const use = t => { S.store = { version: 2, trips: [t] }; S.activeId = t.id; return t; };
 const trip = extra => normTrip({ id: 't', name: 'Teste', start: D1, end: D3, dayStart: 8, dayEnd: 2, people: 2, currency: '€', ...extra });
 beforeEach(clearStore);
 
@@ -33,90 +31,87 @@ test('rangeLabel: +1 e +2 nas que passam da meia-noite', () => {
   assert.equal(rangeLabel({ start: H(25), len: H(1) }), '01:00–02:00', 'já começou depois da meia-noite');
 });
 
-test('fmt dá o mesmo que toLocaleString, nas duas línguas', () => {
-  use(trip());
+test('money dá o mesmo que toLocaleString, nas duas línguas', () => {
+  const t = trip();
   const L = (v, loc) => (Math.round(v * 100) / 100).toLocaleString(loc, { maximumFractionDigits: 2 });
   for (const v of [0, 7, 1234.5, 0.005, 98765.4321]) {
-    I18N.set('pt'); assert.equal(fmt(v), L(v, 'pt-PT') + ' €');
-    I18N.set('en'); assert.equal(fmt(v), '€' + L(v, 'en-GB'));
+    I18N.set('pt'); assert.equal(money(t, v), L(v, 'pt-PT') + ' €');
+    I18N.set('en'); assert.equal(money(t, v), '€' + L(v, 'en-GB'));
   }
   I18N.set('pt');
 });
 
-test('fmt: moeda que não é € vem antes do número, em PT e EN', () => {
-  use(trip({ currency: 'R$' }));
-  assert.equal(fmt(1234.5), 'R$' + (1234.5).toLocaleString('pt-PT'));
+test('money: moeda que não é € vem antes do número, em PT e EN', () => {
+  const t = trip({ currency: 'R$' });
+  assert.equal(money(t, 1234.5), 'R$' + (1234.5).toLocaleString('pt-PT'));
   I18N.set('en');
-  try { assert.equal(fmt(1234.5), 'R$1,234.5'); } finally { I18N.set('pt'); }
-  S.activeId = null;
-  assert.equal(fmt(5), '5 €', 'sem viagem ativa usa €');
+  try { assert.equal(money(t, 1234.5), 'R$1,234.5'); } finally { I18N.set('pt'); }
+  assert.equal(money(null, 5), '5 €', 'sem viagem usa €');
 });
 
 test('blockCostPP: só pp, só total (people 0, 1 e 3), os dois', () => {
-  const t = use(trip());
-  assert.equal(blockCostPP({ pp: 10 }), 10);
-  assert.equal(blockCostPP({}), 0);
+  const t = trip();
+  assert.equal(blockCostPP(t, { pp: 10 }), 10);
+  assert.equal(blockCostPP(t, {}), 0);
   for (const [people, want] of [[0, 30], [1, 30], [3, 10]]) {
     t.people = people;
-    assert.equal(blockCostPP({ total: 30 }), want, `${people} pessoas`);
+    assert.equal(blockCostPP(t, { total: 30 }), want, `${people} pessoas`);
   }
-  assert.equal(blockCostPP({ pp: 10, total: 30 }), 20);
+  assert.equal(blockCostPP(t, { pp: 10, total: 30 }), 20);
 });
 
 test('addPlace: tira espaços, não repete (sem olhar a maiúsculas), primeira cor livre e depois cíclica, vazio → null', () => {
-  const t = use(trip({ places: [{ id: 'p1', name: 'Lisboa', c: 1 }, { id: 'p2', name: 'Porto', c: 3 }] }));
-  const faro = addPlace('  Faro ');
+  const t = trip({ places: [{ id: 'p1', name: 'Lisboa', c: 1 }, { id: 'p2', name: 'Porto', c: 3 }] });
+  const faro = addPlace(t, '  Faro ');
   assert.equal(faro.name, 'Faro');
   assert.equal(faro.c, 2, 'a primeira cor livre');
   assert.match(faro.id, /^p/);
-  assert.equal(placeById(faro.id), faro);
-  assert.equal(addPlace('LISBOA'), t.places[0]);
-  assert.equal(addPlace('   '), null);
+  assert.equal(placeById(t, faro.id), faro);
+  assert.equal(addPlace(t, 'LISBOA'), t.places[0]);
+  assert.equal(addPlace(t, '   '), null);
   assert.equal(t.places.length, 3);
-  assert.deepEqual(['A', 'B', 'C', 'D', 'E'].map(n => addPlace(n).c), [4, 5, 6, 7, 8]);
-  assert.equal(addPlace('Z').c, 1, 'com as 8 cores usadas, recomeça');
-  assert.equal(addPlace('Y').c, 2);
-  assert.equal(placeName('p2'), 'Porto');
-  assert.equal(placeName('nada'), '');
-  S.activeId = null;
-  assert.equal(placeById('p1'), null);
+  assert.deepEqual(['A', 'B', 'C', 'D', 'E'].map(n => addPlace(t, n).c), [4, 5, 6, 7, 8]);
+  assert.equal(addPlace(t, 'Z').c, 1, 'com as 8 cores usadas, recomeça');
+  assert.equal(addPlace(t, 'Y').c, 2);
+  assert.equal(placeName(t, 'p2'), 'Porto');
+  assert.equal(placeName(t, 'nada'), '');
+  assert.equal(placeById(null, 'p1'), null);
 });
 
 test('findBlock, moveTo e toTray: grelha ↔ por agendar, start nunca negativo, em "por agendar" sem date/start', () => {
-  const t = use(trip({
+  const t = trip({
     blocks: [{ id: 'a', date: D1, start: H(10), len: 60, title: 'A', cat: 'tour' }],
     tray: [{ id: 'b', len: 30, title: 'B', cat: 'tour' }],
-  }));
-  assert.equal(findBlock('a').where, 'grid');
-  assert.equal(findBlock('b').where, 'tray');
-  assert.equal(findBlock('b').b, t.tray[0]);
-  assert.equal(findBlock('x'), null);
+  });
+  assert.equal(findBlock(t, 'a').where, 'grid');
+  assert.equal(findBlock(t, 'b').where, 'tray');
+  assert.equal(findBlock(t, 'b').b, t.tray[0]);
+  assert.equal(findBlock(t, 'x'), null);
 
-  moveTo('b', D2, -30);
-  assert.equal(findBlock('b').where, 'grid');
+  moveTo(t, 'b', D2, -30);
+  assert.equal(findBlock(t, 'b').where, 'grid');
   assert.deepEqual(t.tray, []);
   assert.equal(t.blocks[1].date, D2);
   assert.equal(t.blocks[1].start, 0, 'start nunca fica negativo');
-  moveTo('a', D3, H(30));
+  moveTo(t, 'a', D3, H(30));
   assert.deepEqual([t.blocks[0].date, t.blocks[0].start], [D3, H(30)], 'pode começar depois da meia-noite');
-  moveTo('x', D1, 0);
+  moveTo(t, 'x', D1, 0);
   assert.equal(t.blocks.length, 2);
 
-  toTray('a');
-  assert.equal(findBlock('a').where, 'tray');
+  toTray(t, 'a');
+  assert.equal(findBlock(t, 'a').where, 'tray');
   assert.equal('date' in t.tray[0] || 'start' in t.tray[0], false);
-  toTray('a'); toTray('x');
+  toTray(t, 'a'); toTray(t, 'x');
   assert.deepEqual([t.blocks.length, t.tray.length], [1, 1]);
 
-  S.activeId = null;
-  assert.equal(findBlock('b'), null);
+  assert.equal(findBlock(null, 'b'), null);
 });
 
 test('blocksOf: por início, e as mais longas primeiro', () => {
   const b = (id, date, start, len) => ({ id, date, start, len, title: id, cat: 'tour' });
-  use(trip({ blocks: [b('c', D1, H(12), 60), b('x', D2, H(9), 60), b('a', D1, H(9), 30), b('b', D1, H(9), 90)] }));
-  assert.deepEqual(blocksOf(D1).map(x => x.id), ['b', 'a', 'c']);
-  assert.deepEqual(blocksOf(D3), []);
+  const t = trip({ blocks: [b('c', D1, H(12), 60), b('x', D2, H(9), 60), b('a', D1, H(9), 30), b('b', D1, H(9), 90)] });
+  assert.deepEqual(blocksOf(t, D1).map(x => x.id), ['b', 'a', 'c']);
+  assert.deepEqual(blocksOf(t, D3), []);
 });
 
 test('boardFrame, toBoard e fromBoard: nada muda na hora da viagem; no segundo fuso há colunas extra (no máximo 2) e a ida e volta dá o mesmo', () => {
