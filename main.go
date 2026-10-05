@@ -34,6 +34,10 @@ type server struct {
 	mu     sync.Mutex
 	static map[string]staticFile
 
+	// viagens já lidas do disco (protegidas por mu, ver loadRecord)
+	cache      map[string]*cachedRec
+	cacheBytes int64
+
 	limMu    sync.Mutex
 	failures map[string][]time.Time
 }

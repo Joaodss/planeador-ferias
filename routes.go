@@ -36,6 +36,27 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	json.NewEncoder(w).Encode(v)
 }
 
+// writeRawJSON responde com JSON que já está em bytes (um registo lido do disco).
+func writeRawJSON(w http.ResponseWriter, status int, b []byte) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(status)
+	w.Write(b)
+}
+
+// etagMatch diz se o If-None-Match do pedido inclui etag. A comparação é fraca (RFC 9110): ignora o W/
+// e também o sufixo "-gzip"/"-zstd" que um proxy como o Caddy junta ao ETag quando comprime a resposta.
+func etagMatch(inm, etag string) bool {
+	want := strings.Trim(etag, `"`)
+	for _, v := range strings.Split(inm, ",") {
+		v = strings.Trim(strings.TrimPrefix(strings.TrimSpace(v), "W/"), `"`)
+		if v, _, _ = strings.Cut(v, "-"); v == want {
+			return true
+		}
+	}
+	return false
+}
+
 func fail(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
 }
@@ -71,7 +92,7 @@ func (s *server) api(w http.ResponseWriter, r *http.Request, path string) {
 
 	switch {
 	case path == "trips" && r.Method == http.MethodGet:
-		s.listTrips(w)
+		s.listTrips(w, r)
 	case strings.HasPrefix(path, "trips/"):
 		id := strings.TrimPrefix(path, "trips/")
 		if !idRe.MatchString(id) {

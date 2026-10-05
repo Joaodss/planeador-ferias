@@ -26,10 +26,11 @@ export function openEditor(id,isNew){
   fillSelects(); $('#editor').hidden=false; $('#f-del-confirm').hidden=true; fillEditor(true);
   if(isNew){ const i=$('#f-title'); i.focus(); i.select(); } else $('#editor [data-close]').focus();
 }
-export function fillEditor(full){
+/* F: o boardFrame(t) que render() já calculou. */
+export function fillEditor(full, F0){
   const f=findBlock(S.editingId); if(!f){ $('#editor').hidden=true; S.editingId=null; return; }
   // dia e hora mostrados na hora do quadro (vb), como na grelha
-  const b=f.b, act=document.activeElement, t=T(), F=boardFrame(t), vb=f.where==='tray'?null:toBoard(t,F,b);
+  const b=f.b, act=document.activeElement, t=T(), F=F0||boardFrame(t), vb=f.where==='tray'?null:toBoard(t,F,b);
   const set=(sel,val)=>{ const el=$(sel); if(full||el!==act){ if(el.type==='checkbox') el.checked=!!val; else el.value=val; } };
   set('#f-title',b.title); if(vb && ![...$('#f-day').options].some(o=>o.value===vb.date)) $('#f-day').insertAdjacentHTML('beforeend',`<option value="${vb.date}">${dayLabel(vb.date,true)}</option>`);
   set('#f-day', vb?vb.date:'tray'); $('#f-start').disabled=f.where==='tray';
@@ -48,18 +49,19 @@ export function fillEditor(full){
     fs.textContent=tr('secAt',{city:TZ.city(other.tz), range:`${mlabel(a)}–${mlabel(a+b.len)}`})+(sh<0?tr('prevDay'):sh>0?tr('nextDay'):''); fs.hidden=false; }
   else fs.hidden=true;
 }
-/* Aplica uma alteração à atividade aberta (um só ponto de Desfazer por abertura do editor). */
-function edit(fn){ const f=findBlock(S.editingId); if(!f) return; if(!editorSnap){ pushHistory(); editorSnap=true; } fn(f.b,f); commit(); }
-const optStr=(k)=>e=>edit(b=>{ const v=e.target.value.trim(); if(v) b[k]=e.target.value; else delete b[k]; });
-$('#f-title').addEventListener('input',e=>edit(b=>{ b.title=e.target.value||tr('untitled'); }));
+/* Aplica uma alteração à atividade aberta (um só ponto de Desfazer por abertura do editor).
+   lazy nos campos de texto: o quadro só é redesenhado numa pausa da escrita (ver commit). */
+function edit(fn, lazy){ const f=findBlock(S.editingId); if(!f) return; if(!editorSnap){ pushHistory(); editorSnap=true; } fn(f.b,f); commit(lazy); }
+const optStr=(k)=>e=>edit(b=>{ const v=e.target.value.trim(); if(v) b[k]=e.target.value; else delete b[k]; }, true);
+$('#f-title').addEventListener('input',e=>edit(b=>{ b.title=e.target.value||tr('untitled'); }, true));
 ['note','address','link','ref'].forEach(k=>$('#f-'+k).addEventListener('input',optStr(k)));
 $('#f-cat').addEventListener('change',e=>edit(b=>{ b.cat=e.target.value; }));
 $('#f-status').addEventListener('change',e=>edit(b=>{ if(e.target.value) b.status=e.target.value; else delete b.status; }));
 $('#f-place').addEventListener('change',e=>edit(b=>{ if(e.target.value) b.place=e.target.value; else delete b.place; }));
 $('#f-ccat').addEventListener('change',e=>edit(b=>{ if(e.target.value) b.ccat=e.target.value; else delete b.ccat; }));
 $('#f-lock').addEventListener('change',e=>edit(b=>{ if(e.target.checked) b.locked=true; else delete b.locked; }));
-$('#f-pp').addEventListener('input',e=>edit(b=>{ const v=parseFloat(e.target.value); if(v>0) b.pp=v; else delete b.pp; }));
-$('#f-total').addEventListener('input',e=>edit(b=>{ const v=parseFloat(e.target.value); if(v>0) b.total=v; else delete b.total; }));
+$('#f-pp').addEventListener('input',e=>edit(b=>{ const v=parseFloat(e.target.value); if(v>0) b.pp=v; else delete b.pp; }, true));
+$('#f-total').addEventListener('input',e=>edit(b=>{ const v=parseFloat(e.target.value); if(v>0) b.total=v; else delete b.total; }, true));
 $('#f-wdays').addEventListener('change',()=>edit(b=>{ const ws=[0,1,2,3,4,5,6].filter(w=>$('#f-wd-'+w).checked); if(ws.length&&ws.length<7) b.weekdays=ws; else delete b.weekdays; }));
 /* Dia e hora vêm na hora do quadro (pode ser o segundo fuso); fromBoard converte para a hora da viagem. */
 $('#f-len').addEventListener('change',e=>edit(b=>{ b.len=+e.target.value; }));

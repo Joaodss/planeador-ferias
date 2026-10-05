@@ -9,7 +9,7 @@ export const SLEEP_KEY='ferias-hide-sleep';
 export const S = {
   store: {version:2, trips:[]},
   activeId: null,
-  history: [],          // pilha do Desfazer (cópias JSON de store)
+  history: [],          // pilha do Desfazer (ver pushHistory)
   dirty: false, saving: false, online: true, authed: false,
   drag: null, suppressClick: false,
   editingId: null,      // atividade aberta no editor
@@ -23,8 +23,15 @@ export function T(){ return S.store.trips.find(t=>t.id===S.activeId) || null; }
 export function ensureActive(){ if(!T()) S.activeId = S.store.trips.length ? S.store.trips[0].id : null; }
 export function setActive(id){ S.activeId=id; try{ localStorage.setItem(ACTIVE_KEY,id); }catch(_){} }
 
-/* ---------- desfazer ---------- */
-export function pushHistory(){ S.history.push(JSON.stringify(S.store)); if(S.history.length>60) S.history.shift(); $('#undo').disabled=false; }
+/* ---------- desfazer ----------
+   Cada ponto guarda em JSON só a viagem ativa, porque quase todas as alterações mexem só nela
+   (com várias viagens grandes, 60 cópias da store inteira chegavam às centenas de MB).
+   whole: guarda a store inteira, para criar, duplicar, apagar e importar viagens.
+   id: a viagem aberta, que o Desfazer volta a mostrar. */
+export function pushHistory(whole){
+  const t=T(); S.history.push(whole||!t ? {store:JSON.stringify(S.store), id:S.activeId} : {id:t.id, trip:JSON.stringify(t)});
+  if(S.history.length>60) S.history.shift(); $('#undo').disabled=false;
+}
 /* Descarta a última entrada (quando afinal não houve alteração). */
 export function dropHistory(){ S.history.pop(); $('#undo').disabled=!S.history.length; }
 export function clearHistory(){ S.history=[]; $('#undo').disabled=true; }

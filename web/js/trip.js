@@ -13,7 +13,11 @@ export function normTrip(t){ return cleanTrip(t, newId); }
 export function days(t){ const out=[]; if(!t) return out; let d=parseISO(t.start); const e=parseISO(t.end); while(d<=e && out.length<120){ out.push(iso(d)); d=addDays(d,1);} return out; }
 /* "22:00–06:00 +1": o +N conta as meias-noites atravessadas. */
 export function rangeLabel(b){ const n=dayShift(b); return `${mlabel(b.start)}–${mlabel(b.start+b.len)}${n?' +'+n:''}`; }
-export function fmt(v){ const t=T(); const cur=(t&&t.currency)||'€'; const n=(Math.round(v*100)/100).toLocaleString(I18N.locale,{maximumFractionDigits:2}); return cur==='€' && I18N.lang==='pt' ? n+' €' : cur+n; }
+/* Um formatador por língua: toLocaleString criava um Intl.NumberFormat novo em cada chamada (~50× mais lento). */
+const numFmts = {};
+export function fmt(v){ const t=T(); const cur=(t&&t.currency)||'€', L=I18N.locale;
+  const n=(numFmts[L] || (numFmts[L]=new Intl.NumberFormat(L,{maximumFractionDigits:2}))).format(Math.round(v*100)/100);
+  return cur==='€' && I18N.lang==='pt' ? n+' €' : cur+n; }
 export function blockCostPP(b){ const t=T(); return (b.pp||0) + (b.total ? b.total/Math.max(1,t.people||1) : 0); }
 
 /* ---------- sítios ---------- */
@@ -41,8 +45,8 @@ export function boardFrame(t){
   const {T0}=view(t), sh0=frameShift(t,off,ds[0]); let a=0, z=ds.length-1;
   // dias antes ou depois da viagem só aparecem se alguma atividade começar lá, na hora do quadro;
   // até dois de cada lado: diferenças até ±26 h somadas a dayStart podem empurrar uma atividade dois dias
-  const EXTRA=2;
-  for(const b of t.blocks) if(ds.includes(b.date)){ const i=Math.floor((absStart(t,b)+sh0-T0)/1440); a=Math.max(-EXTRA,Math.min(a,i)); z=Math.min(ds.length-1+EXTRA,Math.max(z,i)); }
+  const EXTRA=2, inTrip=new Set(ds);
+  for(const b of t.blocks) if(inTrip.has(b.date)){ const i=Math.floor((absStart(t,b)+sh0-T0)/1440); a=Math.max(-EXTRA,Math.min(a,i)); z=Math.min(ds.length-1+EXTRA,Math.max(z,i)); }
   const out=[]; for(let i=a;i<=z;i++) out.push(addISO(ds[0],i));
   return {ds:out, d0:out[0], sh:frameShift(t,off,out[0]), off};
 }

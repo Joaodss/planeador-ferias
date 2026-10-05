@@ -23,8 +23,8 @@ export function renderCostRows(box, date, force){
       + `<label class="toggle c-paid"><input type="checkbox" id="${k}-d"${c.paid?' checked':''}>${tr('paid')}</label>`
       + `<button class="x c-del" type="button" aria-label="${tr('removeCost')}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button>`;
     let snap=false; const touch=()=>{ if(!snap){ pushHistory(); snap=true; } };
-    row.querySelector('.c-label').addEventListener('input',e=>{ touch(); c.label=e.target.value; commit(); });
-    row.querySelector('.c-amt').addEventListener('input',e=>{ touch(); const v=parseFloat(e.target.value); c.amount = v>0 ? v : 0; commit(); });
+    row.querySelector('.c-label').addEventListener('input',e=>{ touch(); c.label=e.target.value; commit(true); });
+    row.querySelector('.c-amt').addEventListener('input',e=>{ touch(); const v=parseFloat(e.target.value); c.amount = v>0 ? v : 0; commit(true); });
     row.querySelector('.c-per').addEventListener('change',e=>{ touch(); c.per=e.target.value; commit(); });
     row.querySelector('.c-cat').addEventListener('change',e=>{ touch(); if(e.target.value) c.cat=e.target.value; else delete c.cat; commit(); });
     row.querySelector('.c-paid input').addEventListener('change',e=>{ touch(); if(e.target.checked) c.paid=true; else delete c.paid; commit(); });
@@ -70,8 +70,9 @@ export function renderDash(force){
     box.querySelectorAll('li[data-block]').forEach(li=>{ const go=()=>openEditor(li.dataset.block); li.addEventListener('click',go); li.addEventListener('keydown',e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); go(); } }); });
   }
   // por dia
-  const ds=days(t); const byDay=ds.map(d=>({d, sum:items.filter(i=>i.date===d).reduce((s,i)=>s+i.total,0)}));
-  const gen=items.filter(i=>!i.date || !ds.includes(i.date)).reduce((s,i)=>s+i.total,0);
+  const ds=days(t), sumOf=new Map(); for(const i of items) if(i.date) sumOf.set(i.date,(sumOf.get(i.date)||0)+i.total);
+  const byDay=ds.map(d=>({d, sum:sumOf.get(d)||0})), inTrip=new Set(ds);
+  const gen=items.filter(i=>!i.date || !inTrip.has(i.date)).reduce((s,i)=>s+i.total,0);
   const dmax=Math.max(gen, ...byDay.map(x=>x.sum), 0);
   $('#c-byday').innerHTML = (gen>0?`<div class="day-row static" title="${tr('generalCosts')}: ${fmt(gen)}">${barRow(tr('generalPl'), gen, dmax, total, false)}</div>`:'')
     + byDay.map(x=>`<button type="button" class="day-row" data-date="${x.d}" title="${dayLabel(x.d,true)}: ${fmt(x.sum)}${n>1?' · '+fmt(x.sum/n)+' '+tr('perPersonLower'):''}. ${tr('openDay')}">${barRow(dayLabel(x.d,true), x.sum, dmax, total, false)}</button>`).join('');

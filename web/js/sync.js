@@ -4,21 +4,26 @@
    se outro dispositivo gravou entretanto, o servidor responde 409 e fica a versão dele. */
 import { tr } from './i18n.js';
 import { $, toast, announce } from './util.js';
-import { S, ensureActive, clearHistory } from './state.js';
+import { S, ensureActive, setActive, clearHistory } from './state.js';
 import { normTrip } from './trip.js';
 import { setServerHomeTz } from './tz.js';
 import { render } from './ui/board.js';
 import { closeSheets } from './ui/sheets.js';
 
-let saveTimer=null;
+let saveTimer=null, renderTimer=null;
+let edits=0;      // conta os commit(): se não mudou durante uma gravação, o que foi serializado no início ainda é o estado atual
+let listTag='';   // ETag da última lista de viagens aplicada: o refresh() pergunta com If-None-Match
 const revs = {}, synced = {};
 
-async function api(method, path, body){
-  const headers={'X-Requested-With':'planner'}; if(body!==undefined) headers['Content-Type']='application/json';
+async function api(method, path, body, extra){
+  const headers={'X-Requested-With':'planner', ...extra}; if(body!==undefined) headers['Content-Type']='application/json';
   const r = await fetch(path,{method, headers, body, credentials:'same-origin', cache:'no-store'});
   if(r.status===401){ showLogin(); throw {code:'auth'}; }
   return r;
 }
+/* O JSON de cada viagem, serializado uma só vez por gravação. */
+const snapshot = () => new Map(S.store.trips.map(t=>[t.id, JSON.stringify(t)]));
+function dirtyIn(snap){ for(const [id,js] of snap) if(synced[id]!==js) return true; return Object.keys(synced).some(id=>!snap.has(id)); }
 export function computeDirty(){ const ids=new Set(S.store.trips.map(t=>t.id)); return S.store.trips.some(t=>synced[t.id]!==JSON.stringify(t)) || Object.keys(synced).some(id=>!ids.has(id)); }
 function setSave(s,txt){ $('#save').dataset.s=s; $('#save-txt').textContent=txt; }
 export function refreshSaveLabel(){
@@ -30,40 +35,48 @@ export function refreshSaveLabel(){
 export function scheduleSave(delay){ clearTimeout(saveTimer); saveTimer=setTimeout(doSave, delay||1200); refreshSaveLabel(); }
 async function doSave(){
   if(S.saving || !S.authed) return;
-  if(!computeDirty()){ S.dirty=false; refreshSaveLabel(); return; }
+  // snap serve para ver o que mudou, para o corpo dos PUT e, se nada mudar entretanto, para o estado no fim
+  const snap=snapshot(), e0=edits;
+  if(!dirtyIn(snap)){ S.dirty=false; refreshSaveLabel(); return; }
   S.saving=true; refreshSaveLabel(); let conflict=false, tooBig=false;
   try{
-    const ids=new Set(S.store.trips.map(t=>t.id));
     for(const id of Object.keys(synced)){
-      if(ids.has(id)) continue;
+      if(snap.has(id)) continue;
       const r=await api('DELETE','/api/trips/'+encodeURIComponent(id));
       if(!r.ok) throw {code:'http'};
       delete synced[id]; delete revs[id];
     }
     for(const t of S.store.trips.slice()){
-      const js=JSON.stringify(t); if(synced[t.id]===js) continue;
+      const js=snap.get(t.id); if(js===undefined || synced[t.id]===js) continue;
       const r=await api('PUT','/api/trips/'+encodeURIComponent(t.id), '{"baseRev":'+(revs[t.id]||0)+',"trip":'+js+'}');
       if(r.ok){ const d=await r.json(); revs[t.id]=d.rev; synced[t.id]=js; }
       else if(r.status===409){
-        const d=await r.json(); conflict=true; const i=S.store.trips.indexOf(t);
+        const d=await r.json(); conflict=true; const i=S.store.trips.indexOf(t); snap.delete(t.id);
         if(d.deleted){ if(i>=0) S.store.trips.splice(i,1); delete synced[t.id]; delete revs[t.id]; }
-        else { const nt=normTrip(d.trip); if(i>=0) S.store.trips[i]=nt; revs[nt.id]=d.rev; synced[nt.id]=JSON.stringify(nt); }
+        else { const nt=normTrip(d.trip); if(i>=0) S.store.trips[i]=nt; revs[nt.id]=d.rev; synced[nt.id]=JSON.stringify(nt); snap.set(nt.id, synced[nt.id]); }
       }
       else if(r.status===413){ tooBig=true; synced[t.id]=js; }
       else throw {code:'http'};
     }
     S.online=true;
   }catch(e){ if(!e || e.code!=='auth') S.online=false; }
-  S.saving=false; S.dirty=computeDirty(); refreshSaveLabel();
+  S.saving=false; S.dirty = edits===e0 ? dirtyIn(snap) : computeDirty(); refreshSaveLabel();
   if(conflict){ clearHistory(); closeSheets(); ensureActive(); render(); toast(tr('tConflict')); }
   if(tooBig) toast(tr('tTooBig'));
   if(S.dirty && S.authed) scheduleSave(S.online?1200:8000);
 }
-/* Depois de qualquer alteração: marca por gravar, agenda a gravação e redesenha. */
-export function commit(){ S.dirty=true; scheduleSave(); render(); }
-export function undo(){ if(!S.history.length) return; S.store=JSON.parse(S.history.pop()); ensureActive(); $('#undo').disabled=!S.history.length; closeSheets(); commit(); announce(tr('undone')); }
+/* Depois de qualquer alteração: marca por gravar, agenda a gravação e redesenha.
+   lazy (campos de texto, a cada tecla): o quadro só é redesenhado numa pausa de 150 ms, não a cada letra. */
+export function commit(lazy){ S.dirty=true; edits++; scheduleSave(); clearTimeout(renderTimer); if(lazy) renderTimer=setTimeout(render,150); else render(); }
+/* Um ponto do Desfazer é a store inteira ou uma viagem (ver pushHistory); volta a mostrar a viagem que estava aberta. */
+export function undo(){ if(!S.history.length) return; const h=S.history.pop();
+  if(h.store) S.store=JSON.parse(h.store);
+  else { const t=JSON.parse(h.trip), i=S.store.trips.findIndex(x=>x.id===h.id); if(i>=0) S.store.trips[i]=t; else S.store.trips.push(t); }
+  if(h.id) setActive(h.id);
+  ensureActive(); $('#undo').disabled=!S.history.length; closeSheets(); commit(); announce(tr('undone')); }
 
-function applyServer(d){
+function applyServer(d, tag){
+  listTag=tag||'';
   for(const k of Object.keys(revs)) delete revs[k];
   for(const k of Object.keys(synced)) delete synced[k];
   setServerHomeTz(d.homeTz);
@@ -74,7 +87,7 @@ function applyServer(d){
 function showApp(){ S.authed=true; $('#login').hidden=true; $('#offline').hidden=true; $('.app').hidden=false; }
 async function loadAll(){
   const r=await api('GET','/api/trips'); if(!r.ok) throw {code:'http'};
-  applyServer(await r.json()); clearHistory(); S.dirty=false; S.online=true;
+  applyServer(await r.json(), r.headers.get('ETag')); clearHistory(); S.dirty=false; S.online=true;
   showApp(); ensureActive(); render(); refreshSaveLabel();
 }
 export async function boot(){
@@ -84,11 +97,14 @@ export async function boot(){
 /* Ao voltar ao separador, vai buscar o que mudou noutros dispositivos. */
 async function refresh(){
   try{
-    const r=await api('GET','/api/trips'); if(!r.ok) return; const d=await r.json();
+    // 304: nada mudou no servidor desde a última lista, nem se descarrega nem se interpreta
+    const r=await api('GET','/api/trips', undefined, listTag ? {'If-None-Match':listTag} : undefined);
+    if(r.status===304 || !r.ok) return; const d=await r.json(), tag=r.headers.get('ETag');
+    // com alterações por gravar, a lista fica por aplicar e o ETag por guardar (senão o próximo refresh dava 304)
     if(S.saving || computeDirty()) return;
     const sig=a=>JSON.stringify(a.sort());
-    if(sig(S.store.trips.map(t=>t.id+':'+revs[t.id]))===sig(d.trips.map(x=>x.trip.id+':'+x.rev))) return;
-    applyServer(d); clearHistory(); closeSheets(); ensureActive(); render();
+    if(sig(S.store.trips.map(t=>t.id+':'+revs[t.id]))===sig(d.trips.map(x=>x.trip.id+':'+x.rev))){ listTag=tag||''; return; }
+    applyServer(d, tag); clearHistory(); closeSheets(); ensureActive(); render();
     toast(tr('tRefreshed'));
   }catch(e){}
 }

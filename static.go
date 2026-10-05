@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"embed"
 	"encoding/hex"
@@ -9,6 +10,7 @@ import (
 	"mime"
 	"net/http"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -47,9 +49,14 @@ type staticFile struct {
 	etag  string
 }
 
+func newStaticFile(b []byte, ctype string) staticFile {
+	sum := sha256.Sum256(b)
+	return staticFile{b, ctype, `"` + hex.EncodeToString(sum[:8]) + `"`}
+}
+
 func (s *server) loadStatic() error {
 	s.static = map[string]staticFile{}
-	return fs.WalkDir(webFS, "web", func(p string, d fs.DirEntry, err error) error {
+	err := fs.WalkDir(webFS, "web", func(p string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return err
 		}
@@ -57,10 +64,39 @@ func (s *server) loadStatic() error {
 		if err != nil {
 			return err
 		}
-		sum := sha256.Sum256(b)
-		s.static[strings.TrimPrefix(p, "web")] = staticFile{b, contentType(p), `"` + hex.EncodeToString(sum[:8]) + `"`}
+		s.static[strings.TrimPrefix(p, "web")] = newStaticFile(b, contentType(p))
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+	s.preloadModules()
+	return nil
+}
+
+// preloadModules junta ao index.html um <link rel="modulepreload"> por cada módulo .js.
+// Sem bundler, o browser só descobre cada import depois de receber o módulo que o contém
+// (index.html → main.js → ui/*.js → trip.js → span.js: ~4 idas e voltas seguidas); assim pede-os todos
+// logo. A lista sai dos ficheiros embutidos, por isso nunca fica desatualizada. Os caminhos são
+// relativos, como o de js/main.js, para funcionar também atrás de um proxy com prefixo.
+func (s *server) preloadModules() {
+	idx, ok := s.static["/index.html"]
+	if !ok {
+		return
+	}
+	var mods []string
+	for p := range s.static {
+		if strings.HasSuffix(p, ".js") {
+			mods = append(mods, p)
+		}
+	}
+	sort.Strings(mods) // ordem fixa: o ETag do index.html fica igual entre arranques
+	var links strings.Builder
+	for _, p := range mods {
+		fmt.Fprintf(&links, "<link rel=\"modulepreload\" href=\"%s\">\n", strings.TrimPrefix(p, "/"))
+	}
+	body := bytes.Replace(idx.body, []byte("</head>"), []byte(links.String()+"</head>"), 1)
+	s.static["/index.html"] = newStaticFile(body, idx.ctype)
 }
 
 func (s *server) serveStatic(w http.ResponseWriter, r *http.Request) {
@@ -80,7 +116,7 @@ func (s *server) serveStatic(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", f.ctype)
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("ETag", f.etag)
-	if r.Header.Get("If-None-Match") == f.etag {
+	if etagMatch(r.Header.Get("If-None-Match"), f.etag) {
 		w.WriteHeader(http.StatusNotModified)
 		return
 	}
