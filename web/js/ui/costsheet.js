@@ -36,7 +36,7 @@ export function addCost(box, date, defCat){
   const t=T(); if(!t) return; pushHistory(); t.costs=t.costs||[];
   const c={id:newId('c'), label:'', amount:0, per:'total'}; if(date) c.date=date; if(defCat && hasCat(t,defCat)) c.cat=defCat;
   t.costs.push(c); commit(); renderCostRows(box,date,true);
-  const inp=box.querySelector('#c-'+c.id+'-l'); if(inp) inp.focus();
+  const inp=box.querySelector('#'+CSS.escape('c-'+c.id+'-l')); if(inp) inp.focus();
 }
 
 /* Painel de resumo */

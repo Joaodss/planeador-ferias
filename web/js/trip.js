@@ -2,30 +2,17 @@
 import { I18N } from './i18n.js';
 import { parseISO, iso, addDays, newId, mlabel } from './util.js';
 import { T } from './state.js';
-import { view, segments, hiddenEdge, dayShift, absStart, addISO, frameShift, toFrame, fromFrame } from './span.js';
+import { view, dayShift, absStart, addISO, frameShift, toFrame, fromFrame } from './span.js';
 import { viewOffset } from './tz.js';
 import { cleanTrip } from './clean.js';
 
-export { view } from './span.js';
+export { view, boardLayout } from './span.js';
 
 /* Preenche o que falta nos dados antigos e limpa o que vem malformado do servidor ou de uma importação (clean.js). */
 export function normTrip(t){ return cleanTrip(t, newId); }
 export function days(t){ const out=[]; if(!t) return out; let d=parseISO(t.start); const e=parseISO(t.end); while(d<=e && out.length<120){ out.push(iso(d)); d=addDays(d,1);} return out; }
 /* "22:00–06:00 +1": o +N conta as meias-noites atravessadas. */
 export function rangeLabel(b){ const n=dayShift(b); return `${mlabel(b.start)}–${mlabel(b.start+b.len)}${n?' +'+n:''}`; }
-/* Distribui as atividades pelas colunas: pedaços visíveis em cols[i] (ordenados) e,
-   para as que ficam todas escondidas, uma marca no topo ou no fundo de uma coluna.
-   sh≠0 quando o quadro está noutro fuso (ver boardFrame). */
-export function boardLayout(t, ds, sh=0){
-  const n=ds.length, cols=ds.map(()=>[]), top=ds.map(()=>[]), bot=ds.map(()=>[]), tds=sh?days(t):ds;
-  for(const b of t.blocks){
-    for(const s of segments(t,b,n,sh)) cols[s.i].push(Object.assign({b}, s));
-    if(!tds.includes(b.date)) continue;   // fora das datas: já há um aviso próprio
-    const h=hiddenEdge(t,b,n,sh); if(h) (h.edge==='top'?top:bot)[h.i].push(b);
-  }
-  for(const c of cols) c.sort((x,y)=>x.top-y.top||(y.bot-y.top)-(x.bot-x.top));
-  return {cols, top, bot};
-}
 export function fmt(v){ const t=T(); const cur=(t&&t.currency)||'€'; const n=(Math.round(v*100)/100).toLocaleString(I18N.locale,{maximumFractionDigits:2}); return cur==='€' && I18N.lang==='pt' ? n+' €' : cur+n; }
 export function blockCostPP(b){ const t=T(); return (b.pp||0) + (b.total ? b.total/Math.max(1,t.people||1) : 0); }
 
@@ -52,8 +39,10 @@ export function toTray(id){ const t=T(), f=findBlock(id); if(!f||f.where==='tray
 export function boardFrame(t){
   const ds=days(t), off=viewOffset(t); if(!off || !ds.length) return {ds, d0:ds[0], sh:0, off:0};
   const {T0}=view(t), sh0=frameShift(t,off,ds[0]); let a=0, z=ds.length-1;
-  // um dia antes ou depois da viagem só aparece se alguma atividade começar lá, na hora do quadro
-  for(const b of t.blocks) if(ds.includes(b.date)){ const i=Math.floor((absStart(t,b)+sh0-T0)/1440); a=Math.max(-2,Math.min(a,i)); z=Math.min(ds.length+1,Math.max(z,i)); }
+  // dias antes ou depois da viagem só aparecem se alguma atividade começar lá, na hora do quadro;
+  // até dois de cada lado: diferenças até ±26 h somadas a dayStart podem empurrar uma atividade dois dias
+  const EXTRA=2;
+  for(const b of t.blocks) if(ds.includes(b.date)){ const i=Math.floor((absStart(t,b)+sh0-T0)/1440); a=Math.max(-EXTRA,Math.min(a,i)); z=Math.min(ds.length-1+EXTRA,Math.max(z,i)); }
   const out=[]; for(let i=a;i<=z;i++) out.push(addISO(ds[0],i));
   return {ds:out, d0:out[0], sh:frameShift(t,off,out[0]), off};
 }

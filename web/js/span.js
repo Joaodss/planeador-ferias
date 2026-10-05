@@ -37,6 +37,13 @@ export function slotAt(t, abs, n){
   const {T0}=view(t); const i=Math.max(0, Math.min(n-1, Math.floor((abs-T0)/DAY)));
   return {i, start:Math.max(0, abs-i*DAY)};
 }
+/* O mesmo sem limitar às colunas da viagem: date/start a guardar para um instante absoluto.
+   Antes do primeiro T0 da viagem fica no dia da viagem (06:00 de dia 1, não 30:00 do dia anterior),
+   para não aparecer o aviso "fora das datas" a uma atividade que está dentro delas. */
+export function dateAt(t, abs){
+  const {T0}=view(t), i=Math.max(Math.floor((abs-T0)/DAY), Math.min(0, Math.floor(abs/DAY)));
+  return {date:addISO(t.start, i), start:abs-i*DAY};
+}
 
 /* Pedaços visíveis de uma atividade num quadro de n colunas (sh: ver frameShift).
    top/bot em minutos desde T0 da coluna; cutTop/cutBot quando continua para fora. */
@@ -59,6 +66,21 @@ export function hiddenEdge(t, b, n, sh=0){
   if(k<0) return {i:0, edge:'top'};
   if(k>=n-1) return {i:n-1, edge:'bot'};
   return (A-(k*DAY+T1)) <= ((k+1)*DAY+T0-B) ? {i:k, edge:'bot'} : {i:k+1, edge:'top'};
+}
+
+/* Distribui as atividades pelas colunas ds: pedaços visíveis em cols[i] (ordenados) e,
+   para as que ficam todas escondidas, uma marca no topo ou no fundo de uma coluna.
+   sh≠0 quando o quadro está noutro fuso (ver frameShift); sh também pode dar 0 noutro fuso
+   (diferença de 24 h), por isso "está nas datas da viagem?" usa sempre as datas da viagem e não ds. */
+export function boardLayout(t, ds, sh=0){
+  const n=ds.length, cols=ds.map(()=>[]), top=ds.map(()=>[]), bot=ds.map(()=>[]), nd=Math.min(120, dayIndex(t, t.end)+1);
+  for(const b of t.blocks){
+    for(const s of segments(t,b,n,sh)) cols[s.i].push(Object.assign({b}, s));
+    const d=dayIndex(t, b.date); if(!(d>=0 && d<nd)) continue;   // fora das datas: já há um aviso próprio
+    const h=hiddenEdge(t,b,n,sh); if(h) (h.edge==='top'?top:bot)[h.i].push(b);
+  }
+  for(const c of cols) c.sort((x,y)=>x.top-y.top||(y.bot-y.top)-(x.bot-x.top));
+  return {cols, top, bot};
 }
 
 /* Quantas meias-noites a atividade atravessa desde que começa (o "+1" dos voos). */

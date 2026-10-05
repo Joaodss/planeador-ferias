@@ -2,7 +2,7 @@
 // para o outro ou ficam nas horas que o quadro não mostra.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { view, absStart, segments, hiddenEdge, slotAt, dayShift, frameShift, toFrame, fromFrame } from '../web/js/span.js';
+import { view, absStart, segments, hiddenEdge, slotAt, dateAt, dayShift, frameShift, toFrame, fromFrame, boardLayout } from '../web/js/span.js';
 
 const trip = (dayStart, dayEnd) => ({ start: '2027-07-01', end: '2027-07-03', dayStart, dayEnd });
 const N = 3;   // três colunas: 1, 2 e 3 de julho
@@ -85,4 +85,26 @@ test('quadro noutro fuso: desloca as atividades e volta ao mesmo sítio', () => 
     assert.deepEqual(toFrame(t, back, sh, d0), { date, start }, `${date} ${start}`);
   }
   assert.deepEqual(fromFrame(t, '2026-10-11', H(22), sh, d0), { date: '2026-10-12', start: H(6) }, '22h de dia 11 em Lisboa = 6h de dia 12 em Tóquio');
+});
+
+test('quadro noutro fuso 24 h atrás (sh = 0): as marcas usam as datas da viagem', () => {
+  // viagem em Tonga (+13) vista em Midway (−11): mesma hora, um dia antes, por isso sh dá 0
+  const t = { ...trip(8, 0), blocks: [] };
+  const d0 = '2027-06-30', ds = ['2027-06-30', '2027-07-01', '2027-07-02'], sh = frameShift(t, -H(24), d0);
+  assert.equal(sh, 0);
+  const last = { date: '2027-07-03', start: H(2), len: 60 };     // último dia da viagem, escondida
+  const before = { date: '2027-06-30', start: H(2), len: 60 };   // antes da viagem: já tem o aviso "fora das datas"
+  t.blocks.push(last, before);
+  const L = boardLayout(t, ds, sh);
+  assert.deepEqual(L.bot[1], [last], 'a do último dia tem marca, embora a data não seja uma coluna do quadro');
+  assert.deepEqual(L.top.flat().concat(L.bot.flat()).includes(before), false, 'a de fora da viagem não tem marca');
+});
+
+test('dateAt põe a cópia logo a seguir, sem limitar às colunas da viagem', () => {
+  const t = trip(8, 0);
+  assert.deepEqual(dateAt(t, H(24 + 9)), { date: '2027-07-02', start: H(9) });
+  assert.deepEqual(dateAt(t, H(24 + 25)), { date: '2027-07-02', start: H(25) }, 'madrugada fica no dia anterior, como no quadro');
+  assert.deepEqual(dateAt(t, H(6)), { date: '2027-07-01', start: H(6) }, 'antes do quadro no 1.º dia fica nesse dia');
+  assert.deepEqual(dateAt(t, -H(2)), { date: '2027-06-30', start: H(22) }, 'antes da viagem não salta para o 1.º dia');
+  assert.deepEqual(dateAt(t, H(24 * 5 + 10)), { date: '2027-07-06', start: H(10) }, 'depois da viagem não fica no último dia');
 });
