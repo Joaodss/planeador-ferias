@@ -1,8 +1,9 @@
 /* Painel de custos: resumo, por categoria, por dia e linhas de custo editáveis. */
 import { tr } from '../i18n.js';
-import { $, esc, newId, dayLabel } from '../util.js';
+import { esc, newId, dayLabel } from '../util.js';
+import { $ } from './dom.js';
 import { T, pushHistory } from '../state.js';
-import { days, fmt } from '../trip.js';
+import { days, money } from '../trip.js';
 import { catName, hasCat, lineCat, nPeople, costLines, costItems, catOptions } from '../costs.js';
 import { commit } from '../sync.js';
 import { closeSheets } from './sheets.js';
@@ -40,21 +41,21 @@ export function addCost(box, date, defCat){
 }
 
 /* Painel de resumo */
-function barRow(label, value, max, total, extra){
+function barRow(t, label, value, max, total, extra){
   const pct = total>0 ? Math.round(value/total*100) : 0; const w = max>0 ? Math.max(value>0?2:0, value/max*100) : 0;
-  return `<span class="bar-name">${label}</span><span class="bar-track" aria-hidden="true"><span class="bar-fill" style="width:${w}%"></span></span><span class="bar-val">${fmt(value)}</span>${extra===false?'':`<span class="bar-pct">${pct}%</span>`}`;
+  return `<span class="bar-name">${label}</span><span class="bar-track" aria-hidden="true"><span class="bar-fill" style="width:${w}%"></span></span><span class="bar-val">${money(t,value)}</span>${extra===false?'':`<span class="bar-pct">${pct}%</span>`}`;
 }
 export function renderDash(force){
   const t=T(); if(!t) return; const items=costItems(t); const n=nPeople(t);
   const total=items.reduce((s,i)=>s+i.total,0); const paid=items.filter(i=>i.paid).reduce((s,i)=>s+i.total,0);
   // resumo
-  let h = `<div class="dash-figs"><div class="dash-fig"><span class="k">${n>1?tr('totalFor',{n}):tr('total')}</span><span class="v big">${fmt(total)}</span></div>`
-    + (n>1?`<div class="dash-fig"><span class="k">${tr('perPerson')}</span><span class="v">${fmt(total/n)}</span></div>`:'')
-    + `<div class="dash-fig"><span class="k">${tr('alreadyPaid')}</span><span class="v">${fmt(paid)}</span></div><div class="dash-fig"><span class="k">${tr('toPay')}</span><span class="v">${fmt(total-paid)}</span></div></div>`;
+  let h = `<div class="dash-figs"><div class="dash-fig"><span class="k">${n>1?tr('totalFor',{n}):tr('total')}</span><span class="v big">${money(t,total)}</span></div>`
+    + (n>1?`<div class="dash-fig"><span class="k">${tr('perPerson')}</span><span class="v">${money(t,total/n)}</span></div>`:'')
+    + `<div class="dash-fig"><span class="k">${tr('alreadyPaid')}</span><span class="v">${money(t,paid)}</span></div><div class="dash-fig"><span class="k">${tr('toPay')}</span><span class="v">${money(t,total-paid)}</span></div></div>`;
   if(t.budget>0){
     const left=t.budget-total, over=left<0, pct=Math.round(total/t.budget*100);
-    h += `<div class="budget${over?' over':''}"><div class="budget-top"><span>${tr('budget')}: <b>${fmt(t.budget)}</b></span><span class="budget-state">${over?tr('overBudget',{x:fmt(-left)}):tr('left',{x:fmt(left)})}</span></div>`
-      + `<div class="bar-track tall" role="img" aria-label="${tr('budgetUsedAria',{pct})}"><span class="bar-fill" style="width:${Math.min(100,pct)}%"></span></div><div class="budget-sub">${tr('budgetUsed',{pct})}${n>1?' · '+tr('budgetPP',{x:fmt(Math.abs(left)/n), over}):''}</div></div>`;
+    h += `<div class="budget${over?' over':''}"><div class="budget-top"><span>${tr('budget')}: <b>${money(t,t.budget)}</b></span><span class="budget-state">${over?tr('overBudget',{x:money(t,-left)}):tr('left',{x:money(t,left)})}</span></div>`
+      + `<div class="bar-track tall" role="img" aria-label="${tr('budgetUsedAria',{pct})}"><span class="bar-fill" style="width:${Math.min(100,pct)}%"></span></div><div class="budget-sub">${tr('budgetUsed',{pct})}${n>1?' · '+tr('budgetPP',{x:money(t,Math.abs(left)/n), over}):''}</div></div>`;
   } else h += `<p class="hint">${tr('budgetHint')}</p>`;
   $('#c-summary').innerHTML=h;
   // por categoria
@@ -64,8 +65,8 @@ export function renderDash(force){
   const max=rows.length?rows[0].sum:0; const box=$('#c-bycat');
   if(!rows.length) box.innerHTML=`<p class="hint">${tr('noCosts')}</p>`;
   else {
-    box.innerHTML = rows.map(r=>`<details class="cat-row" data-cat="${esc(r.id)}"${open.has(r.id)?' open':''}><summary title="${esc(catName(t,r.id))}: ${fmt(r.sum)}${n>1?' · '+fmt(r.sum/n)+' '+tr('perPersonLower'):''}">${barRow(esc(catName(t,r.id)), r.sum, max, total)}</summary><ul class="cat-items">`
-      + r.list.slice().sort((a,b)=>String(a.date||'').localeCompare(String(b.date||''))||b.total-a.total).map(i=>`<li${i.blockId?` data-block="${esc(i.blockId)}" tabindex="0" role="button"`:''}><span class="ci-d">${i.date?dayLabel(i.date,true):tr('general')}</span><span class="ci-l">${esc(i.label)}</span>${i.paid?`<span class="st st-pago">${tr('paidMark')}</span>`:''}<span class="ci-v">${fmt(i.total)}</span></li>`).join('')
+    box.innerHTML = rows.map(r=>`<details class="cat-row" data-cat="${esc(r.id)}"${open.has(r.id)?' open':''}><summary title="${esc(catName(t,r.id))}: ${money(t,r.sum)}${n>1?' · '+money(t,r.sum/n)+' '+tr('perPersonLower'):''}">${barRow(t,esc(catName(t,r.id)), r.sum, max, total)}</summary><ul class="cat-items">`
+      + r.list.slice().sort((a,b)=>String(a.date||'').localeCompare(String(b.date||''))||b.total-a.total).map(i=>`<li${i.blockId?` data-block="${esc(i.blockId)}" tabindex="0" role="button"`:''}><span class="ci-d">${i.date?dayLabel(i.date,true):tr('general')}</span><span class="ci-l">${esc(i.label)}</span>${i.paid?`<span class="st st-pago">${tr('paidMark')}</span>`:''}<span class="ci-v">${money(t,i.total)}</span></li>`).join('')
       + `</ul></details>`).join('');
     box.querySelectorAll('li[data-block]').forEach(li=>{ const go=()=>openEditor(li.dataset.block); li.addEventListener('click',go); li.addEventListener('keydown',e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); go(); } }); });
   }
@@ -74,11 +75,14 @@ export function renderDash(force){
   const byDay=ds.map(d=>({d, sum:sumOf.get(d)||0})), inTrip=new Set(ds);
   const gen=items.filter(i=>!i.date || !inTrip.has(i.date)).reduce((s,i)=>s+i.total,0);
   const dmax=Math.max(gen, ...byDay.map(x=>x.sum), 0);
-  $('#c-byday').innerHTML = (gen>0?`<div class="day-row static" title="${tr('generalCosts')}: ${fmt(gen)}">${barRow(tr('generalPl'), gen, dmax, total, false)}</div>`:'')
-    + byDay.map(x=>`<button type="button" class="day-row" data-date="${x.d}" title="${dayLabel(x.d,true)}: ${fmt(x.sum)}${n>1?' · '+fmt(x.sum/n)+' '+tr('perPersonLower'):''}. ${tr('openDay')}">${barRow(dayLabel(x.d,true), x.sum, dmax, total, false)}</button>`).join('');
+  $('#c-byday').innerHTML = (gen>0?`<div class="day-row static" title="${tr('generalCosts')}: ${money(t,gen)}">${barRow(t,tr('generalPl'), gen, dmax, total, false)}</div>`:'')
+    + byDay.map(x=>`<button type="button" class="day-row" data-date="${x.d}" title="${dayLabel(x.d,true)}: ${money(t,x.sum)}${n>1?' · '+money(t,x.sum/n)+' '+tr('perPersonLower'):''}. ${tr('openDay')}">${barRow(t,dayLabel(x.d,true), x.sum, dmax, total, false)}</button>`).join('');
   $('#c-byday').querySelectorAll('button').forEach(b=>b.addEventListener('click',()=>openDay(b.dataset.date)));
   renderCostRows($('#c-general'), null, force);
 }
 function openCosts(){ closeSheets(); $('#costsheet').hidden=false; renderDash(true); $('#costsheet [data-close]').focus(); }
-$('#costs-btn').addEventListener('click',()=>{ if(!T()) return; if(!$('#costsheet').hidden){ $('#costsheet').hidden=true; return; } openCosts(); });
-$('#c-add-general').addEventListener('click',()=>addCost($('#c-general'), null));
+/* Botões do painel de custos (main.js chama-a uma vez ao arrancar). */
+export function initCostsheet(){
+  $('#costs-btn').addEventListener('click',()=>{ if(!T()) return; if(!$('#costsheet').hidden){ $('#costsheet').hidden=true; return; } openCosts(); });
+  $('#c-add-general').addEventListener('click',()=>addCost($('#c-general'), null));
+}

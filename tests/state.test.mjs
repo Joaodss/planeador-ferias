@@ -1,13 +1,12 @@
-// Testes de state.js: viagem ativa e pilha do Desfazer (num DOM mínimo, com um botão #undo falso).
-import { store, storage, el } from './dom.mjs';
+// Testes de state.js: viagem ativa e pilha do Desfazer (sem DOM).
+import { store, storage } from './env.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 store['ferias-active-trip'] = 'b';   // a viagem aberta da última vez: state.js lê-a quando é carregado
-const { S, T, ensureActive, setActive, pushHistory, dropHistory, clearHistory, SLEEP_KEY } = await import('../web/js/state.js');
+const { S, T, ensureActive, setActive, pushHistory, dropHistory, clearHistory, restoreLast, SLEEP_KEY } = await import('../web/js/state.js');
 
 const trip = id => ({ id, name: 'Viagem ' + id, blocks: [] });
-const undo = el('#undo');
 
 test('a viagem ativa vem do localStorage', () => {
   assert.equal(S.activeId, 'b');
@@ -44,10 +43,9 @@ test('pushHistory guarda só a viagem ativa; com whole guarda a store', () => {
   S.store = { version: 2, trips: [trip('a'), trip('b')] };
   setActive('a');
   clearHistory();
-  assert.equal(undo.disabled, true);
+  assert.deepEqual(S.history, []);
 
   pushHistory();
-  assert.equal(undo.disabled, false);
   assert.deepEqual(S.history.at(-1), { id: 'a', trip: JSON.stringify(trip('a')) });
 
   pushHistory(true);
@@ -70,11 +68,40 @@ test('o histórico fica com os 60 pontos mais recentes; dropHistory e clearHisto
 
   dropHistory();
   assert.equal(S.history.length, 59);
-  assert.equal(undo.disabled, false);
-
   clearHistory();
-  pushHistory();
-  dropHistory();
   assert.equal(S.history.length, 0);
-  assert.equal(undo.disabled, true, 'sem pontos o Desfazer fica desligado');
+});
+
+test('restoreLast repõe só a viagem do ponto e volta a abri-la; um ponto da store repõe tudo', () => {
+  S.store = { version: 2, trips: [trip('a'), trip('b')] };
+  clearHistory();
+  assert.equal(restoreLast(), false, 'sem pontos não faz nada');
+
+  // altera a viagem a, depois muda para b e altera-a sem guardar ponto
+  setActive('a'); pushHistory(); T().name = 'A alterada';
+  setActive('b'); T().name = 'B alterada';
+  assert.equal(restoreLast(), true);
+  assert.equal(S.store.trips[0].name, 'Viagem a', 'a viagem do ponto volta ao que era');
+  assert.equal(S.store.trips[1].name, 'B alterada', 'as outras viagens ficam como estão');
+  assert.equal(T().id, 'a', 'e fica aberta a viagem que foi desfeita');
+  assert.equal(store['ferias-active-trip'], 'a');
+
+  // a viagem do ponto já não existe (apagada noutro dispositivo): volta a entrar na store
+  setActive('a'); pushHistory(); S.store.trips = S.store.trips.filter(t => t.id !== 'a');
+  restoreLast();
+  assert.deepEqual(S.store.trips.map(t => t.id), ['b', 'a']);
+
+  // ponto da store inteira (criar, duplicar, apagar, importar)
+  pushHistory(true); const before = JSON.stringify(S.store);
+  S.store.trips.push(trip('c')); setActive('c');
+  restoreLast();
+  assert.equal(JSON.stringify(S.store), before);
+  assert.equal(T().id, 'a', 'volta a abrir a viagem que estava aberta no ponto');
+
+  // ponto guardado antes de haver viagens: volta a não haver nenhuma
+  S.activeId = null; S.store.trips = []; pushHistory();
+  S.store.trips = [trip('z')];
+  restoreLast();
+  assert.deepEqual(S.store.trips, []);
+  assert.equal(T(), null);
 });

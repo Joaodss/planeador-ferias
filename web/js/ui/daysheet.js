@@ -1,8 +1,9 @@
 /* Painel de um dia: onde estão, custos do dia e lista de atividades. */
 import { tr } from '../i18n.js';
-import { $, esc, newId, statusLabel, dayLabel, toast, announce } from '../util.js';
+import { esc, newId, statusLabel, dayLabel } from '../util.js';
+import { $, toast, announce } from './dom.js';
 import { S, T, pushHistory } from '../state.js';
-import { days, view, fmt, blockCostPP, blocksOf, addPlace, boardLayout, rangeLabel } from '../trip.js';
+import { days, view, money, blockCostPP, blocksOf, addPlace, boardLayout, rangeLabel } from '../trip.js';
 import { dayCostPP } from '../costs.js';
 import { commit } from '../sync.js';
 import { closeSheets } from './sheets.js';
@@ -24,10 +25,10 @@ export function fillDay(full, L0){
   refill($('#d-place2'), `<option value="">${tr('noChange')}</option>`+popts, cur[1]||'');
   const di=ds.indexOf(S.dayOpen);
   refill($('#d-until'), `<option value="">${tr('justThisDay')}</option>`+ds.slice(di+1).map(d=>`<option value="${d}">${dayLabel(d,true)}</option>`).join(''), '');
-  const list=blocksOf(S.dayOpen); const box=$('#d-list'); box.innerHTML='';
-  const cost=list.reduce((s,b)=>s+blockCostPP(b),0);
-  $('#d-list-h').textContent = tr('dayActivities')+(cost?' · '+fmt(cost)+' '+tr('perPersonLower'):'');
-  const dc=dayCostPP(S.dayOpen); $('#d-costs-h').textContent = tr('dayCosts')+(dc?' · '+fmt(dc)+' '+tr('perPersonLower'):'');
+  const list=blocksOf(t,S.dayOpen); const box=$('#d-list'); box.innerHTML='';
+  const cost=list.reduce((s,b)=>s+blockCostPP(t,b),0);
+  $('#d-list-h').textContent = tr('dayActivities')+(cost?' · '+money(t,cost)+' '+tr('perPersonLower'):'');
+  const dc=dayCostPP(t,S.dayOpen); $('#d-costs-h').textContent = tr('dayCosts')+(dc?' · '+money(t,dc)+' '+tr('perPersonLower'):'');
   renderCostRows($('#d-costs'), S.dayOpen, full===true);
   // atividades de dias anteriores que ainda decorrem neste dia (ex.: um voo de 30 h)
   const L=L0||boardLayout(t,ds), i=ds.indexOf(S.dayOpen);
@@ -38,15 +39,18 @@ export function fillDay(full, L0){
     it.innerHTML=`<span class="tm">${rangeLabel(b)}</span><span class="nm">${esc(b.title)}${from}</span>${statusLabel(b.status)?`<span class="st st-${b.status}" style="margin-left:auto;font-size:10px;font-weight:700;padding:0 5px;border-radius:4px">${esc(statusLabel(b.status))}</span>`:''}`;
     it.addEventListener('click',()=>openEditor(b.id)); box.appendChild(it); });
 }
-$('#d-apply').addEventListener('click',()=>{
-  const t=T(); const p1=$('#d-place').value, p2=$('#d-place2').value, until=$('#d-until').value; const ds=days(t);
-  const i=ds.indexOf(S.dayOpen), j=until?ds.indexOf(until):i; pushHistory();
-  for(let k=i;k<=j;k++){ const d=ds[k]; const arr=[]; if(p1) arr.push(p1); if(p2 && p2!==p1 && k===j) arr.push(p2); if(arr.length) t.dayPlaces[d]=arr; else delete t.dayPlaces[d]; }
-  if(p2 && j>i && p2!==p1) toast(tr('tPlaceLastDay'));
-  commit(); fillDay(true); announce(tr('placeSaved'));
-});
-$('#d-addplace').addEventListener('click',()=>{ const v=$('#d-newplace').value; if(!v.trim()) return; pushHistory(); const p=addPlace(v); $('#d-newplace').value=''; commit(); fillDay(false); $('#d-place').value=p.id; toast(tr('tPlaceAdded',{name:p.name})); });
-$('#d-newplace').addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); $('#d-addplace').click(); } });
-$('#d-add').addEventListener('click',()=>{ const t=T(), v=view(t); let s=Math.max(v.T0,540);
-  pushHistory(); const b={id:newId('a'), date:S.dayOpen, start:Math.min(s,v.T1-60), len:60, title:tr('newActivity'), cat:'tour', status:'ideia'}; t.blocks.push(b); commit(); openEditor(b.id,true); });
-$('#d-addcost').addEventListener('click',()=>addCost($('#d-costs'), S.dayOpen));
+/* Botões do painel do dia (main.js chama-a uma vez ao arrancar). */
+export function initDaysheet(){
+  $('#d-apply').addEventListener('click',()=>{
+    const t=T(); const p1=$('#d-place').value, p2=$('#d-place2').value, until=$('#d-until').value; const ds=days(t);
+    const i=ds.indexOf(S.dayOpen), j=until?ds.indexOf(until):i; pushHistory();
+    for(let k=i;k<=j;k++){ const d=ds[k]; const arr=[]; if(p1) arr.push(p1); if(p2 && p2!==p1 && k===j) arr.push(p2); if(arr.length) t.dayPlaces[d]=arr; else delete t.dayPlaces[d]; }
+    if(p2 && j>i && p2!==p1) toast(tr('tPlaceLastDay'));
+    commit(); fillDay(true); announce(tr('placeSaved'));
+  });
+  $('#d-addplace').addEventListener('click',()=>{ const v=$('#d-newplace').value; if(!v.trim()) return; pushHistory(); const p=addPlace(T(),v); $('#d-newplace').value=''; commit(); fillDay(false); $('#d-place').value=p.id; toast(tr('tPlaceAdded',{name:p.name})); });
+  $('#d-newplace').addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); $('#d-addplace').click(); } });
+  $('#d-add').addEventListener('click',()=>{ const t=T(), v=view(t); let s=Math.max(v.T0,540);
+    pushHistory(); const b={id:newId('a'), date:S.dayOpen, start:Math.min(s,v.T1-60), len:60, title:tr('newActivity'), cat:'tour', status:'ideia'}; t.blocks.push(b); commit(); openEditor(b.id,true); });
+  $('#d-addcost').addEventListener('click',()=>addCost($('#d-costs'), S.dayOpen));
+}

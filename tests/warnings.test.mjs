@@ -1,8 +1,7 @@
-// Testes de warnings.js: as regras dos "pontos a rever", num DOM mínimo.
-import './dom.mjs';
+// Testes de warnings.js: as regras dos "pontos a rever", sem DOM.
+import './env.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { S } from '../web/js/state.js';
 import { tr } from '../web/js/i18n.js';
 import { normTrip, days, boardLayout } from '../web/js/trip.js';
 import { computeWarnings } from '../web/js/warnings.js';
@@ -31,12 +30,11 @@ function trip() {
     tray: [], costs: [{ id: 'c1', label: 'Hotel', amount: 100, per: 'total', date: '2027-07-05' }, { id: 'c2', label: 'Seguro', amount: 5, per: 'pp' }],
   });
 }
-const use = t => { S.store = { version: 2, trips: [t] }; S.activeId = t.id; return t; };
 const brief = W => W.map(w => [w.sev, w.ids.join('+'), w.date]);
 
 test('cada regra dos pontos a rever aparece com as atividades e o dia certos', () => {
-  use(trip());
-  assert.deepEqual(brief(computeWarnings()), [
+  const t = trip();
+  assert.deepEqual(brief(computeWarnings(t)), [
     ['bad', 'museu+almoco', '2027-07-05'],      // ao mesmo tempo
     ['warn', 'sono+jantar', '2027-07-06'],      // entra no sono
     ['bad', 'feira', '2027-07-05'],             // só acontece à quarta
@@ -49,13 +47,13 @@ test('cada regra dos pontos a rever aparece com as atividades e o dia certos', (
 });
 
 test('com o layout de render() os avisos são os mesmos', () => {
-  const t = use(trip());
-  assert.deepEqual(computeWarnings(boardLayout(t, days(t))), computeWarnings());
+  const t = trip();
+  assert.deepEqual(computeWarnings(t, boardLayout(t, days(t))), computeWarnings(t));
 });
 
 test('os dias possíveis dependem dos dias da semana e do sítio de cada atividade', () => {
-  use(trip());
-  const W = computeWarnings(), d = id => W.find(w => w.ids[0] === id && w.sev === 'bad').d;
+  const t = trip();
+  const W = computeWarnings(t), d = id => W.find(w => w.ids[0] === id && w.sev === 'bad').d;
   // a feira é em Lisboa e a única quarta é no Porto; o mercado não tem sítio
   assert.ok(d('feira').endsWith(': ' + tr('none') + '.'), d('feira'));
   assert.ok(d('mercado').endsWith(': ' + dayLabel('2027-07-07') + '.'), d('mercado'));
@@ -73,32 +71,31 @@ test('festa que acaba às 23:00 em ponto conta; atividade às 10:00 do dia segui
     act('barco', '2027-07-06', H(9.5), 30, 'transport'),  // às 09:30, ainda antes das 10:00
     act('tarde', '2027-07-06', H(10), H(1), 'tour'),       // às 10:00 já não é cedo
   ];
-  use(small([act('festa', '2027-07-05', H(21), H(2), 'party'), ...next]));
-  assert.deepEqual(brief(computeWarnings()), [['warn', 'festa+cedo', '2027-07-06'], ['warn', 'festa+barco', '2027-07-06']]);
-  use(small([act('festa', '2027-07-05', H(21), H(2) - 1, 'party'), ...next]));
-  assert.deepEqual(computeWarnings(), [], 'acaba às 22:59: não é até tarde');
-  use(small([act('festa', '2027-07-07', H(22), H(3), 'party')]));
-  assert.deepEqual(computeWarnings(), [], 'festa no último dia');
+  let t = small([act('festa', '2027-07-05', H(21), H(2), 'party'), ...next]);
+  assert.deepEqual(brief(computeWarnings(t)), [['warn', 'festa+cedo', '2027-07-06'], ['warn', 'festa+barco', '2027-07-06']]);
+  t = small([act('festa', '2027-07-05', H(21), H(2) - 1, 'party'), ...next]);
+  assert.deepEqual(computeWarnings(t), [], 'acaba às 22:59: não é até tarde');
+  t = small([act('festa', '2027-07-07', H(22), H(3), 'party')]);
+  assert.deepEqual(computeWarnings(t), [], 'festa no último dia');
 });
 
 test('sobreposição que passa da meia-noite (dia 1 às 25:00 e dia 2 à 01:00)', () => {
-  use(small([
+  const t = small([
     act('antes', '2027-07-05', H(23), H(2), 'tour'),   // 23:00–01:00: acaba quando a noite começa
     act('noite', '2027-07-05', H(25), H(1), 'tour'),   // 01:00–02:00 da noite de dia 5
     act('cedo', '2027-07-06', H(1), H(1), 'tour'),     // o mesmo instante, guardado no dia 6
-  ]));
-  const W = computeWarnings();
+  ]);
+  const W = computeWarnings(t);
   assert.deepEqual(brief(W), [['bad', 'noite+cedo', '2027-07-06']]);
   assert.equal(W[0].d, `${dayLabel('2027-07-06', true)} · 01:00–02:00`);
   assert.equal(W[0].t, tr('wOverlap', { a: 'noite', b: 'cedo' }));
 });
 
-test('sem viagem ativa → []; atividade fora das datas → só o aviso das datas', () => {
-  S.activeId = null;
-  assert.deepEqual(computeWarnings(), []);
+test('sem viagem → []; atividade fora das datas → só o aviso das datas', () => {
+  assert.deepEqual(computeWarnings(null), []);
   // fora das datas, a horas escondidas, num dia da semana errado e sobrepostas: só conta estar fora das datas
   const fora = { ...act('fora', '2027-08-01', H(3), H(2), 'tour'), weekdays: [3] };
-  use(small([fora, act('outra', '2027-08-01', H(4), H(1), 'tour')]));
-  assert.deepEqual(brief(computeWarnings()), [['bad', 'fora', '2027-08-01'], ['bad', 'outra', '2027-08-01']]);
-  assert.equal(computeWarnings()[0].t, tr('wDates', { a: 'fora' }));
+  const t = small([fora, act('outra', '2027-08-01', H(4), H(1), 'tour')]);
+  assert.deepEqual(brief(computeWarnings(t)), [['bad', 'fora', '2027-08-01'], ['bad', 'outra', '2027-08-01']]);
+  assert.equal(computeWarnings(t)[0].t, tr('wDates', { a: 'fora' }));
 });

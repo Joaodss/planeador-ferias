@@ -8,7 +8,7 @@ A imagem Docker tem cerca de 7 MB e não precisa de base de dados: cada viagem �
 | Ficheiro | Para que serve |
 | --- | --- |
 | `*.go` | Servidor, só com a biblioteca padrão do Go: `main.go` (arranque), `routes.go` (API), `auth.go` (login e sessões), `trips.go` (ficheiros das viagens e cópias), `static.go` (página embutida). |
-| `web/` | A página: `index.html`, `css/app.css` e `js/` em módulos ES sem build (`js/main.js` é a entrada e lista o que cada módulo faz; `js/ui/` tem a interface; `js/i18n.js` tem os textos em português e inglês e `js/tz.js` as contas dos fusos horários). Fica embutida no binário. |
+| `web/` | A página: `index.html`, `css/app.css` e `js/` em módulos ES sem build (`js/main.js` é a entrada, liga as partes e lista o que cada módulo faz; `js/` tem a lógica, sem DOM, e `js/ui/` a interface; `js/i18n.js` tem os textos em português e inglês e `js/tz.js` as contas dos fusos horários). Fica embutida no binário. |
 | `Dockerfile` | Compila e produz a imagem final (`FROM scratch`). |
 | `docker-compose.yml` | Arranque no servidor, com volume para os dados. |
 | `*_test.go`, `tests/` | Testes do servidor (Go, um ficheiro de teste por ficheiro do servidor) e da página (Node, sem dependências). |
@@ -129,7 +129,7 @@ gofmt -l . && go vet ./...    # formato e análise
 
 # cobertura (o CI exige os mínimos que estão em .github/workflows/ci.yml)
 go test -coverprofile=coverage.out ./... && go tool cover -func=coverage.out | tail -1
-node --test --experimental-test-coverage --test-coverage-include='web/js/*.js' --test-coverage-exclude='web/js/main.js' --test-coverage-exclude='web/js/sync.js' tests/*.test.mjs
+node --test --experimental-test-coverage --test-coverage-include='web/js/*.js' --test-coverage-exclude='web/js/main.js' tests/*.test.mjs
 ```
 
 O CI corre tudo isto em cada PR, mais `staticcheck`, `govulncheck`, `hadolint` e um arranque real
