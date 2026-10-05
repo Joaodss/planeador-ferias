@@ -67,7 +67,7 @@ $('#import-file').addEventListener('change', async e=>{
     const data=JSON.parse(await f.text()); if(!data || !Array.isArray(data.trips)) throw new Error('formato');
     const ok=data.trips.filter(t=>t && typeof t==='object' && t.name && /^\d{4}-\d{2}-\d{2}$/.test(t.start||'') && /^\d{4}-\d{2}-\d{2}$/.test(t.end||''));
     if(!ok.length) throw new Error('vazio');
-    pushHistory(); let added=0, replaced=0, first=null;
+    pushHistory(true); let added=0, replaced=0, first=null;
     for(const raw of ok){
       const t=normTrip(raw); if(!/^[A-Za-z0-9_-]{1,64}$/.test(t.id||'')) t.id=newId('t');
       const i=S.store.trips.findIndex(x=>x.id===t.id);

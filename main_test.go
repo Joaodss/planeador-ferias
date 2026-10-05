@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -18,12 +19,12 @@ const (
 	testPass = "uma-palavra-passe"
 )
 
-func newTestServer(t *testing.T) *server {
+func newTestServer(t testing.TB) *server {
 	t.Helper()
 	return newTestServerAt(t, t.TempDir(), testPass)
 }
 
-func newTestServerAt(t *testing.T, dir, password string) *server {
+func newTestServerAt(t testing.TB, dir, password string) *server {
 	t.Helper()
 	for _, d := range []string{"trips", "backups"} {
 		if err := os.MkdirAll(filepath.Join(dir, d), 0o700); err != nil {
@@ -433,6 +434,143 @@ func TestBackupRetention(t *testing.T) {
 	}
 }
 
+func withHeader(k, v string) reqOpt { return func(r *http.Request) { r.Header.Set(k, v) } }
+
+func TestTripListETag(t *testing.T) {
+	s := newTestServer(t)
+	tok := s.newToken()
+	list := func(inm string) *httptest.ResponseRecorder {
+		return call(s, "GET", "/api/trips", "", withCookie(tok), withHeader("If-None-Match", inm))
+	}
+	authedCall(s, "PUT", "/api/trips/x", tripBody("x", 0, "A"))
+
+	w := list("")
+	etag := w.Header().Get("ETag")
+	if w.Code != http.StatusOK || etag == "" {
+		t.Fatalf("primeira lista: código %d, ETag %q", w.Code, etag)
+	}
+	if got := decode[struct{ Trips []*record }](t, w).Trips; len(got) != 1 || got[0].Rev != 1 {
+		t.Fatalf("lista inesperada: %s", w.Body)
+	}
+	// Ao voltar ao separador sem nada mudado: 304, sem corpo. Também com o ETag como um proxy o deixa.
+	for _, inm := range []string{etag, "W/" + etag, `"` + strings.Trim(etag, `"`) + `-gzip"`, `"outro", ` + etag} {
+		if w := list(inm); w.Code != http.StatusNotModified || w.Body.Len() != 0 || w.Header().Get("ETag") != etag {
+			t.Errorf("If-None-Match %s: código %d, %d bytes, ETag %q", inm, w.Code, w.Body.Len(), w.Header().Get("ETag"))
+		}
+	}
+
+	// Cada gravação e cada apagar mudam o ETag.
+	authedCall(s, "PUT", "/api/trips/x", tripBody("x", 1, "B"))
+	w = list(etag)
+	if w.Code != http.StatusOK || w.Header().Get("ETag") == etag {
+		t.Fatalf("depois de gravar: código %d, ETag %q igual ao anterior", w.Code, w.Header().Get("ETag"))
+	}
+	if !strings.Contains(w.Body.String(), `"name":"B"`) {
+		t.Errorf("a lista devia ter a versão B: %s", w.Body)
+	}
+	etag = w.Header().Get("ETag")
+	authedCall(s, "DELETE", "/api/trips/x", "")
+	w = list(etag)
+	if w.Code != http.StatusOK || len(decode[struct{ Trips []*record }](t, w).Trips) != 0 {
+		t.Fatalf("depois de apagar: código %d, %s", w.Code, w.Body)
+	}
+}
+
+func TestTripListSeesHandEdits(t *testing.T) {
+	s := newTestServer(t)
+	authedCall(s, "PUT", "/api/trips/x", tripBody("x", 0, "A"))
+	w := authedCall(s, "GET", "/api/trips", "") // a viagem fica na cache
+	etag := w.Header().Get("ETag")
+
+	// Alguém repõe uma cópia à mão: a lista mostra o ficheiro novo e o ETag muda.
+	p := s.tripPath("x")
+	if err := os.WriteFile(p, []byte(`{"rev":7,"updatedAt":"","trip":{"id":"x","name":"À mão"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	later := time.Now().Add(time.Minute)
+	os.Chtimes(p, later, later)
+	w = call(s, "GET", "/api/trips", "", withCookie(s.newToken()), withHeader("If-None-Match", etag))
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "À mão") {
+		t.Fatalf("a lista devia mostrar a cópia reposta: código %d, %s", w.Code, w.Body)
+	}
+	// e a próxima gravação parte da revisão desse ficheiro
+	if w := authedCall(s, "PUT", "/api/trips/x", tripBody("x", 1, "B")); w.Code != http.StatusConflict || decode[record](t, w).Rev != 7 {
+		t.Errorf("gravar sobre a revisão antiga: código %d, %s", w.Code, w.Body)
+	}
+	if w := authedCall(s, "PUT", "/api/trips/x", tripBody("x", 7, "B")); w.Code != http.StatusOK || decode[record](t, w).Rev != 8 {
+		t.Errorf("gravar sobre a revisão 7: código %d, %s", w.Code, w.Body)
+	}
+
+	// Tirado à mão: desaparece da lista e da cache.
+	os.Remove(p)
+	if n := len(decode[struct{ Trips []*record }](t, authedCall(s, "GET", "/api/trips", "")).Trips); n != 0 {
+		t.Errorf("a viagem tirada à mão ainda aparece (%d)", n)
+	}
+	if len(s.cache) != 0 || s.cacheBytes != 0 {
+		t.Errorf("a cache devia ficar vazia: %d viagens, %d bytes", len(s.cache), s.cacheBytes)
+	}
+}
+
+func TestTripListWithFullCache(t *testing.T) {
+	old := maxCache
+	maxCache = 100 // só cabe a primeira viagem: as outras vêm do disco
+	defer func() { maxCache = old }()
+	s := newTestServer(t)
+	for _, id := range []string{"a", "b", "c"} {
+		authedCall(s, "PUT", "/api/trips/"+id, tripBody(id, 0, "Viagem "+id))
+	}
+	w := authedCall(s, "GET", "/api/trips", "")
+	got := decode[struct{ Trips []*record }](t, w).Trips
+	if w.Code != http.StatusOK || len(got) != 3 {
+		t.Fatalf("esperava 3 viagens, veio %d (código %d)", len(got), w.Code)
+	}
+	for _, rec := range got {
+		var tn tripName
+		json.Unmarshal(rec.Trip, &tn)
+		if rec.Rev != 1 || tn.Name != "Viagem "+tn.ID {
+			t.Errorf("registo errado: rev %d, %+v", rec.Rev, tn)
+		}
+	}
+	if s.cacheBytes > maxCache {
+		t.Errorf("a cache passou do limite: %d bytes", s.cacheBytes)
+	}
+	// Conflito com a viagem que não coube na cache: devolve o registo lido do disco.
+	if w := authedCall(s, "PUT", "/api/trips/c", tripBody("c", 0, "x")); w.Code != http.StatusConflict || decode[record](t, w).Rev != 1 {
+		t.Errorf("conflito: código %d, %s", w.Code, w.Body)
+	}
+}
+
+func TestTripListSkipsTripsThatAreNotObjects(t *testing.T) {
+	s := newTestServer(t)
+	authedCall(s, "PUT", "/api/trips/ok", tripBody("ok", 0, "Boa"))
+	for name, body := range map[string]string{"nula": `{"rev":1,"trip":null}`, "sem": `{"rev":1}`, "lista": `[1]`} {
+		os.WriteFile(filepath.Join(s.cfg.dataDir, "trips", name+".json"), []byte(body), 0o600)
+	}
+	w := authedCall(s, "GET", "/api/trips", "")
+	if n := len(decode[struct{ Trips []*record }](t, w).Trips); w.Code != http.StatusOK || n != 1 {
+		t.Fatalf("esperava só a viagem que a página consegue abrir, veio %d: %s", n, w.Body)
+	}
+}
+
+func TestEtagMatch(t *testing.T) {
+	for inm, want := range map[string]bool{
+		`"abc"`:            true,
+		`W/"abc"`:          true,
+		`"abc-zstd"`:       true,
+		`"x", W/"abc"`:     true,
+		``:                 false,
+		`"abcd"`:           false,
+		`"ab"`:             false,
+		`"zz-abc"`:         false,
+		`*`:                false,
+		`"abc"junk, "def"`: false,
+	} {
+		if got := etagMatch(inm, `"abc"`); got != want {
+			t.Errorf("etagMatch(%q) = %v, esperava %v", inm, got, want)
+		}
+	}
+}
+
 /* ---------- página ---------- */
 
 func TestStaticFiles(t *testing.T) {
@@ -518,5 +656,99 @@ func TestSessionSecretPersisted(t *testing.T) {
 	}
 	if info.Size() < 32 {
 		t.Errorf("segredo das sessões curto demais: %d bytes", info.Size())
+	}
+}
+
+func TestStaticModulePreload(t *testing.T) {
+	s := newTestServer(t)
+	body := call(s, "GET", "/", "").Body.String()
+	head, _, ok := strings.Cut(body, "</head>")
+	if !ok {
+		t.Fatal("index.html sem </head>")
+	}
+	// Todos os módulos são pedidos logo, em vez de um nível de imports de cada vez.
+	n := 0
+	for p := range s.static {
+		if strings.HasSuffix(p, ".js") {
+			n++
+			if link := `<link rel="modulepreload" href="` + strings.TrimPrefix(p, "/") + `">`; !strings.Contains(head, link) {
+				t.Errorf("falta %s no <head>", link)
+			}
+		}
+	}
+	if n < 10 || strings.Count(body, "modulepreload") != n {
+		t.Errorf("%d módulos, %d modulepreload", n, strings.Count(body, "modulepreload"))
+	}
+	// A ordem é fixa: o ETag não muda entre arranques.
+	if a, b := s.static["/index.html"].etag, newTestServer(t).static["/index.html"].etag; a != b {
+		t.Errorf("ETag do index.html muda entre arranques: %s, %s", a, b)
+	}
+}
+
+/* ---------- medições: go test -run '^$' -bench . -benchmem ---------- */
+
+// benchTrip devolve uma viagem com n atividades (~170 bytes cada).
+func benchTrip(id string, n int) string {
+	var sb strings.Builder
+	fmt.Fprintf(&sb, `{"id":%q,"name":"Viagem de teste","start":"2027-03-01","end":"2027-04-29","dayStart":7,"dayEnd":1,"people":3,"currency":"€","places":[],"dayPlaces":{},"tray":[],"costs":[],"blocks":[`, id)
+	for i := 0; i < n; i++ {
+		if i > 0 {
+			sb.WriteByte(',')
+		}
+		fmt.Fprintf(&sb, `{"id":"a%d","date":"2027-03-%02d","start":%d,"len":90,"title":"Atividade %d no sítio","cat":"tour","status":"reservado","pp":12.5,"note":"Nota com acentuação e €"}`, i, 1+i%28, 420+i%60*15, i)
+	}
+	sb.WriteString("]}")
+	return sb.String()
+}
+
+// GET /api/trips com 10 viagens de ~38 KB ou uma de ~1,2 MB; "304" é o refresh sem alterações.
+func BenchmarkListTrips(b *testing.B) {
+	for _, tc := range []struct {
+		name     string
+		trips, n int
+		same     bool
+	}{{"10x38KB", 10, 200, false}, {"1x1.2MB", 1, 7000, false}, {"10x38KB/304", 10, 200, true}} {
+		b.Run(tc.name, func(b *testing.B) {
+			s := newTestServer(b)
+			for i := 0; i < tc.trips; i++ {
+				id := fmt.Sprintf("t%d", i)
+				if w := authedCall(s, "PUT", "/api/trips/"+id, `{"baseRev":0,"trip":`+benchTrip(id, tc.n)+`}`); w.Code != http.StatusOK {
+					b.Fatalf("PUT: %d %s", w.Code, w.Body)
+				}
+			}
+			tok := s.newToken()
+			inm := ""
+			if tc.same {
+				inm = authedCall(s, "GET", "/api/trips", "").Header().Get("ETag")
+			}
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				if w := call(s, "GET", "/api/trips", "", withCookie(tok), withHeader("If-None-Match", inm)); w.Code >= 400 {
+					b.Fatal(w.Code)
+				}
+			}
+		})
+	}
+}
+
+// PUT de uma viagem de ~1,2 MB, com a escrita em disco (fsync incluído).
+func BenchmarkPutTrip(b *testing.B) {
+	s := newTestServer(b)
+	trip := benchTrip("x", 7000)
+	tok := s.newToken()
+	b.SetBytes(int64(len(trip)))
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		body := io.MultiReader(strings.NewReader(fmt.Sprintf(`{"baseRev":%d,"trip":`, i)), strings.NewReader(trip), strings.NewReader("}"))
+		r := httptest.NewRequest("PUT", "/api/trips/x", body)
+		r.Header.Set("X-Requested-With", "planner")
+		r.AddCookie(&http.Cookie{Name: cookieName, Value: tok})
+		w := httptest.NewRecorder()
+		s.ServeHTTP(w, r)
+		if w.Code != http.StatusOK {
+			b.Fatalf("PUT %d: %d %s", i, w.Code, w.Body)
+		}
 	}
 }

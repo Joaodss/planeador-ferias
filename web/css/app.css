@@ -114,7 +114,11 @@ button,select,input,textarea{font:inherit;color:inherit}
    linear-gradient(to bottom, transparent var(--night-top,100%), var(--night) var(--night-top,100%)),
    repeating-linear-gradient(to bottom, var(--line) 0 1px, transparent 1px calc(var(--slot)*2)),
    repeating-linear-gradient(to bottom, var(--line-faint) 0 1px, transparent 1px var(--slot));
-  background-color:var(--bg)}
+  background-color:var(--bg);
+  /* o browser só calcula estilo e layout das colunas perto do ecrã: numa viagem longa era a maior parte de cada render().
+     A coluna já tem altura e largura fixas, por isso nada salta quando passa a ser desenhada. Isto corta o que sai da
+     coluna; a margem deixa ver inteiro o contorno de foco das atividades (2px + 2px de afastamento) */
+  content-visibility:auto;overflow-clip-margin:6px}
 .day-col.drop-target{background-color:var(--surface-2)}
 .day-col .midnight{position:absolute;left:0;right:0;border-top:1.5px dashed var(--c-sleep);opacity:.55;pointer-events:none}
 

@@ -2,8 +2,8 @@
 import { tr } from '../i18n.js';
 import { $, esc, short, isMobile, refreshSlot, PXM, SNAP, WD, MON, statusLabel, parseISO, mlabel, durLabel, dayLabel, newId, announce } from '../util.js';
 import { S, T, ensureActive, pushHistory, dropHistory } from '../state.js';
-import { days, view, fmt, blockCostPP, placeById, placeName, findBlock, blocksOf, boardLayout, rangeLabel, boardFrame, toBoard, fromBoard } from '../trip.js';
-import { nPeople, tripTotal, dayCostPP } from '../costs.js';
+import { days, view, fmt, placeById, placeName, findBlock, boardLayout, rangeLabel, boardFrame, toBoard, fromBoard } from '../trip.js';
+import { nPeople, tripTotal, dayTotalsPP } from '../costs.js';
 import { computeWarnings } from '../warnings.js';
 import { TZ, secondTz, setViewingHome } from '../tz.js';
 import { commit, undo } from '../sync.js';
@@ -73,20 +73,24 @@ export function render(){
   const narrow=isMobile();
   board.classList.toggle('two-tz', !!sec);
   board.style.gridTemplateColumns = `${sec?(narrow?84:98):(narrow?48:58)}px repeat(${ds.length}, minmax(${narrow?124:138}px,1fr))`;
+  // BL: pedaços de cada atividade nas colunas do quadro. L0: o mesmo em hora da viagem, para os avisos e o painel do dia;
+  // só é outro cálculo quando o quadro está no segundo fuso (na hora da viagem F.ds=tds e F.sh=0)
+  const BL=boardLayout(t,ds,F.sh), L0=F.off ? boardLayout(t,tds) : BL, noSleep=x=>!(S.hideSleep && (x.b||x).cat==='sleep');
   // warnings
-  const warns=computeWarnings(); const warnMap=new Map();
+  const warns=computeWarnings(L0); const warnMap=new Map();
   for(const w of warns) for(const id of w.ids){ if(!warnMap.has(id)) warnMap.set(id,[]); warnMap.get(id).push(w); }
   const corner=Object.assign(document.createElement('div'),{className:'corner'});
   // as duas cidades: a da direita é a do quadro; clicar na outra passa o quadro para esse fuso
   const tzBtn=(tz,home,on)=>`<button type="button" class="tzv${on?'':' sec'}" data-home="${home?1:0}" aria-pressed="${on}" title="${esc(on?tr('viewingIn',{city:TZ.city(tz)}):tr('viewIn',{city:TZ.city(tz)}))}">${esc(TZ.city(tz))}</button>`;
   if(sec) corner.innerHTML = off ? tzBtn(t.tz,false,false)+tzBtn(sec.tz,true,true) : tzBtn(sec.tz,true,false)+tzBtn(t.tz,false,true);
   board.appendChild(corner);
+  const inTrip=new Set(tds), costOf=dayTotalsPP(t);
   ds.forEach((date,i)=>{
-    const d=parseISO(date), wd=d.getDay(), extra=!tds.includes(date);
+    const d=parseISO(date), wd=d.getDay(), extra=!inTrip.has(date);
     // dia fora da viagem: só aparece quando, na hora do segundo fuso, há atividades nele. Não tem painel.
     const h=document.createElement(extra?'div':'button'); h.className='dh'+((wd===0||wd===6)?' weekend':'')+(extra?' extra':''); if(!extra){ h.type='button'; h.dataset.date=date; }
     const locs=t.dayPlaces[date]||[];
-    const cost=blocksOf(date).reduce((s,b)=>s+blockCostPP(b),0)+dayCostPP(date);
+    const cost=costOf.get(date)||0;
     if(locs.length) h.style.setProperty('--loc-c', `linear-gradient(90deg, ${locs.map((l,k)=>`var(--p${((placeById(l)||{c:1}).c-1)%8+1}) ${k*100/locs.length}% ${(k+1)*100/locs.length}%`).join(',')})`);
     const showMonth = i===0 || d.getDate()===1;
     h.innerHTML = `<div class="strip"></div><div class="date"><span class="num">${d.getDate()}</span><span class="wd">${WD()[wd]}${showMonth?' · '+MON()[d.getMonth()]:''}</span><span class="cost">${cost?fmt(cost)+' pp':''}</span></div>`
@@ -98,7 +102,6 @@ export function render(){
   for(let m=Math.ceil((v.T0+1)/60)*60; m<v.T1; m+=60){ const sp=document.createElement('span'); sp.style.top=((m-v.T0)*PXM())+'px'; sp.textContent=mlabel(m); if(m%1440===0) sp.className='mid'; times.appendChild(sp);
     if(other){ const m2=m+other.diff, s2=document.createElement('span'); s2.className='sec'+(((m2%1440)+1440)%1440===0?' mid':''); s2.style.top=sp.style.top; s2.textContent=mlabel(m2); times.appendChild(s2); } }
   board.appendChild(times);
-  const BL=boardLayout(t,ds,F.sh), noSleep=x=>!(S.hideSleep && (x.b||x).cat==='sleep');
   ds.forEach((date,i)=>{
     const col=document.createElement('div'); col.className='day-col'; col.dataset.date=date; col.style.height=H+'px';
     if(v.T1>1440 && v.T0<1440){ col.style.setProperty('--night-top', ((1440-v.T0)*PXM())+'px'); col.insertAdjacentHTML('beforeend', `<div class="midnight" style="top:${(1440-v.T0)*PXM()}px" aria-hidden="true"></div>`); }
@@ -140,8 +143,8 @@ export function render(){
   S.lastWarnings=warns;
   // painéis abertos acompanham a alteração
   if(!$('#warnings').hidden) renderWarnings();
-  if(S.editingId && !$('#editor').hidden) fillEditor(false);
-  if(S.dayOpen && !$('#daysheet').hidden) fillDay();
+  if(S.editingId && !$('#editor').hidden) fillEditor(false, F);
+  if(S.dayOpen && !$('#daysheet').hidden) fillDay(undefined, L0);
   if(!$('#costsheet').hidden) renderDash();
 }
 export function focusBlock(id){

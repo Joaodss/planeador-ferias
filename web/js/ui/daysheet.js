@@ -10,7 +10,8 @@ import { openEditor } from './editor.js';
 import { renderCostRows, addCost } from './costsheet.js';
 
 export function openDay(date){ closeSheets(); S.dayOpen=date; $('#daysheet').hidden=false; fillDay(true); $('#d-place').focus(); }
-export function fillDay(full){
+/* L0: o layout em hora da viagem que render() já calculou (boardLayout(t, days(t))). */
+export function fillDay(full, L0){
   const t=T(); if(!t||!S.dayOpen) return; const ds=days(t); const cur=t.dayPlaces[S.dayOpen]||[];
   $('#d-h').textContent=dayLabel(S.dayOpen,true);
   const popts=t.places.map(p=>`<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('');
@@ -23,7 +24,7 @@ export function fillDay(full){
   const dc=dayCostPP(S.dayOpen); $('#d-costs-h').textContent = tr('dayCosts')+(dc?' · '+fmt(dc)+' '+tr('perPersonLower'):'');
   renderCostRows($('#d-costs'), S.dayOpen, full===true);
   // atividades de dias anteriores que ainda decorrem neste dia (ex.: um voo de 30 h)
-  const L=boardLayout(t,ds), i=ds.indexOf(S.dayOpen);
+  const L=L0||boardLayout(t,ds), i=ds.indexOf(S.dayOpen);
   const cont=i<0?[]:L.cols[i].filter(s=>s.cutTop && s.b.date!==S.dayOpen).map(s=>s.b);
   if(!list.length && !cont.length) box.innerHTML=`<p class="hint">${tr('dayEmpty')}</p>`;
   cont.concat(list).filter(b=>b.cat!=='sleep').forEach(b=>{ const it=document.createElement('button'); it.type='button'; it.className='day-item cat-'+b.cat;

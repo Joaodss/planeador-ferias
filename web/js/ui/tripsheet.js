@@ -29,7 +29,7 @@ function renderPlaces(){
   t.places.forEach(p=>{ const row=document.createElement('div'); row.className='place-row'; row.style.setProperty('--pc',`var(--p${(p.c-1)%8+1})`);
     row.innerHTML=`<i aria-hidden="true"></i><input type="text" value="${esc(p.name)}" aria-label="${tr('placeNameAria')}" style="border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:6px 8px;min-width:0"><button class="btn danger" type="button">${tr('remove')}</button>`;
     const inp=row.querySelector('input'); let snap=false;
-    inp.addEventListener('input',()=>{ if(!snap){ pushHistory(); snap=true; } p.name=inp.value||tr('untitled'); commit(); });
+    inp.addEventListener('input',()=>{ if(!snap){ pushHistory(); snap=true; } p.name=inp.value||tr('untitled'); commit(true); });
     row.querySelector('button').addEventListener('click',()=>{ pushHistory(); t.places=t.places.filter(x=>x!==p); Object.keys(t.dayPlaces).forEach(d=>{ t.dayPlaces[d]=t.dayPlaces[d].filter(x=>x!==p.id); if(!t.dayPlaces[d].length) delete t.dayPlaces[d]; }); t.blocks.concat(t.tray).forEach(b=>{ if(b.place===p.id) delete b.place; }); commit(); renderPlaces(); });
     box.appendChild(row); });
 }
@@ -42,7 +42,7 @@ function renderCats(){
   cats(t).forEach(c=>{ const row=document.createElement('div'); row.className='place-row cat-edit';
     row.innerHTML=`<input type="text" id="cat-${esc(c.id)}" value="${esc(c.name)}" aria-label="${tr('catNameAria')}" style="border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:6px 8px;min-width:0"><button class="btn danger" type="button">${tr('remove')}</button>`;
     const inp=row.querySelector('input'); let snap=false;
-    inp.addEventListener('input',()=>{ if(!snap){ pushHistory(); snap=true; } const own=ownCats(t).find(x=>x.id===c.id); if(own) own.name=inp.value||tr('untitled'); commit(); });
+    inp.addEventListener('input',()=>{ if(!snap){ pushHistory(); snap=true; } const own=ownCats(t).find(x=>x.id===c.id); if(own) own.name=inp.value||tr('untitled'); commit(true); });
     row.querySelector('button').addEventListener('click',()=>{ pushHistory(); t.costCats=ownCats(t).filter(x=>x.id!==c.id); commit(); renderCats(); toast(tr('tCatRemoved',{name:c.name})); });
     box.appendChild(row); });
   if(!cats(t).length) box.innerHTML=`<p class="hint">${tr('noCats')}</p>`;
@@ -66,7 +66,7 @@ $('#t-form').addEventListener('submit',e=>{
   if(tz===null) return fail(tr('errTz',{v:$('#t-tz').value.trim()}));
   if(home===null) return fail(tr('errTz',{v:$('#t-hometz').value.trim()}));
   saveHomeTz(home);
-  pushHistory();
+  pushHistory(tripMode==='new');   // criar uma viagem muda a store, editar só mexe nesta
   if(tripMode==='new'){
     const t={id:newId('t'), name, start:s, end:en, dayStart:ds, dayEnd:de, people, currency:cur, places:[], dayPlaces:{}, blocks:[], tray:[], costs:[]}; if(budget) t.budget=budget; if(tz) t.tz=tz;
     S.store.trips.push(t); setActive(t.id);
@@ -79,7 +79,7 @@ $('#t-form').addEventListener('submit',e=>{
   }
 });
 $('#t-cancel').addEventListener('click',()=>{ $('#tripsheet').hidden=true; render(); });
-$('#t-dup').addEventListener('click',()=>{ const t=T(); pushHistory(); const c=clone(t); c.id=newId('t'); c.name=t.name+tr('copySuffix'); S.store.trips.push(c); setActive(c.id); $('#tripsheet').hidden=true; commit(); toast(tr('tTripDup')); });
+$('#t-dup').addEventListener('click',()=>{ const t=T(); pushHistory(true); const c=clone(t); c.id=newId('t'); c.name=t.name+tr('copySuffix'); S.store.trips.push(c); setActive(c.id); $('#tripsheet').hidden=true; commit(); toast(tr('tTripDup')); });
 $('#t-del').addEventListener('click',()=>{ $('#t-del-confirm').hidden=false; $('#t-del-yes').focus(); });
 $('#t-del-no').addEventListener('click',()=>{ $('#t-del-confirm').hidden=true; });
-$('#t-del-yes').addEventListener('click',()=>{ const t=T(); pushHistory(); S.store.trips=S.store.trips.filter(x=>x!==t); S.activeId=null; ensureActive(); $('#tripsheet').hidden=true; commit(); toast(tr('tTripDel',{name:t.name})); });
+$('#t-del-yes').addEventListener('click',()=>{ const t=T(); pushHistory(true); S.store.trips=S.store.trips.filter(x=>x!==t); S.activeId=null; ensureActive(); $('#tripsheet').hidden=true; commit(); toast(tr('tTripDel',{name:t.name})); });

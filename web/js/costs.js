@@ -19,6 +19,13 @@ export function blockTotal(t,b){ return (b.pp||0)*nPeople(t) + (b.total||0); }
 export function lineTotal(t,c){ return c.per==='pp' ? (c.amount||0)*nPeople(t) : (c.amount||0); }
 export function costLines(t,date){ return (t.costs||[]).filter(c=> date===null ? !c.date : c.date===date); }
 export function dayCostPP(date){ const t=T(); return costLines(t,date).reduce((s,c)=>s+lineTotal(t,c),0)/nPeople(t); }
+/* Custo por pessoa de cada dia (atividades + custos do dia) numa só passagem: date → valor. */
+export function dayTotalsPP(t){
+  const n=nPeople(t), m=new Map(), add=(d,v)=>m.set(d,(m.get(d)||0)+v);
+  for(const b of t.blocks) add(b.date, (b.pp||0)+(b.total||0)/n);
+  for(const c of (t.costs||[])) if(c.date) add(c.date, lineTotal(t,c)/n);
+  return m;
+}
 export function tripTotal(t){ return t.blocks.reduce((s,b)=>s+blockTotal(t,b),0) + (t.costs||[]).reduce((s,c)=>s+lineTotal(t,c),0); }
 /* Todas as parcelas de custo da viagem, já em valor total para o grupo. */
 export function costItems(t){
