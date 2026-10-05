@@ -1,6 +1,6 @@
 /* Editor de uma atividade. */
 import { tr } from '../i18n.js';
-import { $, esc, clone, short, newId, SNAP, WD, CATS, mlabel, durLabel, dayLabel, toast } from '../util.js';
+import { $, esc, short, newId, SNAP, WD, CATS, mlabel, durLabel, dayLabel, toast } from '../util.js';
 import { S, T, pushHistory } from '../state.js';
 import { view, placeName, findBlock, moveTo, toTray, boardFrame, toBoard, fromBoard } from '../trip.js';
 import { catName, hasCat, autoCat, catOptions } from '../costs.js';
@@ -68,7 +68,7 @@ $('#f-len').addEventListener('change',e=>edit(b=>{ b.len=+e.target.value; }));
 $('#f-start').addEventListener('change',e=>edit(b=>{ const t=T(), F=boardFrame(t); Object.assign(b, fromBoard(t,F,toBoard(t,F,b).date,+e.target.value)); }));
 $('#f-day').addEventListener('change',e=>edit((b,f)=>{ if(e.target.value==='tray'){ toTray(b.id); return; }
   const t=T(), F=boardFrame(t), p=fromBoard(t,F,e.target.value, f.where==='tray'?Math.max(view(t).T0,600):toBoard(t,F,b).start); moveTo(b.id,p.date,p.start); }));
-$('#f-dup').addEventListener('click',()=>{ const f=findBlock(S.editingId); if(!f) return; pushHistory(); const c=clone(f.b); c.id=newId('a'); delete c.locked; const t=T();
+$('#f-dup').addEventListener('click',()=>{ const f=findBlock(S.editingId); if(!f) return; pushHistory(); const c=structuredClone(f.b); c.id=newId('a'); delete c.locked; const t=T();
   // a cópia fica logo a seguir ao original, mesmo fora das datas da viagem (aí aparece o aviso próprio)
   if(f.where==='tray') t.tray.push(c); else { Object.assign(c, dateAt(t, absStart(t,f.b)+f.b.len)); t.blocks.push(c); } commit(); openEditor(c.id); toast(tr('tDupActivity')); });
 $('#f-tray').addEventListener('click',()=>{ edit(b=>toTray(b.id)); $('#editor').hidden=true; S.editingId=null; });

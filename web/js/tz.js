@@ -3,15 +3,15 @@
    Daqui sai só a conversão para um segundo fuso, mostrada ao lado na grelha. */
 
 let ALL = [];
-try{ ALL = Intl.supportedValuesOf('timeZone'); }catch(e){}
+try{ ALL = Intl.supportedValuesOf('timeZone'); }catch{}
 
 const fmts = {};
 function fmt(tz){
   if(!fmts[tz]) fmts[tz] = new Intl.DateTimeFormat('en-US',{timeZone:tz, hourCycle:'h23', year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit'});
   return fmts[tz];
 }
-function valid(tz){ if(!tz) return false; try{ fmt(tz); return true; }catch(e){ return false; } }
-function local(){ try{ return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; }catch(e){ return ''; } }
+function valid(tz){ if(!tz) return false; try{ fmt(tz); return true; }catch{ return false; } }
+function local(){ try{ return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; }catch{ return ''; } }
 
 /* Diferença (minutos) entre a hora local de tz e UTC no instante ms. */
 function offsetAt(tz, ms){
@@ -45,10 +45,10 @@ const HOME_KEY='ferias-home-tz';
 let serverHomeTz='';
 export function setServerHomeTz(v){ serverHomeTz=v||''; }
 export function defaultHomeTz(){ return valid(serverHomeTz) ? serverHomeTz : local(); }
-export function ownHomeTz(){ try{ const v=localStorage.getItem(HOME_KEY)||''; return valid(v)?v:''; }catch(e){ return ''; } }
+export function ownHomeTz(){ try{ const v=localStorage.getItem(HOME_KEY)||''; return valid(v)?v:''; }catch{ return ''; } }
 export function homeTz(){ return ownHomeTz() || defaultHomeTz(); }
 /* Guarda o segundo fuso deste dispositivo (só se for diferente do valor por omissão). */
-export function saveHomeTz(home){ try{ if(home && home!==defaultHomeTz()) localStorage.setItem(HOME_KEY,home); else localStorage.removeItem(HOME_KEY); }catch(_){} }
+export function saveHomeTz(home){ try{ if(home && home!==defaultHomeTz()) localStorage.setItem(HOME_KEY,home); else localStorage.removeItem(HOME_KEY); }catch{} }
 /* Segundo fuso da viagem t, ou null se não houver fuso da viagem ou se forem iguais. */
 export function secondTz(t){
   const h=homeTz(); if(!t || !valid(t.tz) || !valid(h)) return null;
@@ -59,8 +59,8 @@ export function secondTz(t){
    Clicar numa cidade no canto da grelha mostra o quadro na hora desse fuso (escolha deste dispositivo).
    As atividades continuam guardadas na hora da viagem: só a vista muda. */
 const VIEW_KEY='ferias-view-home';
-export function viewingHome(){ try{ return localStorage.getItem(VIEW_KEY)==='1'; }catch(e){ return false; } }
-export function setViewingHome(on){ try{ if(on) localStorage.setItem(VIEW_KEY,'1'); else localStorage.removeItem(VIEW_KEY); }catch(_){} }
+export function viewingHome(){ try{ return localStorage.getItem(VIEW_KEY)==='1'; }catch{ return false; } }
+export function setViewingHome(on){ try{ if(on) localStorage.setItem(VIEW_KEY,'1'); else localStorage.removeItem(VIEW_KEY); }catch{} }
 /* Minutos que o fuso do quadro está à frente da hora da viagem (0 quando o quadro está na hora da viagem). */
 export function viewOffset(t){ const s=viewingHome() && secondTz(t); return s ? s.diff : 0; }
 /* Aceita "Asia/Tokyo", "asia/tokyo" ou só "Tokyo". Devolve '' se vazio e null se não reconhecer. */

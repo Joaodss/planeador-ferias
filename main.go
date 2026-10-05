@@ -6,7 +6,7 @@
 // O código está repartido por ficheiros do mesmo package:
 //
 //	main.go    configuração e arranque
-//	routes.go  encaminhamento dos pedidos e respostas JSON
+//	routes.go  rotas, cabeçalhos de segurança, guarda CSRF e respostas JSON
 //	auth.go    login, sessões e limite de tentativas
 //	trips.go   leitura, gravação e cópias de segurança das viagens
 //	static.go  ficheiros da página (embutidos no binário)
@@ -14,6 +14,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -29,10 +30,11 @@ type config struct {
 }
 
 type server struct {
-	cfg    config
-	key    []byte // chave de assinatura das sessões
-	mu     sync.Mutex
-	static map[string]staticFile
+	cfg     config
+	key     []byte // chave de assinatura das sessões
+	mu      sync.Mutex
+	static  map[string]staticFile
+	handler http.Handler // as rotas (ver routes)
 
 	// viagens já lidas do disco (protegidas por mu, ver loadRecord)
 	cache      map[string]*cachedRec
@@ -40,6 +42,24 @@ type server struct {
 
 	limMu    sync.Mutex
 	failures map[string][]time.Time
+}
+
+// newServer cria as pastas de dados, prepara a chave das sessões e a página e monta as rotas.
+func newServer(cfg config) (*server, error) {
+	for _, d := range []string{"trips", "backups"} {
+		if err := os.MkdirAll(filepath.Join(cfg.dataDir, d), 0o700); err != nil {
+			return nil, fmt.Errorf("pasta de dados: %w", err)
+		}
+	}
+	s := &server{cfg: cfg, failures: map[string][]time.Time{}}
+	if err := s.loadKey(); err != nil {
+		return nil, fmt.Errorf("chave das sessões: %w", err)
+	}
+	if err := s.loadStatic(); err != nil {
+		return nil, fmt.Errorf("página: %w", err)
+	}
+	s.handler = s.routes()
+	return s, nil
 }
 
 func env(k, def string) string {
@@ -76,18 +96,9 @@ func main() {
 	if len(cfg.password) < 10 {
 		log.Fatal("PLANNER_PASSWORD tem de ter pelo menos 10 caracteres.")
 	}
-	for _, d := range []string{"trips", "backups"} {
-		if err := os.MkdirAll(filepath.Join(cfg.dataDir, d), 0o700); err != nil {
-			log.Fatalf("Não consigo criar %s: %v", filepath.Join(cfg.dataDir, d), err)
-		}
-	}
-
-	s := &server{cfg: cfg, failures: map[string][]time.Time{}}
-	if err := s.loadKey(); err != nil {
-		log.Fatalf("Não consigo preparar a chave das sessões: %v", err)
-	}
-	if err := s.loadStatic(); err != nil {
-		log.Fatalf("Não consigo carregar a página: %v", err)
+	s, err := newServer(cfg)
+	if err != nil {
+		log.Fatalf("Não consigo arrancar: %v", err)
 	}
 
 	srv := &http.Server{

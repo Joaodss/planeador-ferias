@@ -252,7 +252,7 @@ const en = {
 
 const DICT = {pt, en}, KEY = 'ferias-lang';
 let lang = null;
-try{ lang = localStorage.getItem(KEY); }catch(e){}
+try{ lang = localStorage.getItem(KEY); }catch{}
 if(!DICT[lang]) lang = /^pt\b/i.test(navigator.language||'') ? 'pt' : 'en';
 
 function tr(k, p){
@@ -271,7 +271,7 @@ function apply(root){
 }
 function set(l){
   if(!DICT[l]) return; lang = l;
-  try{ localStorage.setItem(KEY, l); }catch(e){}
+  try{ localStorage.setItem(KEY, l); }catch{}
   apply();
 }
 

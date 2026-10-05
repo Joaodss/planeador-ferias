@@ -12,8 +12,8 @@ $('#trip-sel').addEventListener('change',e=>{ if(!e.target.value) return; if(e.t
 $('#undo').addEventListener('click',undo);
 $('#add').addEventListener('click',()=>{ const t=T(); if(!t){ openTripSheet(true); return; } pushHistory(); const b={id:newId('a'), len:60, title:tr('newActivity'), cat:'tour', status:'ideia'}; t.tray.push(b); commit(); openEditor(b.id,true); });
 $('#trip-settings').addEventListener('click',()=>{ if(!T()) openTripSheet(true); else openTripSheet(false); });
-$('#show-sleep').addEventListener('change',e=>{ S.hideSleep=!e.target.checked; document.body.classList.toggle('hide-sleep',S.hideSleep); try{ localStorage.setItem(SLEEP_KEY,S.hideSleep?'1':'0'); }catch(_){} render(); });
-try{ if(localStorage.getItem(SLEEP_KEY)==='1'){ S.hideSleep=true; $('#show-sleep').checked=false; document.body.classList.add('hide-sleep'); } }catch(_){}
+$('#show-sleep').addEventListener('change',e=>{ S.hideSleep=!e.target.checked; document.body.classList.toggle('hide-sleep',S.hideSleep); try{ localStorage.setItem(SLEEP_KEY,S.hideSleep?'1':'0'); }catch{} render(); });
+try{ if(localStorage.getItem(SLEEP_KEY)==='1'){ S.hideSleep=true; $('#show-sleep').checked=false; document.body.classList.add('hide-sleep'); } }catch{}
 /* Trocar de língua: os textos fixos mudam logo; o resto volta a ser desenhado. */
 document.querySelectorAll('[data-lang-toggle]').forEach(b=>b.addEventListener('click',()=>{
   I18N.set(I18N.other()); buildWdays(); closeSheets(); $('#l-err').hidden=true;

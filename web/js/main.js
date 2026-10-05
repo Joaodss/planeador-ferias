@@ -11,8 +11,9 @@
      costs.js     categorias e totais de custos
      warnings.js  regras dos pontos a rever
      tz.js        fusos horários e segundo fuso
-     sync.js      gravação no servidor, login e logout
+     sync.js      pedidos ao servidor, gravação e sessão
    js/ui/         interface
+     login.js     ecrãs de login e sem ligação, botão Sair
      board.js     quadro, render() e teclado
      drag.js      arrastar e redimensionar
      sheets.js    fechar painéis
@@ -24,6 +25,7 @@
      toolbar.js   barra de ferramentas
      files.js     Excel, cópia de segurança e importar */
 import { boot } from './sync.js';
+import './ui/login.js';
 import './ui/board.js';
 import './ui/drag.js';
 import './ui/sheets.js';

@@ -1,7 +1,8 @@
 /* ---------- server sync ----------
    Cada viagem é um ficheiro no servidor com um número de revisão (rev).
    A página guarda só as viagens que mudaram e envia a revisão em que se baseou;
-   se outro dispositivo gravou entretanto, o servidor responde 409 e fica a versão dele. */
+   se outro dispositivo gravou entretanto, o servidor responde 409 e fica a versão dele.
+   Aqui ficam os pedidos, a gravação e a sessão; os ecrãs de login e sem ligação estão em ui/login.js. */
 import { tr } from './i18n.js';
 import { $, toast, announce } from './util.js';
 import { S, ensureActive, setActive, clearHistory } from './state.js';
@@ -9,22 +10,32 @@ import { normTrip } from './trip.js';
 import { setServerHomeTz } from './tz.js';
 import { render } from './ui/board.js';
 import { closeSheets } from './ui/sheets.js';
+import { showLogin, showApp, showOffline } from './ui/login.js';
 
 let saveTimer=null, renderTimer=null;
 let edits=0;      // conta os commit(): se não mudou durante uma gravação, o que foi serializado no início ainda é o estado atual
 let listTag='';   // ETag da última lista de viagens aplicada: o refresh() pergunta com If-None-Match
-const revs = {}, synced = {};
+const revs=new Map(), synced=new Map();   // por viagem: a revisão e o JSON que o servidor confirmou
 
-async function api(method, path, body, extra){
-  const headers={'X-Requested-With':'planner', ...extra}; if(body!==undefined) headers['Content-Type']='application/json';
-  const r = await fetch(path,{method, headers, body, credentials:'same-origin', cache:'no-store'});
-  if(r.status===401){ showLogin(); throw {code:'auth'}; }
+/* Erro de um pedido: code 'auth' (a sessão acabou e o login já está à vista) ou 'http' (o servidor respondeu com erro). */
+class ApiError extends Error {
+  constructor(code){ super('API: '+code); this.name='ApiError'; this.code=code; }
+}
+export const isAuthError = e => e instanceof ApiError && e.code==='auth';
+
+/* Todos os pedidos ao servidor passam por aqui, com o X-Requested-With que o servidor exige (guarda contra CSRF).
+   body já vem em JSON. Um 401 quer dizer que a sessão acabou e mostra o login, exceto no próprio login,
+   onde são credenciais erradas e quem pediu trata da resposta. */
+async function api(method, path, body, headers){
+  const h={'X-Requested-With':'planner', ...headers}; if(body!==undefined) h['Content-Type']='application/json';
+  const r=await fetch(path,{method, headers:h, body, credentials:'same-origin', cache:'no-store'});
+  if(r.status===401 && path!=='/api/login'){ endSession(); throw new ApiError('auth'); }
   return r;
 }
 /* O JSON de cada viagem, serializado uma só vez por gravação. */
 const snapshot = () => new Map(S.store.trips.map(t=>[t.id, JSON.stringify(t)]));
-function dirtyIn(snap){ for(const [id,js] of snap) if(synced[id]!==js) return true; return Object.keys(synced).some(id=>!snap.has(id)); }
-export function computeDirty(){ const ids=new Set(S.store.trips.map(t=>t.id)); return S.store.trips.some(t=>synced[t.id]!==JSON.stringify(t)) || Object.keys(synced).some(id=>!ids.has(id)); }
+function dirtyIn(snap){ for(const [id,js] of snap) if(synced.get(id)!==js) return true; return [...synced.keys()].some(id=>!snap.has(id)); }
+export function computeDirty(){ const ids=new Set(S.store.trips.map(t=>t.id)); return S.store.trips.some(t=>synced.get(t.id)!==JSON.stringify(t)) || [...synced.keys()].some(id=>!ids.has(id)); }
 function setSave(s,txt){ $('#save').dataset.s=s; $('#save-txt').textContent=txt; }
 export function refreshSaveLabel(){
   if(S.saving) return setSave('saving',tr('saving'));
@@ -32,7 +43,7 @@ export function refreshSaveLabel(){
   if(S.dirty) return setSave('dirty',tr('unsaved'));
   setSave('saved',tr('allSaved'));
 }
-export function scheduleSave(delay){ clearTimeout(saveTimer); saveTimer=setTimeout(doSave, delay||1200); refreshSaveLabel(); }
+export function scheduleSave(delay){ clearTimeout(saveTimer); saveTimer=setTimeout(doSave, delay ?? 1200); refreshSaveLabel(); }
 async function doSave(){
   if(S.saving || !S.authed) return;
   // snap serve para ver o que mudou, para o corpo dos PUT e, se nada mudar entretanto, para o estado no fim
@@ -40,26 +51,29 @@ async function doSave(){
   if(!dirtyIn(snap)){ S.dirty=false; refreshSaveLabel(); return; }
   S.saving=true; refreshSaveLabel(); let conflict=false, tooBig=false;
   try{
-    for(const id of Object.keys(synced)){
+    for(const id of [...synced.keys()]){
       if(snap.has(id)) continue;
       const r=await api('DELETE','/api/trips/'+encodeURIComponent(id));
-      if(!r.ok) throw {code:'http'};
-      delete synced[id]; delete revs[id];
+      if(!r.ok) throw new ApiError('http');
+      synced.delete(id); revs.delete(id);
     }
     for(const t of S.store.trips.slice()){
-      const js=snap.get(t.id); if(js===undefined || synced[t.id]===js) continue;
-      const r=await api('PUT','/api/trips/'+encodeURIComponent(t.id), '{"baseRev":'+(revs[t.id]||0)+',"trip":'+js+'}');
-      if(r.ok){ const d=await r.json(); revs[t.id]=d.rev; synced[t.id]=js; }
+      const js=snap.get(t.id); if(js===undefined || synced.get(t.id)===js) continue;
+      // O corpo junta-se à mão para levar o JSON de snap tal e qual: é o que fica em synced se a gravação correr bem.
+      // Com JSON.stringify({baseRev, trip}) a viagem era serializada outra vez e podia já não ser a mesma,
+      // porque pode ser editada enquanto se espera pelos pedidos anteriores.
+      const r=await api('PUT','/api/trips/'+encodeURIComponent(t.id), `{"baseRev":${revs.get(t.id) ?? 0},"trip":${js}}`);
+      if(r.ok){ const d=await r.json(); revs.set(t.id, d.rev); synced.set(t.id, js); }
       else if(r.status===409){
         const d=await r.json(); conflict=true; const i=S.store.trips.indexOf(t); snap.delete(t.id);
-        if(d.deleted){ if(i>=0) S.store.trips.splice(i,1); delete synced[t.id]; delete revs[t.id]; }
-        else { const nt=normTrip(d.trip); if(i>=0) S.store.trips[i]=nt; revs[nt.id]=d.rev; synced[nt.id]=JSON.stringify(nt); snap.set(nt.id, synced[nt.id]); }
+        if(d.deleted){ if(i>=0) S.store.trips.splice(i,1); synced.delete(t.id); revs.delete(t.id); }
+        else { const nt=normTrip(d.trip), njs=JSON.stringify(nt); if(i>=0) S.store.trips[i]=nt; revs.set(nt.id, d.rev); synced.set(nt.id, njs); snap.set(nt.id, njs); }
       }
-      else if(r.status===413){ tooBig=true; synced[t.id]=js; }
-      else throw {code:'http'};
+      else if(r.status===413){ tooBig=true; synced.set(t.id, js); }
+      else throw new ApiError('http');
     }
     S.online=true;
-  }catch(e){ if(!e || e.code!=='auth') S.online=false; }
+  }catch(e){ if(!isAuthError(e)) S.online=false; }
   S.saving=false; S.dirty = edits===e0 ? dirtyIn(snap) : computeDirty(); refreshSaveLabel();
   if(conflict){ clearHistory(); closeSheets(); ensureActive(); render(); toast(tr('tConflict')); }
   if(tooBig) toast(tr('tTooBig'));
@@ -77,22 +91,38 @@ export function undo(){ if(!S.history.length) return; const h=S.history.pop();
 
 function applyServer(d, tag){
   listTag=tag||'';
-  for(const k of Object.keys(revs)) delete revs[k];
-  for(const k of Object.keys(synced)) delete synced[k];
+  revs.clear(); synced.clear();
   setServerHomeTz(d.homeTz);
-  const trips=d.trips.map(x=>{ const t=normTrip(x.trip); revs[t.id]=x.rev; synced[t.id]=JSON.stringify(t); return t; });
+  const trips=d.trips.map(x=>{ const t=normTrip(x.trip); revs.set(t.id, x.rev); synced.set(t.id, JSON.stringify(t)); return t; });
   trips.sort((a,b)=>String(a.start).localeCompare(String(b.start)));
   S.store={version:2, trips};
 }
-function showApp(){ S.authed=true; $('#login').hidden=true; $('#offline').hidden=true; $('.app').hidden=false; }
+/* Sessão: startSession abre o quadro; endSession (401 ou Sair) para as gravações e mostra o login.
+   O que ficou por gravar continua na página e é gravado depois de voltar a entrar. */
+function startSession(){ S.authed=true; showApp(); }
+function endSession(){ S.authed=false; clearTimeout(saveTimer); showLogin(); }
 async function loadAll(){
-  const r=await api('GET','/api/trips'); if(!r.ok) throw {code:'http'};
+  const r=await api('GET','/api/trips'); if(!r.ok) throw new ApiError('http');
   applyServer(await r.json(), r.headers.get('ETag')); clearHistory(); S.dirty=false; S.online=true;
-  showApp(); ensureActive(); render(); refreshSaveLabel();
+  startSession(); ensureActive(); render(); refreshSaveLabel();
 }
 export async function boot(){
   try{ await loadAll(); }
-  catch(e){ if(e && e.code==='auth') return; $('#offline').hidden=false; setTimeout(boot,5000); }
+  catch(e){ if(isAuthError(e)) return; showOffline(); setTimeout(boot,5000); }
+}
+/* Entrar: devolve o código HTTP do login (200, 401 credenciais erradas, 429 demasiadas tentativas).
+   Com 200 abre o quadro; se a sessão tinha acabado com alterações por gravar, grava-as em vez de ir buscar a lista. */
+export async function signIn(user, password){
+  const r=await api('POST','/api/login', JSON.stringify({user, password}));
+  if(r.ok){ if(computeDirty()){ startSession(); render(); doSave(); } else await loadAll(); }
+  return r.status;
+}
+/* Sair: antes grava o que falta; se não conseguir, devolve false e a sessão continua. */
+export async function signOut(){
+  if(computeDirty()){ clearTimeout(saveTimer); await doSave(); if(computeDirty()) return false; }
+  try{ await api('POST','/api/logout'); }catch{}
+  applyServer({trips:[]}); clearHistory(); closeSheets(); endSession();
+  return true;
 }
 /* Ao voltar ao separador, vai buscar o que mudou noutros dispositivos. */
 async function refresh(){
@@ -103,10 +133,10 @@ async function refresh(){
     // com alterações por gravar, a lista fica por aplicar e o ETag por guardar (senão o próximo refresh dava 304)
     if(S.saving || computeDirty()) return;
     const sig=a=>JSON.stringify(a.sort());
-    if(sig(S.store.trips.map(t=>t.id+':'+revs[t.id]))===sig(d.trips.map(x=>x.trip.id+':'+x.rev))){ listTag=tag||''; return; }
+    if(sig(S.store.trips.map(t=>t.id+':'+revs.get(t.id)))===sig(d.trips.map(x=>x.trip.id+':'+x.rev))){ listTag=tag||''; return; }
     applyServer(d, tag); clearHistory(); closeSheets(); ensureActive(); render();
     toast(tr('tRefreshed'));
-  }catch(e){}
+  }catch{}
 }
 document.addEventListener('visibilitychange',()=>{
   if(!S.authed) return;
@@ -114,28 +144,3 @@ document.addEventListener('visibilitychange',()=>{
   if(!S.saving && !S.drag && !computeDirty()) refresh();
 });
 window.addEventListener('beforeunload',e=>{ if(S.authed && computeDirty()){ e.preventDefault(); e.returnValue=''; } });
-
-/* login */
-function showLogin(){
-  S.authed=false; clearTimeout(saveTimer);
-  $('.app').hidden=true; $('#offline').hidden=true; $('#login').hidden=false; $('#l-err').hidden=true;
-  ($('#l-user').value ? $('#l-pass') : $('#l-user')).focus();
-}
-$('#login-form').addEventListener('submit', async e=>{
-  e.preventDefault(); const err=$('#l-err'), btn=$('#l-submit'); err.hidden=true;
-  const fail=m=>{ err.textContent=m; err.hidden=false; };
-  if(!$('#l-user').value.trim() || !$('#l-pass').value) return fail(tr('errFill'));
-  btn.disabled=true; btn.textContent=tr('signingIn');
-  try{
-    const r=await fetch('/api/login',{method:'POST', headers:{'Content-Type':'application/json','X-Requested-With':'planner'}, credentials:'same-origin', body:JSON.stringify({user:$('#l-user').value, password:$('#l-pass').value})});
-    if(r.ok){ $('#l-pass').value=''; if(computeDirty()){ showApp(); render(); doSave(); } else await loadAll(); }
-    else if(r.status===429) fail(tr('errTooMany'));
-    else fail(tr('errWrong'));
-  }catch(ex){ if(!ex || ex.code!=='auth') fail(tr('errServer')); }
-  finally{ btn.disabled=false; btn.textContent=tr('signIn'); }
-});
-$('#logout').addEventListener('click', async ()=>{
-  if(computeDirty()){ clearTimeout(saveTimer); await doSave(); if(computeDirty()){ toast(tr('tLogoutPending')); return; } }
-  try{ await fetch('/api/logout',{method:'POST', headers:{'X-Requested-With':'planner'}, credentials:'same-origin'}); }catch(e){}
-  applyServer({trips:[]}); clearHistory(); closeSheets(); showLogin();
-});
