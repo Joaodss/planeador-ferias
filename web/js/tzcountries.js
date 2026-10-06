@@ -55,7 +55,9 @@ const BY_COUNTRY = {
 };
 
 let byCity = null;
-/* "Europe/Lisbon" → "PT"; '' para um fuso sem país (UTC, Etc/…). */
+/** "Europe/Lisbon" → "PT"; '' para um fuso sem país (UTC, Etc/…).
+   @param {string} tz
+   @returns {string} código ISO 3166 */
 export function tzCountry(tz){
   if(!byCity){
     byCity = new Map();

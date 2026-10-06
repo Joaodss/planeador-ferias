@@ -37,6 +37,19 @@ function blockEl(t, b, warnMap, seg, boardPos, bz){
   el.setAttribute('aria-label', `${b.title}, ${inTray?tr('unscheduledLower'):dayLabel(boardPos.date,true)+' '+time}${ltz?', '+ltz:''}${statusText?', '+statusText:''}${w?', '+tr('nWarnings',{n:w.length}):''}`);
   return el;
 }
+/* Redesenha tudo a partir do estado (S e a viagem ativa); é o gancho render de sync.js, chamado por commit()
+   depois de cada alteração, ao carregar do servidor e ao mudar de língua. Pode ser chamada a qualquer momento,
+   também sem viagem (mostra o ecrã vazio). Passos:
+   1. o seletor de viagens, o título e o cabeçalho (datas, percurso e fusos);
+   2. as colunas do quadro (boardFrame) e onde fica cada atividade: layout no fuso do quadro e tripLayout na hora
+      da viagem, que só é outro cálculo quando o quadro está no segundo fuso;
+   3. os pontos a rever (computeWarnings), para as marcas "!" nos blocos;
+   4. cabeçalhos dos dias, coluna das horas e colunas com os blocos (laneLayout põe lado a lado os que se sobrepõem)
+      e as marcas das atividades escondidas;
+   5. o tabuleiro "por agendar" e os totais do rodapé;
+   6. os painéis abertos (editor, dia, custos, avisos), com {refresh:true} para não mexer no campo com o foco.
+   Mantém o scroll da grelha (guardado antes de esvaziar o quadro). Não grava; do estado só acerta a viagem ativa
+   (ensureActive) e guarda os avisos em S.lastWarnings. */
 export function render(){
   refreshSlot(); ensureActive(); refreshUndo();
   const t=activeTrip();

@@ -21,14 +21,16 @@ ALL = [...new Set(ALL.map(z=>RENAMED[z] && valid(RENAMED[z]) ? RENAMED[z] : z))]
 const REGIONS = [...new Set(ALL.filter(z=>z.includes('/')).map(z=>z.split('/')[0]))];
 function local(){ try{ return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; }catch{ return ''; } }
 
-/* Diferença (minutos) entre a hora local de tz e UTC no instante ms. */
+/* Diferença (minutos) entre a hora local de tz e UTC no instante ms (ms desde 1970).
+   Positiva a leste de Greenwich: offsetAt('Asia/Tokyo', …) = 540. */
 function offsetAt(tz, ms){
   const p = {}; for(const x of dtf(tz).formatToParts(new Date(ms))) p[x.type] = x.value;
   const asUTC = Date.UTC(+p.year, +p.month-1, +p.day, +p.hour, +p.minute, +p.second);
   return Math.round((asUTC - Math.floor(ms/1000)*1000) / 60000);
 }
 
-/* Quantos minutos o fuso b está à frente do fuso a, ao meio-dia (UTC) da data "AAAA-MM-DD". */
+/* Quantos minutos o fuso b está à frente do fuso a, ao meio-dia (UTC) da data "AAAA-MM-DD"; null se algum não for válido.
+   Um só valor por dia (o do meio-dia UTC), também no dia em que a hora muda. */
 function diff(a, b, date){
   if(!valid(a) || !valid(b)) return null;
   const [y,m,d] = date.split('-').map(Number), ms = Date.UTC(y, m-1, d, 12);
@@ -38,15 +40,25 @@ function diff(a, b, date){
 /* "Asia/Tokyo" → "Tokyo"; "America/Argentina/Buenos_Aires" → "Buenos Aires". */
 const city = tz => String(tz||'').split('/').pop().replace(/_/g,' ');
 
+/* Diferença em minutos → "+1h", "−5:30h"; '' quando é 0. */
 function diffLabel(min){
   if(!min) return '';
   const s = min<0?'−':'+', h = Math.floor(Math.abs(min)/60), m = Math.abs(min)%60;
   return s + h + (m ? ':' + String(m).padStart(2,'0') : '') + 'h';
 }
 
+/**
+ * Contas de fusos. Todos os fusos são nomes IANA ("Europe/Lisbon") e as diferenças estão em minutos.
+ * all: os fusos que o browser conhece, por ordem; local: o do browser ('' se não souber).
+ * @type {{all: string[], valid: (tz: string) => boolean, local: () => string,
+ *   offsetAt: (tz: string, ms: number) => number, diff: (a: string, b: string, date: string) => number | null,
+ *   city: (tz: string) => string, diffLabel: (min: number) => string}}
+ */
 export const TZ = {all: ALL, valid, local, offsetAt, diff, city, diffLabel};
 
-/* "GMT+05:30", "GMT−03:00", "GMT+00:00": a diferença (minutos) para UTC, sempre com sinal e minutos. */
+/** "GMT+05:30", "GMT−03:00", "GMT+00:00": a diferença (minutos) para UTC, sempre com sinal e minutos.
+   @param {number} min
+   @returns {string} */
 export function gmtLabel(min){
   const h = Math.floor(Math.abs(min)/60);
   const m = Math.abs(min)%60;
@@ -55,6 +67,9 @@ export function gmtLabel(min){
 
 /* Nome do país com o código ISO cc, na língua lang ("PT" → "Portugal"); o próprio código se o browser não souber. */
 const countryNames = {};
+/** @param {string} cc  código ISO 3166 ('' dá '')
+    @param {string} lang  'pt', 'en'…
+    @returns {string} */
 export function countryName(cc, lang){
   if(!cc) return '';
   try{
@@ -66,14 +81,19 @@ export function countryName(cc, lang){
 /* Texto sem acentos e em minúsculas, para procurar: "São Tomé" → "sao tome". */
 const fold = s => String(s).normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
 
-/* Opções dos selects de fuso: pela diferença para GMT e, com a mesma diferença, pelo nome da cidade.
+/** @typedef {{tz: string, offset: number, label: string, key: string}} TzOption  offset: minutos à frente de UTC */
+/** Opções dos selects de fuso: pela diferença para GMT e, com a mesma diferença, pelo nome da cidade.
    "Europe/Lisbon" → "(GMT+01:00) Lisbon, Portugal", com o país na língua lang (tzcountries.js).
    A sub-região só aparece quando não é o próprio país: "America/Indiana/Knox" → "Knox (Indiana), United States",
    mas "America/Argentina/Salta" → "Salta, Argentina".
    A diferença muda com a hora de verão, por isso é a do meio-dia (UTC) da data "AAAA-MM-DD" (o início da viagem,
    como em secondTz); sem data válida, a de agora. cur entra na lista se for válido e lá não estiver
    (um nome antigo guardado noutro browser). key é o que tzMatch procura: o texto da opção, o nome do fuso e o país
-   também em inglês e pelo código. Devolve [{tz, offset, label, key}], já por ordem. */
+   também em inglês e pelo código. Devolve [{tz, offset, label, key}], já por ordem.
+   @param {string} cur  o fuso escolhido agora ('' se nenhum)
+   @param {string} [date]  "AAAA-MM-DD"
+   @param {string} [lang='en']
+   @returns {TzOption[]} */
 export function tzOptions(cur, date, lang='en'){
   const zs = cur && valid(cur) && !ALL.includes(cur) ? ALL.concat(cur) : ALL;
   const [y,m,d] = String(date||'').split('-').map(Number);
@@ -95,14 +115,21 @@ export function tzOptions(cur, date, lang='en'){
   });
 }
 
-/* A opção o (de tzOptions) serve para a pesquisa query se tiver todas as palavras dela, sem contar acentos nem
+/** A opção o (de tzOptions) serve para a pesquisa query se tiver todas as palavras dela, sem contar acentos nem
    maiúsculas: "lisbon", "portugal", "new york", "gmt+05". As cidades só têm o nome em inglês (o do fuso); os países
-   têm o da língua da página e o inglês. Uma pesquisa vazia serve a todas. */
+   têm o da língua da página e o inglês. Uma pesquisa vazia serve a todas.
+   @param {TzOption} o
+   @param {string} query
+   @returns {boolean} */
 export function tzMatch(o, query){
   return fold(query).replace(/_/g, ' ').split(/\s+/).every(w=>o.key.includes(w));
 }
-/* As opções que servem para query, por ordem, mais a escolhida (keep) mesmo que não sirva: se saísse da lista,
-   o select passava a mostrar outra sem ninguém a ter escolhido. */
+/** As opções que servem para query, por ordem, mais a escolhida (keep) mesmo que não sirva: se saísse da lista,
+   o select passava a mostrar outra sem ninguém a ter escolhido.
+   @param {TzOption[]} opts
+   @param {string} query
+   @param {string} keep  fuso escolhido
+   @returns {TzOption[]} */
 export function tzFilter(opts, query, keep){
   return opts.filter(o=>o.tz===keep || tzMatch(o, query));
 }
@@ -112,13 +139,22 @@ export function tzFilter(opts, query, keep){
    o escolhido neste dispositivo, senão PLANNER_HOME_TZ, senão o do browser. */
 const HOME_KEY='ferias-home-tz';
 let serverHomeTz='';
+/** O PLANNER_HOME_TZ que o servidor mandou com a lista de viagens (homeTz).
+    @param {string | undefined} v */
 export function setServerHomeTz(v){ serverHomeTz=v||''; }
+/** @returns {string} o segundo fuso sem escolha deste dispositivo: o do servidor, senão o do browser */
 export function defaultHomeTz(){ return valid(serverHomeTz) ? serverHomeTz : local(); }
+/** @returns {string} o segundo fuso escolhido neste dispositivo, ou '' */
 export function ownHomeTz(){ try{ const v=localStorage.getItem(HOME_KEY)||''; return valid(v)?v:''; }catch{ return ''; } }
+/** @returns {string} o segundo fuso em uso */
 export function homeTz(){ return ownHomeTz() || defaultHomeTz(); }
-/* Guarda o segundo fuso deste dispositivo (só se for diferente do valor por omissão). */
+/** Guarda o segundo fuso deste dispositivo (só se for diferente do valor por omissão).
+   @param {string} home  '' volta ao valor por omissão */
 export function saveHomeTz(home){ try{ if(home && home!==defaultHomeTz()) localStorage.setItem(HOME_KEY,home); else localStorage.removeItem(HOME_KEY); }catch{} }
-/* Segundo fuso da viagem t, ou null se não houver fuso da viagem ou se forem iguais. */
+/** Segundo fuso da viagem t, ou null se não houver fuso da viagem ou se forem iguais.
+   Uma só diferença para a viagem toda, a do meio-dia (UTC) de t.start: a grelha tem uma única coluna de horas.
+   @param {import('./clean.js').Trip | null} t
+   @returns {{tz: string, diff: number} | null} diff: minutos que o segundo fuso está à frente da hora da viagem */
 export function secondTz(t){
   const h=homeTz(); if(!t || !valid(t.tz) || !valid(h)) return null;
   const d=diff(t.tz,h,t.start); return d ? {tz:h, diff:d} : null;
@@ -128,11 +164,17 @@ export function secondTz(t){
    Clicar numa cidade no canto da grelha mostra o quadro na hora desse fuso (escolha deste dispositivo).
    As atividades continuam guardadas na hora da viagem: só a vista muda. */
 const VIEW_KEY='ferias-view-home';
+/** @returns {boolean} o quadro está no segundo fuso (escolha deste dispositivo)? */
 export function viewingHome(){ try{ return localStorage.getItem(VIEW_KEY)==='1'; }catch{ return false; } }
+/** @param {boolean} on */
 export function setViewingHome(on){ try{ if(on) localStorage.setItem(VIEW_KEY,'1'); else localStorage.removeItem(VIEW_KEY); }catch{} }
-/* Minutos que o fuso do quadro está à frente da hora da viagem (0 quando o quadro está na hora da viagem). */
+/** Minutos que o fuso do quadro está à frente da hora da viagem (0 quando o quadro está na hora da viagem).
+   @param {import('./clean.js').Trip | null} t
+   @returns {number} */
 export function viewOffset(t){ const s=viewingHome() && secondTz(t); return s ? s.diff : 0; }
-/* Aceita "Asia/Tokyo", "asia/tokyo" ou só "Tokyo". Devolve '' se vazio e null se não reconhecer. */
+/** Aceita "Asia/Tokyo", "asia/tokyo" ou só "Tokyo". Devolve '' se vazio e null se não reconhecer.
+   @param {string} v
+   @returns {string | null} o nome IANA */
 export function resolveTz(v){
   v=v.trim(); if(!v) return '';
   const n=v.toLowerCase().replace(/\s+/g,'_');

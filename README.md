@@ -108,7 +108,18 @@ palavras-passe), ou fazes `docker login ghcr.io` no servidor com um token com pe
 
 - Sessão por cookie assinado (`HttpOnly`, `SameSite=Strict`, `Secure` atrás de HTTPS), válida 30 dias
   e renovada sempre que a página é usada: só volta a pedir login depois de um mês sem abrir o planeador.
-- Tentativas de login limitadas: 8 falhadas por endereço em 10 minutos.
+- **Sair não invalida a sessão no servidor.** O cookie é só uma data de validade assinada (HMAC) e o servidor
+  não guarda uma lista de sessões. Sair apaga o cookie deste browser, mas uma cópia do cookie continua a valer
+  até expirar, e renova-se sempre que é usada. Para terminar todas as sessões, muda a palavra-passe.
+  Para um só utilizador é uma troca aceitável: não há sessões para guardar nem para limpar.
+- Tentativas de login limitadas, em cada 10 minutos:
+  - 8 falhadas por endereço;
+  - 40 falhadas no total, venham de onde vierem. Este limite também bloqueia o teu login até a janela
+    passar, mas as sessões já abertas continuam a funcionar.
+- **O endereço vem do `X-Forwarded-For`.** O servidor conta para o limite por endereço o primeiro
+  endereço deste cabeçalho, o que só está certo atrás de um proxy que o reescreve (o Caddy faz isso por
+  omissão). Com o servidor exposto diretamente à internet, qualquer pedido pode pôr lá outro endereço
+  e contornar o limite por endereço; fica só o limite total.
 - O contentor corre sem root, com sistema de ficheiros só de leitura e sem capabilities.
 - A página carrega as fontes do Google Fonts. O módulo de Excel vem do cdnjs e só é pedido
   quando carregas em "Exportar Excel".

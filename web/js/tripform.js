@@ -5,9 +5,42 @@ import { parseISO } from './util.js';
 import { resolveTz } from './tz.js';
 import { tripDates, toTray } from './trip.js';
 
+/** Máximo de dias de uma viagem criada ou editada no formulário "Datas e sítios" (o erro errTripLong).
+   MAX_TRIP_DATES (span.js) é maior e não é o mesmo limite: protege das viagens que não passam por aqui (importadas ou editadas à mão). */
 export const MAX_DAYS = 60;
 
-/* O primeiro erro do formulário, como {key, params} para tr(), ou null se estiver tudo bem. */
+/** @typedef {import('./clean.js').Trip} Trip */
+/**
+ * Os campos do formulário, tal como vêm da página (texto).
+ * @typedef {object} TripForm
+ * @property {string} name
+ * @property {string} start    "AAAA-MM-DD" ou ''
+ * @property {string} end      "AAAA-MM-DD" ou ''
+ * @property {string} dayStart hora (0–23)
+ * @property {string} dayEnd   hora (0–23)
+ * @property {string} people
+ * @property {string} currency
+ * @property {string} budget
+ * @property {string} tz       fuso da viagem, nome completo ou só a cidade ('' para nenhum)
+ * @property {string} homeTz   segundo fuso deste dispositivo ('' para o por omissão)
+ */
+/**
+ * Os mesmos campos já convertidos para os da viagem (tripFields).
+ * @typedef {object} TripFields
+ * @property {string} name
+ * @property {string} start
+ * @property {string} end
+ * @property {number} dayStart  hora (0–23)
+ * @property {number} dayEnd    hora (0–23)
+ * @property {number} people
+ * @property {string} currency
+ * @property {number} budget    0 para "sem orçamento"
+ * @property {string} tz        '' para "sem fuso"
+ */
+
+/** O primeiro erro do formulário, como {key, params} para a função de tradução, ou null se estiver tudo bem.
+   @param {TripForm} f
+   @returns {{key: string, params?: object} | null} */
 export function validateTrip(f){
   if(!f.name.trim()) return {key:'errTripName'};
   if(!f.start || !f.end) return {key:'errTripDates'};
@@ -19,7 +52,9 @@ export function validateTrip(f){
   return null;
 }
 
-/* Os campos já validados, convertidos para os da viagem. budget 0 e tz '' querem dizer "sem". */
+/** Os campos já validados, convertidos para os da viagem. budget 0 e tz '' querem dizer "sem".
+   @param {TripForm} f
+   @returns {TripFields} */
 export function tripFields(f){
   const budget=parseFloat(f.budget);
   return {
@@ -29,7 +64,10 @@ export function tripFields(f){
   };
 }
 
-/* Viagem nova e vazia com os campos do formulário. */
+/** Viagem nova e vazia com os campos do formulário.
+   @param {TripFields} fields
+   @param {(prefix: string) => string} newId
+   @returns {Trip} */
 export function newTrip(fields, newId){
   const {budget, tz, ...rest}=fields;
   const t={id:newId('t'), ...rest, places:[], dayPlaces:{}, blocks:[], tray:[], costs:[]};
@@ -38,9 +76,12 @@ export function newTrip(fields, newId){
   return t;
 }
 
-/* Aplica os campos à viagem t. O que fica fora das novas datas não se perde: as atividades vão para
+/** Aplica os campos à viagem t. O que fica fora das novas datas não se perde: as atividades vão para
    "por agendar", os custos desse dia passam a gerais e os sítios desses dias saem.
-   Devolve quantas atividades foram para "por agendar". */
+   Devolve quantas atividades foram para "por agendar".
+   @param {Trip} t  mudada no próprio objeto
+   @param {TripFields} fields
+   @returns {number} */
 export function applyTripEdit(t, fields){
   const {budget, tz, ...rest}=fields;
   Object.assign(t, rest);

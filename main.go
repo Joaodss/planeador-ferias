@@ -25,11 +25,14 @@ import (
 	"time"
 )
 
+// config é a configuração lida do ambiente por loadConfig. addr já vem como ":<PORT>".
 type config struct {
 	user, password, dataDir, addr string
 	homeTz                        string // segundo fuso mostrado na grelha (opcional)
 }
 
+// server guarda o estado do servidor. Os ficheiros, a cache e as falhas de login são partilhados por todos os
+// pedidos, por isso têm o seu mutex; o resto é preenchido por newServer e depois só é lido.
 type server struct {
 	cfg     config
 	key     []byte // chave de assinatura das sessões
@@ -37,7 +40,8 @@ type server struct {
 	handler http.Handler // as rotas (ver routes)
 
 	// tripsMu serializa as leituras e gravações dos ficheiros das viagens e protege a cache
-	// das viagens já lidas do disco (ver loadRecord).
+	// das viagens já lidas do disco (ver loadRecord): cache e cacheBytes. Invariante, mantido por
+	// remember e forget: cacheBytes é a soma de len(c.raw) de todas as entradas de cache (≤ maxCache).
 	tripsMu    sync.Mutex
 	cache      map[string]*cachedRec
 	cacheBytes int64
@@ -87,6 +91,7 @@ const minPasswordLen = 10
 
 // loadConfig lê e valida a configuração do ambiente (getenv é os.Getenv; os testes passam um mapa).
 func loadConfig(getenv func(string) string) (config, error) {
+	// env: a variável k, ou def se estiver vazia ou não existir.
 	env := func(k, def string) string {
 		if v := getenv(k); v != "" {
 			return v
