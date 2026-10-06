@@ -5,11 +5,27 @@ import { tripDates, placeName, boardLayout } from './trip.js';
 import { absStart } from './span.js';
 
 /* Noite de festa: uma festa que acaba às 23:00 ou mais tarde, e no dia seguinte uma atividade que cansa
-   (passeio, viagem ou outra festa) a começar antes das 10:00. */
+   (passeio, viagem ou outra festa) a começar antes das 10:00. Refeições, tempo livre e sono não contam.
+   Minutos do dia: o fim da festa pode passar de 1440 (acabar às 02:00 é 1560, também ≥ 23:00). */
 const LATE_PARTY_END = 23*60, EARLY_START = 10*60, TIRING = ['tour','transport','party'];
 
-/* Pontos a rever da viagem t: {sev ('bad' ou 'warn'), ids das atividades, date, title, detail}.
-   tripLayout: o quadro em hora da viagem, boardLayout(t, tripDates(t)), quando quem chama já o calculou (render). */
+/** @typedef {import('./clean.js').Trip} Trip */
+/** @typedef {import('./span.js').Layout} Layout */
+/**
+ * Um ponto a rever.
+ * @typedef {object} Warning
+ * @property {'bad'|'warn'} sev  'bad' é um erro de planeamento (choque, dia errado); 'warn' é só de ver
+ * @property {string[]} ids      atividades envolvidas (Block.id)
+ * @property {string} date       dia a que pertence ("AAAA-MM-DD", hora da viagem), para ordenar
+ * @property {string} title      texto já traduzido
+ * @property {string} detail     texto já traduzido
+ */
+
+/** Pontos a rever da viagem t: {sev ('bad' ou 'warn'), ids das atividades, date, title, detail}.
+   tripLayout: o quadro em hora da viagem, boardLayout(t, tripDates(t)), quando quem chama já o calculou (render).
+   @param {Trip | null} t
+   @param {Layout} [tripLayout]
+   @returns {Warning[]} pela ordem em que as regras os encontram (sortWarnings ordena para o painel) */
 export function computeWarnings(t, tripLayout){
   if(!t) return []; const W=[]; const ds=tripDates(t);
   // agrupa uma vez: as atividades de cada dia (pela ordem de blocksOf) e o dia da semana de cada data
@@ -51,5 +67,7 @@ export function computeWarnings(t, tripLayout){
   return W;
 }
 
-/* Ordem do painel "Pontos a rever": por data e, no mesmo dia, os graves ('bad') primeiro. Não muda a lista recebida. */
+/** Ordem do painel "Pontos a rever": por data e, no mesmo dia, os graves ('bad') primeiro. Não muda a lista recebida.
+   @param {Warning[]} ws
+   @returns {Warning[]} */
 export function sortWarnings(ws){ return ws.slice().sort((a,b)=>String(a.date).localeCompare(String(b.date)) || (a.sev===b.sev ? 0 : a.sev==='bad' ? -1 : 1)); }

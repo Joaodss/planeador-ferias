@@ -10,8 +10,9 @@ import { commit, commitTyping } from '../sync.js';
 import { closeSheets } from './sheets.js';
 
 let undoTaken=false;   // já foi guardado um ponto de Desfazer desde que o editor abriu?
-/* A lista de durações vai até 3 dias; uma atividade mais longa ganha a sua opção em fillEditor. */
-const MAX_LEN_OPTION = 3*1440;
+/* A lista de durações vai até 3 dias (72 h): de 15 em 15 min (SNAP) até 24 h e depois de 30 em 30, para a lista
+   não ficar com centenas de opções. Uma atividade mais longa, ou com outra duração, ganha a sua opção em fillEditor. */
+const MAX_LEN_OPTION = 3*1440, LONG_LEN_STEP = 30;
 export function buildWdays(){ $('#f-wdays').innerHTML=[1,2,3,4,5,6,0].map(w=>`<label><input type="checkbox" value="${w}" id="f-wd-${w}">${weekdayNames()[w]}</label>`).join(''); }
 function fillSelects(){
   const t=activeTrip(); if(!t) return; const hours=boardHours(t); const ds=boardFrame(t).dates;
@@ -19,7 +20,7 @@ function fillSelects(){
   // qualquer hora do dia: o horário do quadro só decide o que se vê
   const grp=(key,a,b)=>{ let o=''; for(let m=a; m<b; m+=SNAP) o+=`<option value="${m}">${clockLabel(m)}${m>=1440?tr('afterMidnight'):''}</option>`; return o?`<optgroup label="${esc(tr(key))}">${o}</optgroup>`:''; };
   $('#f-start').innerHTML=grp('startBefore',0,hours.from)+grp('startBoard',hours.from,hours.to)+grp('startAfter',hours.to,hours.from+1440);
-  let lo=''; for(let m=SNAP; m<=MAX_LEN_OPTION; m+=(m<1440?SNAP:30)) lo+=`<option value="${m}">${durationLabel(m)}</option>`; $('#f-len').innerHTML=lo;
+  let lo=''; for(let m=SNAP; m<=MAX_LEN_OPTION; m+=(m<1440?SNAP:LONG_LEN_STEP)) lo+=`<option value="${m}">${durationLabel(m)}</option>`; $('#f-len').innerHTML=lo;
   $('#f-place').innerHTML=`<option value="">${tr('anywhere')}</option>`+t.places.map(p=>`<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('');
 }
 /* Fuso da atividade: a primeira opção é a hora da viagem. Sem fuso da viagem não há como converter: fica desativado

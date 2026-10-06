@@ -9,9 +9,14 @@ import { catName, blockCat, nPeople, costItems } from './costs.js';
 
 const r2 = x => Math.round(x*100)/100;
 
-/* Folha "Plano": uma coluna por dia e uma linha por meia hora do horário do quadro.
+/** @typedef {import('./clean.js').Trip} Trip */
+
+/** Folha "Plano": uma coluna por dia e uma linha por meia hora do horário do quadro.
    Atividades que se sobrepõem na mesma coluna ficam na mesma célula, separadas por xAnd;
-   uma célula que ocupa várias meias horas fica unida (merges, no formato do SheetJS). */
+   uma célula que ocupa várias meias horas fica unida (merges, no formato do SheetJS).
+   @param {Trip} t
+   @returns {{aoa: string[][], merges: Array<{s: {r: number, c: number}, e: {r: number, c: number}}>, cols: Array<{wch: number}>}}
+     aoa: as linhas (a primeira é o cabeçalho dos dias); merges e cols: células unidas e larguras, para o SheetJS */
 export function planSheet(t){
   const hours=boardHours(t), ds=tripDates(t), rows=hours.span/30;
   const MONL=tr('xMonths'), WDX=tr('xWeekdays');
@@ -43,8 +48,12 @@ export function planSheet(t){
   return {aoa, merges, cols:[{wch:7}].concat(ds.map(()=>({wch:24})))};
 }
 
-/* Folha "Detalhes": o cabeçalho xHead e uma linha por atividade (sem o sono), pela ordem do quadro,
-   e depois as que estão por agendar. */
+/** Folha "Detalhes": o cabeçalho xHead e uma linha por atividade (sem o sono), pela ordem do quadro,
+   e depois as que estão por agendar.
+   As colunas de rowOf têm de ficar pela mesma ordem que os títulos de xHead (i18n.js, nas duas línguas) e que as
+   larguras da folha em ui/files.js: ao acrescentar, tirar ou trocar uma coluna, mudar os três.
+   @param {Trip} t
+   @returns {Array<Array<string | number>>} */
 export function detailRows(t){
   const rowOf=b=>[
     b.date ? dayLabel(b.date,true) : tr('unscheduled'),
@@ -57,7 +66,10 @@ export function detailRows(t){
   return [tr('xHead')].concat(grid.map(rowOf), t.tray.map(rowOf));
 }
 
-/* Folha "Custos": totais por categoria (o maior primeiro), total, orçamento e margem, e depois cada parcela. */
+/** Folha "Custos": totais por categoria (o maior primeiro), total, orçamento e margem, e depois cada parcela.
+   As colunas seguem xCatHead e xItemHead (i18n.js) e as larguras em ui/files.js.
+   @param {Trip} t
+   @returns {Array<Array<string | number>>} valores para o grupo e por pessoa, arredondados a cêntimos */
 export function costSheet(t){
   const items=costItems(t), np=nPeople(t), sum=items.reduce((s,i)=>s+i.total,0);
   const byCat=new Map();
@@ -75,5 +87,7 @@ export function costSheet(t){
   return cs;
 }
 
-/* Nome do ficheiro: o nome da viagem sem os caracteres que o Windows não aceita. */
+/** Nome do ficheiro: o nome da viagem sem os caracteres que o Windows não aceita.
+   @param {Trip} t
+   @returns {string} */
 export function excelName(t){ return tr('xFile',{name:(t.name||tr('trip')).replace(/[\\/:*?"<>|]+/g,'').trim()}); }

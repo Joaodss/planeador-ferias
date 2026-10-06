@@ -32,6 +32,7 @@ var staticTypes = map[string]string{
 	".txt":         "text/plain; charset=utf-8",
 }
 
+// contentType devolve o Content-Type do ficheiro p: o de staticTypes, senão o do sistema, senão binário.
 func contentType(p string) string {
 	ext := strings.ToLower(filepath.Ext(p))
 	if ct, ok := staticTypes[ext]; ok {
@@ -43,6 +44,7 @@ func contentType(p string) string {
 	return "application/octet-stream"
 }
 
+// staticFile é um ficheiro da página já em memória, com o ETag calculado uma só vez ao arrancar.
 type staticFile struct {
 	body  []byte
 	ctype string

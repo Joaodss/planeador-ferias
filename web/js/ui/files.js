@@ -28,8 +28,10 @@ export function initFiles(){
     const XLSX=window.XLSX, wb=XLSX.utils.book_new();
     const plan=planSheet(t), ws=XLSX.utils.aoa_to_sheet(plan.aoa); ws['!merges']=plan.merges; ws['!cols']=plan.cols;
     XLSX.utils.book_append_sheet(wb,ws,tr('xPlan'));
+    // larguras (em caracteres) pela ordem das colunas de detailRows e de xHead (i18n.js): mudar as três juntas
     const ws2=XLSX.utils.aoa_to_sheet(detailRows(t)); ws2['!cols']=[14,7,7,34,11,16,12,18,9,10,24,30,14,40].map(w=>({wch:w}));
     XLSX.utils.book_append_sheet(wb,ws2,tr('xDetails'));
+    // pela ordem das colunas de costSheet (xCatHead e xItemHead em i18n.js)
     const ws3=XLSX.utils.aoa_to_sheet(costSheet(t)); ws3['!cols']=[18,36,20,10,11,11].map(w=>({wch:w}));
     XLSX.utils.book_append_sheet(wb,ws3,tr('xCosts'));
     const out=XLSX.write(wb,{bookType:'xlsx',type:'array'});

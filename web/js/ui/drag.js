@@ -15,6 +15,12 @@ import { openEditor } from './editor.js';
 /* O rato só começa a arrastar depois de MOUSE_DRAG_PX (menos é um clique). No toque é preciso carregar LONG_PRESS_MS;
    mexer mais de TAP_SLOP_PX antes disso é deslizar a página, e um toque ou clique até TAP_SLOP_PX abre o editor. */
 const LONG_PRESS_MS=300, MOUSE_DRAG_PX=4, TAP_SLOP_PX=8;
+/* Scroll automático ao arrastar perto da borda da grelha (#scroller). A zona é SCROLL_EDGE_PX a partir de cada borda,
+   mais HEAD_PX em cima e TIMES_PX à esquerda, onde o cabeçalho dos dias e a coluna das horas ficam fixos por cima da grelha.
+   Em cima e em baixo também conta um pouco por fora (OUT_TOP_PX, OUT_BOTTOM_PX), porque o dedo sai facilmente da grelha.
+   Velocidade por frame: a distância já dentro da zona a dividir por V_SLOWDOWN (vertical) ou H_SLOWDOWN (horizontal),
+   ou seja mais depressa quanto mais perto da borda. */
+const SCROLL_EDGE_PX=56, HEAD_PX=50, TIMES_PX=40, OUT_TOP_PX=20, OUT_BOTTOM_PX=10, V_SLOWDOWN=6, H_SLOWDOWN=5;
 
 function onPointerDown(e){
   const el=e.target.closest('.blk'); if(!el || e.button>0 || !activeTrip()) return;
@@ -94,11 +100,11 @@ function updateDrag(){
 }
 function autoScroll(){
   const drag=S.drag; if(!drag||!drag.active) return;
-  const scroller=$('#scroller'), r=scroller.getBoundingClientRect(), edge=56; let dx=0, dy=0;
-  if(drag.y<r.top+edge+50 && drag.y>r.top-20) dy=-Math.ceil((r.top+edge+50-drag.y)/6);
-  else if(drag.y>r.bottom-edge && drag.y<r.bottom+10) dy=Math.ceil((drag.y-(r.bottom-edge))/6);
-  if(drag.x<r.left+edge+40) dx=-Math.ceil((r.left+edge+40-drag.x)/5);
-  else if(drag.x>r.right-edge) dx=Math.ceil((drag.x-(r.right-edge))/5);
+  const scroller=$('#scroller'), r=scroller.getBoundingClientRect(), edge=SCROLL_EDGE_PX; let dx=0, dy=0;
+  if(drag.y<r.top+edge+HEAD_PX && drag.y>r.top-OUT_TOP_PX) dy=-Math.ceil((r.top+edge+HEAD_PX-drag.y)/V_SLOWDOWN);
+  else if(drag.y>r.bottom-edge && drag.y<r.bottom+OUT_BOTTOM_PX) dy=Math.ceil((drag.y-(r.bottom-edge))/V_SLOWDOWN);
+  if(drag.x<r.left+edge+TIMES_PX) dx=-Math.ceil((r.left+edge+TIMES_PX-drag.x)/H_SLOWDOWN);
+  else if(drag.x>r.right-edge) dx=Math.ceil((drag.x-(r.right-edge))/H_SLOWDOWN);
   if(dx||dy){ scroller.scrollBy(dx,dy); queueDrag(); }
   requestAnimationFrame(autoScroll);
 }

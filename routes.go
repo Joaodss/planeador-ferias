@@ -30,6 +30,7 @@ func (s *server) routes() http.Handler {
 	return secHeaders(csrfGuard(mux))
 }
 
+// ServeHTTP faz do server um http.Handler: main e os testes chamam-no diretamente, sem conhecer as rotas.
 func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.handler.ServeHTTP(w, r)
 }
@@ -87,6 +88,8 @@ func tripHandler(h func(http.ResponseWriter, *http.Request, string)) http.Handle
 	}
 }
 
+// writeJSON responde v em JSON com o código status, sem cache (as respostas da API mudam a cada gravação).
+// Um erro ao codificar só fica no log: o código de estado já foi enviado e não há como avisar a página.
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")

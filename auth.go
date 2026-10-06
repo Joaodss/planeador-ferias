@@ -59,12 +59,16 @@ func (s *server) loadKey() error {
 	return nil
 }
 
+// sign devolve o HMAC-SHA256 de payload com a chave das sessões (s.key), em base64 para caber num cookie.
 func (s *server) sign(payload string) string {
 	m := hmac.New(sha256.New, s.key)
 	m.Write([]byte(payload))
 	return base64.RawURLEncoding.EncodeToString(m.Sum(nil))
 }
 
+// newToken cria o valor do cookie de uma sessão nova: "<expiraUnix>.<hmac>", em que expiraUnix é o fim da
+// validade (segundos Unix, agora + sessionTTL) e hmac é sign(expiraUnix). O servidor não guarda nada:
+// session só confirma a assinatura e a data. Por isso Sair não invalida um cookie copiado (ver logout).
 func (s *server) newToken() string {
 	payload := strconv.FormatInt(s.now().Add(sessionTTL).Unix(), 10)
 	return payload + "." + s.sign(payload)
@@ -87,10 +91,14 @@ func (s *server) session(r *http.Request) (exp time.Time, ok bool) {
 	return time.Unix(unix, 0), true
 }
 
+// isHTTPS diz se o pedido chegou por HTTPS: diretamente (r.TLS) ou através do proxy (X-Forwarded-Proto,
+// que o Caddy preenche). Só decide o Secure do cookie, por isso confiar no cabeçalho não abre nenhuma porta.
 func isHTTPS(r *http.Request) bool {
 	return r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
 }
 
+// setCookie escreve o cookie da sessão (maxAge -1 apaga-o). Secure só quando o pedido veio por HTTPS: com Secure
+// sempre ligado, o browser recusava o cookie em http://localhost e não se conseguia entrar em desenvolvimento.
 func (s *server) setCookie(w http.ResponseWriter, r *http.Request, value string, maxAge int) {
 	http.SetCookie(w, &http.Cookie{
 		Name: cookieName, Value: value, Path: "/", MaxAge: maxAge,
@@ -107,6 +115,10 @@ func constantTimeEqual(a, b string) bool {
 	return subtle.ConstantTimeCompare(ha[:], hb[:]) == 1
 }
 
+// clientIP devolve o endereço de quem fez o pedido, para o limite de logins por endereço.
+// Confia no primeiro endereço de X-Forwarded-For: isto só está certo atrás de um proxy que reescreve o cabeçalho
+// (o Caddy do README faz isso por omissão). Com o servidor exposto diretamente, qualquer um põe lá o que quiser
+// e contorna o limite por endereço; fica só o limite global (maxFailuresTotal). Ver "Segurança" no README.
 func clientIP(r *http.Request) string {
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
 		return strings.TrimSpace(strings.Split(xff, ",")[0])
@@ -119,7 +131,8 @@ func clientIP(r *http.Request) string {
 }
 
 // tooManyFailures diz se o endereço ip já não pode tentar entrar: maxFailuresPerIP falhas dele ou
-// maxFailuresTotal no total, na última failureWindow.
+// maxFailuresTotal no total, na última failureWindow. O limite total bloqueia o login de toda a gente, também
+// o do dono, até a janela passar; as sessões já abertas continuam a funcionar (requireSession não passa por aqui).
 func (s *server) tooManyFailures(ip string) bool {
 	s.failuresMu.Lock()
 	defer s.failuresMu.Unlock()
@@ -144,12 +157,17 @@ func (s *server) pruneFailures() int {
 	return total
 }
 
+// noteFailure regista agora um login falhado de ip (ver tooManyFailures).
 func (s *server) noteFailure(ip string) {
 	s.failuresMu.Lock()
 	s.failures[ip] = append(s.failures[ip], s.now())
 	s.failuresMu.Unlock()
 }
 
+// login confirma o utilizador e a palavra-passe e abre uma sessão (cookie de newToken).
+// Antes de ler o corpo recusa com 429 quem já falhou demasiadas vezes. Cada falha fica registada e só tem resposta
+// depois de s.failDelay (loginFailDelay, 400 ms), que abranda quem tenta adivinhar sem incomodar quem se engana.
+// O 401 é igual para utilizador e palavra-passe errados, para não revelar qual dos dois está certo.
 func (s *server) login(w http.ResponseWriter, r *http.Request) {
 	ip := clientIP(r)
 	if s.tooManyFailures(ip) {
@@ -173,6 +191,10 @@ func (s *server) login(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]string{"user": s.cfg.user})
 }
 
+// logout apaga o cookie deste browser. A sessão não fica invalidada no servidor, porque não há nada guardado
+// (ver newToken): um cookie copiado antes continua a valer até expirar, e renova-se sempre que é usado.
+// Só mudar a palavra-passe (que muda a chave, ver loadKey) termina todas as sessões. Para um só utilizador
+// é uma troca aceitável: não há uma lista de sessões para manter.
 func (s *server) logout(w http.ResponseWriter, r *http.Request) {
 	s.setCookie(w, r, "", -1)
 	writeJSON(w, 200, map[string]bool{"ok": true})

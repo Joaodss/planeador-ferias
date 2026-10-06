@@ -8,12 +8,36 @@ import { absStart, slotAt } from './span.js';
 
 const DAY = 1440;
 
+/** @typedef {import('./clean.js').Trip} Trip */
+/** @typedef {import('./clean.js').Block} Block */
+/** @typedef {import('./clean.js').ISODate} ISODate */
+/** @typedef {import('./trip.js').Frame} Frame */
+/**
+ * Onde fica uma atividade movida.
+ * @typedef {object} Move
+ * @property {ISODate} date       a guardar (hora da viagem)
+ * @property {number} start       a guardar: minutos do dia de date (hora da viagem)
+ * @property {ISODate} boardDate  coluna do quadro
+ * @property {number} boardStart  minutos do dia na coluna do quadro
+ */
+
 /* Minuto absoluto do quadro (desde a meia-noite da 1.ª coluna) minute minutos abaixo do topo da coluna do dia date. */
+/** @param {Trip} t
+    @param {Frame} frame
+    @param {ISODate} date  coluna do quadro
+    @param {number} minute  minutos da coluna (desde o topo, from)
+    @returns {number} minutos absolutos do quadro */
 export function boardTime(t, frame, date, minute){ return frame.dates.indexOf(date)*DAY + boardHours(t).from + minute; }
 
-/* Setas: ↑/↓ mudam a hora 15 min dentro do horário visível (para a atividade não sair do ecrã e perder o foco),
+/** Setas: ↑/↓ mudam a hora 15 min dentro do horário visível (para a atividade não sair do ecrã e perder o foco),
    ←/→ mudam de coluna; com shift, ↑/↓ mudam a duração (sem limite: pode passar para o dia seguinte).
-   Devolve {date, start, len, boardDate, boardStart}, ou null se não muda (no limite, bloqueada ou por agendar). */
+   Devolve {date, start, len, boardDate, boardStart}, ou null se não muda (no limite, bloqueada ou por agendar).
+   @param {Trip} t
+   @param {Frame} frame
+   @param {Block} b
+   @param {string} key  KeyboardEvent.key: 'ArrowUp', 'ArrowDown', 'ArrowLeft' ou 'ArrowRight'
+   @param {boolean} shift
+   @returns {(Move & {len: number}) | null} len em minutos */
 export function keyMove(t, frame, b, key, shift){
   if(b.locked || !b.date) return null;
   const hours=boardHours(t), ds=frame.dates;
@@ -33,9 +57,15 @@ export function keyMove(t, frame, b, key, shift){
   return {...fromBoard(t,frame,date,start), len, boardDate:date, boardStart:start};
 }
 
-/* Largar a atividade na coluna colDate, minute minutos abaixo do topo, agarrada grab minutos depois do início.
+/** Largar a atividade na coluna colDate, minute minutos abaixo do topo, agarrada grab minutos depois do início.
    Arredonda a 15 min e pode ir parar a outra coluna (quem agarra pelo fundo e larga no topo de um dia).
-   Devolve {date, start} (hora da viagem) e {boardDate, boardStart} (hora do quadro). */
+   Devolve {date, start} (hora da viagem) e {boardDate, boardStart} (hora do quadro).
+   @param {Trip} t
+   @param {Frame} frame
+   @param {ISODate} colDate  coluna do quadro onde o rato está
+   @param {number} minute  minutos da coluna (desde o topo) onde o rato está
+   @param {number} grab  minutos desde o início da atividade até ao ponto agarrado
+   @returns {Move} */
 export function dropSlot(t, frame, colDate, minute, grab){
   const raw=boardTime(t,frame,colDate,minute)-grab;
   const slot=slotAt(t, Math.round(raw/SNAP)*SNAP, frame.dates.length);
@@ -43,16 +73,26 @@ export function dropSlot(t, frame, colDate, minute, grab){
   return {...fromBoard(t,frame,boardDate,boardStart), boardDate, boardStart};
 }
 
-/* Puxar a pega de baixo até minute minutos abaixo do topo da coluna colDate: a nova duração.
+/** Puxar a pega de baixo até minute minutos abaixo do topo da coluna colDate: a nova duração.
    O fim arredonda a 15 min, pode ir para outra coluna (a atividade passa a continuar no dia seguinte),
-   fica pelo menos 15 min depois do início e não passa do fim do horário dessa coluna. */
+   fica pelo menos 15 min depois do início e não passa do fim do horário dessa coluna.
+   @param {Trip} t
+   @param {Frame} frame
+   @param {Block} b  no quadro
+   @param {ISODate} colDate  coluna do quadro onde o rato está
+   @param {number} minute  minutos da coluna (desde o topo)
+   @returns {number} a nova duração, em minutos */
 export function resizeEnd(t, frame, b, colDate, minute){
   const hours=boardHours(t), j=frame.dates.indexOf(colDate), A=absStart(t,b)+frame.shiftMin;
   const end=j*DAY+hours.from+Math.round(minute/SNAP)*SNAP;
   return Math.max(A+SNAP, Math.min(j*DAY+hours.to, end)) - A;
 }
 
-/* A atividade b em date choca com os dias da semana em que acontece ou com o sítio desse dia? (aviso ao arrastar) */
+/** A atividade b em date choca com os dias da semana em que acontece ou com o sítio desse dia? (aviso ao arrastar)
+   @param {Trip} t
+   @param {Block} b
+   @param {ISODate} date  na hora da viagem
+   @returns {boolean} */
 export function clashesOn(t, b, date){
   const wd=parseISO(date).getDay(), dp=t.dayPlaces[date]||[];
   if(b.weekdays && b.weekdays.length && !b.weekdays.includes(wd)) return true;

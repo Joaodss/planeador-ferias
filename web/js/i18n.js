@@ -1,7 +1,16 @@
 /* Traduções (PT e EN).
    Cada texto tem uma chave. O valor pode ser texto com {marcadores}, uma lista
    ou uma função (para plurais e frases que mudam de ordem entre línguas).
-   No HTML: data-i18n (texto), data-i18n-ph (placeholder), data-i18n-title, data-i18n-aria. */
+   No HTML: data-i18n (texto), data-i18n-ph (placeholder), data-i18n-title, data-i18n-aria.
+
+   Prefixos e sufixos das chaves (ajudam a saber onde o texto aparece):
+   - t…    os campos do painel "Datas e sítios" (tName, tDayStart, tTz) e também as mensagens rápidas (toasts:
+           tConflict, tImported…).
+   - w…    pontos a rever (warnings.js): wX é o título e wXD o detalhe.
+   - x…    textos do Excel exportado (excel.js); xHead, xCatHead e xItemHead são as colunas, pela ordem das folhas.
+   - err…  erros dos formulários (login e "Datas e sítios").
+   - f…    campos do editor de uma atividade; d… do painel do dia; st… e cat… as opções de estado e de tipo no editor.
+   - …Aria texto para leitores de ecrã (aria-label); …Ph placeholder; …Title dica (title); …Hint texto de ajuda. */
 const pl = (n, one, many) => n===1 ? one : many;
 
 const pt = {
@@ -129,6 +138,7 @@ const pt = {
   xWeekdays:['DOMINGO','2F','3F','4F','5F','6F','SÁBADO'],
   xDay: p => `${p.d} DE ${p.m} - ${p.w}`, xAnd:'— e —', xPP:'PP',
   xPlan:'Plano', xDetails:'Detalhes', xCosts:'Custos',
+  // colunas da folha "Detalhes": pela ordem de detailRows (excel.js) e das larguras em ui/files.js
   xHead:['Dia','Início','Fim','Atividade','Tipo','Onde','Estado','Categoria de custo','Custo pp','Custo total','Morada','Link','Reserva','Notas'],
   xCatHead:['Categoria','Total','Por pessoa','% do total'], xMargin:'Margem',
   xItemHead:['Dia','Descrição','Categoria','Total','Por pessoa','Pago'], xYes:'sim',
@@ -250,6 +260,7 @@ const en = {
   xWeekdays:['SUNDAY','MONDAY','TUESDAY','WEDNESDAY','THURSDAY','FRIDAY','SATURDAY'],
   xDay: p => `${p.w} ${p.d} ${p.m}`, xAnd:'— and —', xPP:'PP',
   xPlan:'Plan', xDetails:'Details', xCosts:'Costs',
+  // colunas da folha "Detalhes": pela ordem de detailRows (excel.js) e das larguras em ui/files.js
   xHead:['Day','Start','End','Activity','Type','Where','Status','Cost category','Cost pp','Total cost','Address','Link','Booking','Notes'],
   xCatHead:['Category','Total','Per person','% of total'], xMargin:'Margin',
   xItemHead:['Day','Description','Category','Total','Per person','Paid'], xYes:'yes',
@@ -260,6 +271,12 @@ let lang = null;
 try{ lang = localStorage.getItem(KEY); }catch{}
 if(!DICT[lang]) lang = /^pt\b/i.test((typeof navigator!=='undefined' && navigator.language)||'') ? 'pt' : 'en';
 
+/**
+ * Texto da chave k na língua atual (com o português como recurso, e a própria chave se não existir).
+ * @param {string} k
+ * @param {object} [p]  valores para os {marcadores}, ou para as funções (plurais)
+ * @returns {any} quase sempre texto; algumas chaves são listas (wd, mon, xHead…) ou objetos (cats, status)
+ */
 function tr(k, p){
   let v = DICT[lang][k]; if(v===undefined) v = pt[k]; if(v===undefined) return k;
   if(typeof v==='function') return v(p||{});
@@ -282,6 +299,8 @@ function set(l){
   try{ localStorage.setItem(KEY, l); }catch{}
 }
 
+/** Língua da página: tr traduz, apply escreve os textos fixos do HTML, set muda a língua; lang é 'pt' ou 'en'
+    e locale o código para os números e as datas ('pt-PT' ou 'en-GB'). */
 export const I18N = {
   tr, apply, set, dicts: DICT,
   get lang(){ return lang; },

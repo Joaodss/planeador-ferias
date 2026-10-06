@@ -39,6 +39,8 @@ type cachedRec struct {
 	size int64
 }
 
+// tripPath é o caminho do ficheiro da viagem id. Não limpa o id: só é seguro porque tripHandler (routes.go)
+// já confirmou que id cumpre tripIDRe (sem "/", "\" nem ".."), e readTripRecords só passa nomes que leu da pasta.
 func (s *server) tripPath(id string) string {
 	return filepath.Join(s.cfg.dataDir, "trips", id+".json")
 }
@@ -96,6 +98,7 @@ func (s *server) remember(id string, c *cachedRec) {
 	s.cacheBytes += int64(len(c.raw))
 }
 
+// forget tira a viagem id da cache e desconta os seus bytes de cacheBytes. Chamar com s.tripsMu trancado.
 func (s *server) forget(id string) {
 	if c := s.cache[id]; c != nil {
 		s.cacheBytes -= int64(len(c.raw))
@@ -214,6 +217,9 @@ func (s *server) readTripRecords() ([][]byte, string, error) {
 	return raws, `"` + hex.EncodeToString(h.Sum(nil)[:8]) + `"`, nil
 }
 
+// putTrip grava a viagem id: recebe {baseRev, trip} e responde {rev, updatedAt}. baseRev é a revisão em que a página se baseou:
+// se não for a que está em disco, responde 409 com o registo atual (ou {deleted:true} se a viagem foi apagada).
+// trip tem de ser um objeto com o mesmo id do caminho; o resto do esquema é com a página (clean.js).
 func (s *server) putTrip(w http.ResponseWriter, r *http.Request, id string) {
 	var in struct {
 		BaseRev int64           `json:"baseRev"`

@@ -1,16 +1,98 @@
 /* Limpeza dos dados de uma viagem que vêm do servidor ou de uma cópia importada.
    O servidor não conhece o esquema da viagem, por isso o cliente é a única barreira contra dados malformados:
    uma atividade sem data partia o quadro em todos os dispositivos e um estado com HTML entrava na página.
-   Módulo puro (testado em tests/clean.test.mjs); normTrip (trip.js) chama-o com newId. */
+   Módulo puro (testado em tests/clean.test.mjs); normTrip (trip.js) chama-o com newId.
+   Os tipos dos dados (Trip, Block, Cost, Place, CostCat) estão definidos aqui, junto de quem garante o esquema:
+   os outros módulos usam-nos com import('./clean.js').Trip nos comentários JSDoc. */
 import { TZ } from './tz.js';
 
-/* IDs guardados (em português de propósito): nunca mudar o nome, só a tradução. */
+/**
+ * Data "AAAA-MM-DD" (sem hora nem fuso). Os dias da viagem estão sempre na hora da viagem.
+ * @typedef {string} ISODate
+ */
+/**
+ * Tipo de atividade: decide a cor no quadro e alguns avisos. Não é a categoria de custo (essa é Block.ccat).
+ * @typedef {'tour'|'party'|'transport'|'food'|'rest'|'sleep'} Kind
+ */
+/**
+ * Estado de uma atividade. Os ids são dados guardados em português: só a tradução muda.
+ * @typedef {'ideia'|'reservar'|'reservado'|'pago'} Status
+ */
+/**
+ * Atividade. No quadro tem `date` e `start`; em "por agendar" (Trip.tray) não tem nenhum dos dois.
+ * @typedef {object} Block
+ * @property {string} id
+ * @property {string} title
+ * @property {ISODate} [date]   dia a que pertence, na hora da viagem
+ * @property {number} [start]   minutos desde a meia-noite de `date`, na hora da viagem; pode passar de 1440 (madrugada)
+ * @property {number} len       duração em minutos (≥ 15); pode durar vários dias
+ * @property {Kind} cat         tipo de atividade (não é a categoria de custo)
+ * @property {Status} [status]
+ * @property {true} [locked]    fixa: não se arrasta nem se move com as setas
+ * @property {number} [pp]      custo por pessoa (> 0)
+ * @property {number} [total]   custo para o grupo (> 0); pode ter pp e total ao mesmo tempo
+ * @property {string} [ccat]    categoria de custo (CostCat.id); sem ela, usa autoCat() (costs.js)
+ * @property {number[]} [weekdays] dias da semana em que acontece (0 = domingo … 6 = sábado); nunca os 7
+ * @property {string} [place]   sítio onde acontece (Place.id)
+ * @property {string} [tz]      fuso próprio (IANA), só para o editor mostrar e ler o dia e a hora nesse fuso
+ * @property {string} [address]
+ * @property {string} [link]
+ * @property {string} [ref]     referência da reserva
+ * @property {string} [note]
+ */
+/**
+ * Sítio por onde a viagem passa.
+ * @typedef {object} Place
+ * @property {string} id
+ * @property {string} name   "Lisboa · Hotel Avenida": o que vem antes de " ·" é o nome curto (shortPlaceName)
+ * @property {number} c      cor, de 1 a 8 (--p1 … --p8 no CSS; ver addPlace)
+ */
+/**
+ * Custo que não é de uma atividade: de um dia (`date`) ou geral (sem `date`).
+ * @typedef {object} Cost
+ * @property {string} id
+ * @property {string} label
+ * @property {number} amount        valor (≥ 0), na moeda da viagem
+ * @property {'total'|'pp'} per     amount é para o grupo ou por pessoa
+ * @property {string} [cat]         categoria de custo (CostCat.id)
+ * @property {ISODate} [date]
+ * @property {true} [paid]
+ */
+/**
+ * Categoria de custo. Os ids por omissão estão em português (alojamento, transporte, …): são dados guardados.
+ * @typedef {object} CostCat
+ * @property {string} id
+ * @property {string} name
+ */
+/**
+ * Viagem, tal como fica no servidor (o servidor não conhece este esquema: guarda o JSON tal e qual).
+ * @typedef {object} Trip
+ * @property {string} id          cumpre ID
+ * @property {string} name
+ * @property {ISODate} start      primeiro dia
+ * @property {ISODate} end        último dia (inclusive)
+ * @property {number} dayStart    hora (0–23) a que o quadro começa
+ * @property {number} dayEnd      hora (0–23) a que o quadro acaba; menor que dayStart quando acaba depois da meia-noite
+ * @property {string} [tz]        fuso da viagem (IANA): as horas do quadro são a hora local deste fuso
+ * @property {number} people      quantas pessoas (≥ 1), para dividir os custos
+ * @property {string} currency    símbolo da moeda (até 5 caracteres, sem caracteres de HTML)
+ * @property {number} [budget]    orçamento para o grupo (> 0)
+ * @property {Place[]} places
+ * @property {Object<ISODate, string[]>} dayPlaces  ids dos sítios de cada dia: [onde começam, …paragens, onde acabam]
+ * @property {Block[]} blocks     atividades no quadro (com date e start)
+ * @property {Block[]} tray       atividades por agendar (sem date nem start)
+ * @property {Cost[]} costs
+ * @property {CostCat[]} [costCats]  sem elas usam-se as categorias por omissão, traduzidas (costs.js)
+ */
+
+/** Estados (Status). IDs guardados (em português de propósito): nunca mudar o nome, só a tradução. */
 export const STATUSES = ['ideia', 'reservar', 'reservado', 'pago'];
+/** Tipos de atividade (Kind), pela ordem da legenda. Também são dados guardados: nunca mudar o nome. */
 export const KINDS = ['tour', 'party', 'transport', 'food', 'rest', 'sleep'];
 
-/* Sítios de um dia no máximo: onde começam, as paragens pelo caminho e onde acabam. */
+/** Sítios de um dia no máximo: onde começam, as paragens pelo caminho e onde acabam. */
 export const MAX_DAY_PLACES = 12;
-/* Data AAAA-MM-DD e identificador (o mesmo que o servidor aceita no caminho). backup.js também os usa. */
+/** Data AAAA-MM-DD e identificador (o mesmo que o servidor aceita no caminho). backup.js também os usa. */
 export const ISO = /^\d{4}-\d{2}-\d{2}$/, ID = /^[A-Za-z0-9_-]{1,64}$/;
 /* Número finito a partir de um número ou de texto ("600"); qualquer outra coisa dá d. */
 function num(v, d){ const n = typeof v==='number' ? v : (typeof v==='string' && v.trim()) ? +v : NaN; return Number.isFinite(n) ? n : d; }
@@ -48,7 +130,12 @@ function cleanActivities(t, newId){
   return t;
 }
 
-/* A viagem toda menos id, name, start, end e tz (validados à parte). */
+/**
+ * Limpa a viagem t no próprio objeto: a viagem toda menos id, name, start, end e tz (validados à parte).
+ * @param {object} t  viagem como veio do servidor ou de uma importação (qualquer forma)
+ * @param {(prefix: string) => string} newId  gerador de ids novos (newId de util.js; os testes passam um fixo)
+ * @returns {Trip} o mesmo objeto t, já com a forma de Trip
+ */
 export function cleanTrip(t, newId){
   t.dayStart = int(t.dayStart, 0, 23, 7); t.dayEnd = int(t.dayEnd, 0, 23, 1);
   t.people = Math.max(1, Math.round(num(t.people, 1)));
