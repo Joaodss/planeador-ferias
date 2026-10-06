@@ -63,7 +63,7 @@
       <div class="field"><label for="f-day" data-i18n="fDay">Dia</label><select id="f-day"></select></div>
       <div class="field"><label for="f-start" data-i18n="fStart">Começa</label><select id="f-start"></select></div>
     </div>
-    <div class="field"><label for="f-tz" data-i18n="fTz">Fuso do dia e da hora</label><select id="f-tz"></select></div>
+    <div class="field"><label for="f-tz" data-i18n="fTz">Fuso do dia e da hora</label><input type="search" id="f-tz-q" class="tz-q" data-i18n-ph="tzSearchPh" data-i18n-aria="tzSearchAria" placeholder="Cidade ou país…" aria-label="Procurar fuso por cidade, país ou GMT"><select id="f-tz"></select></div>
     <p class="hint sec-time" id="f-sec" hidden></p>
     <div class="row2">
       <div class="field"><label for="f-len" data-i18n="fLen">Duração</label><select id="f-len"></select></div>
@@ -131,8 +131,8 @@
         <div class="field"><label for="t-de" data-i18n="tDayEnd">E vai até às</label><select id="t-de"></select></div>
       </div>
       <div class="row2">
-        <div class="field"><label for="t-tz" data-i18n="tTz">Fuso horário da viagem</label><select id="t-tz"></select></div>
-        <div class="field"><label for="t-hometz" data-i18n="tHomeTz">Segundo fuso (neste dispositivo)</label><select id="t-hometz"></select></div>
+        <div class="field"><label for="t-tz" data-i18n="tTz">Fuso horário da viagem</label><input type="search" id="t-tz-q" class="tz-q" data-i18n-ph="tzSearchPh" data-i18n-aria="tzSearchAria" placeholder="Cidade ou país…" aria-label="Procurar fuso por cidade, país ou GMT"><select id="t-tz"></select></div>
+        <div class="field"><label for="t-hometz" data-i18n="tHomeTz">Segundo fuso (neste dispositivo)</label><input type="search" id="t-hometz-q" class="tz-q" data-i18n-ph="tzSearchPh" data-i18n-aria="tzSearchAria" placeholder="Cidade ou país…" aria-label="Procurar fuso por cidade, país ou GMT"><select id="t-hometz"></select></div>
       </div>
       <p class="hint" data-i18n="tzHint">As horas do quadro são a hora local da viagem. Quando o segundo fuso é diferente, aparece numa coluna de horas ao lado.</p>
       <div class="row2">

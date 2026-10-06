@@ -1,7 +1,7 @@
 /* Editor de uma atividade. */
 import { tr } from '../i18n.js';
 import { esc, shortPlaceName, newId, SNAP, weekdayNames, kindLabels, clockLabel, durationLabel, dayLabel } from '../util.js';
-import { $, toast, fillTzSelect } from './dom.js';
+import { $, toast, fillTzSelect, linkTzSearch } from './dom.js';
 import { S, activeTrip, pushHistory } from '../state.js';
 import { boardHours, placeName, findBlock, moveTo, toTray, boardFrame, toBoard, editorTime, fromEditor, blockZoneTime, duplicateBlock, dayEnds, FROM_TRAY_START } from '../trip.js';
 import { catName, hasCat, autoCat, catOptions } from '../costs.js';
@@ -26,8 +26,8 @@ function fillSelects(){
    (a não ser que a atividade já tenha um, para o poder tirar). */
 function fillTz(t, b){
   const ok=TZ.valid(t.tz);
-  fillTzSelect($('#f-tz'), ok ? tr('fTzTrip',{city:TZ.city(t.tz)}) : tr('fTzNeedTrip'), b.tz||'');
-  $('#f-tz').disabled=!ok && !b.tz;
+  fillTzSelect($('#f-tz'), ok ? tr('fTzTrip',{city:TZ.city(t.tz)}) : tr('fTzNeedTrip'), b.tz||'', b.date||t.start);
+  $('#f-tz').disabled=!ok && !b.tz; $('#f-tz-q').disabled=$('#f-tz').disabled;
 }
 /* isNew: a atividade acabou de ser criada (com o seu ponto de Desfazer) e o título fica selecionado para escrever. */
 export function openEditor(id, {isNew=false}={}){
@@ -68,7 +68,7 @@ function edit(fn, done=commit){ const f=findBlock(activeTrip(),S.editingId); if(
 const optStr=(k)=>e=>edit(b=>{ const v=e.target.value.trim(); if(v) b[k]=e.target.value; else delete b[k]; }, commitTyping);
 /* Campos do editor (main.js chama-a uma vez ao arrancar). */
 export function initEditor(){
-  buildWdays();
+  buildWdays(); linkTzSearch($('#f-tz'));
   $('#f-title').addEventListener('input',e=>edit(b=>{ b.title=e.target.value||tr('untitled'); }, commitTyping));
   ['note','address','link','ref'].forEach(k=>$('#f-'+k).addEventListener('input',optStr(k)));
   $('#f-cat').addEventListener('change',e=>edit(b=>{ b.cat=e.target.value; }));
