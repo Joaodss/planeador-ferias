@@ -97,7 +97,7 @@ func TestTripListSkipsUnreadableFiles(t *testing.T) {
 func TestTripValidation(t *testing.T) {
 	t.Parallel()
 	s := newTestServer(t)
-	huge := `{"baseRev":0,"trip":{"id":"x","note":"` + strings.Repeat("a", maxBody) + `"}}`
+	huge := `{"baseRev":0,"trip":{"id":"x","note":"` + strings.Repeat("a", maxTripBytes) + `"}}`
 	for _, tc := range []struct {
 		name, method, path, body string
 		want                     int
@@ -298,7 +298,7 @@ func TestTripListSkipsTripsThatAreNotObjects(t *testing.T) {
 	}
 }
 
-// O limite é maxBody bytes de corpo: exatamente maxBody passa, um byte a mais dá 413.
+// O limite é maxTripBytes bytes de corpo: exatamente maxTripBytes passa, um byte a mais dá 413.
 func TestPutTripBody(t *testing.T) {
 	t.Parallel()
 	s := newTestServer(t)
@@ -306,11 +306,11 @@ func TestPutTripBody(t *testing.T) {
 		head, tail := `{"baseRev":0,"trip":{"id":"x","note":"`, `"}}`
 		return head + strings.Repeat("a", n-len(head)-len(tail)) + tail
 	}
-	if w := authedCall(s, "PUT", "/api/trips/x", body(maxBody+1)); w.Code != http.StatusRequestEntityTooLarge {
-		t.Errorf("maxBody+1 bytes: código %d, esperava 413", w.Code)
+	if w := authedCall(s, "PUT", "/api/trips/x", body(maxTripBytes+1)); w.Code != http.StatusRequestEntityTooLarge {
+		t.Errorf("maxTripBytes+1 bytes: código %d, esperava 413", w.Code)
 	}
-	if w := authedCall(s, "PUT", "/api/trips/x", body(maxBody)); w.Code != http.StatusOK {
-		t.Errorf("exatamente maxBody bytes: código %d, esperava 200 (%.200s)", w.Code, w.Body)
+	if w := authedCall(s, "PUT", "/api/trips/x", body(maxTripBytes)); w.Code != http.StatusOK {
+		t.Errorf("exatamente maxTripBytes bytes: código %d, esperava 200 (%.200s)", w.Code, w.Body)
 	}
 }
 

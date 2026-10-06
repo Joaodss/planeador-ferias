@@ -2,7 +2,7 @@
    Todas as funções recebem a viagem t: quem chama na interface passa activeTrip(). */
 import { I18N, tr } from './i18n.js';
 import { parseISO, iso, addDays, newId, clockLabel, monthNames } from './util.js';
-import { boardHours, dayShift, dayIndex, absStart, addISO, frameShift, toFrame, fromFrame, dateAt } from './span.js';
+import { boardHours, dayShift, dayIndex, absStart, addISO, frameShift, toFrame, fromFrame, dateAt, MAX_TRIP_DATES } from './span.js';
 import { TZ, viewOffset, homeTz } from './tz.js';
 import { cleanTrip } from './clean.js';
 
@@ -10,7 +10,7 @@ export { boardHours, boardLayout } from './span.js';
 
 /* Preenche o que falta nos dados antigos e limpa o que vem malformado do servidor ou de uma importação (clean.js). */
 export function normTrip(t){ return cleanTrip(t, newId); }
-export function tripDates(t){ const out=[]; if(!t) return out; let d=parseISO(t.start); const e=parseISO(t.end); while(d<=e && out.length<120){ out.push(iso(d)); d=addDays(d,1);} return out; }
+export function tripDates(t){ const out=[]; if(!t) return out; let d=parseISO(t.start); const e=parseISO(t.end); while(d<=e && out.length<MAX_TRIP_DATES){ out.push(iso(d)); d=addDays(d,1);} return out; }
 /* "22:00–06:00 +1": o +N conta as meias-noites atravessadas. */
 export function rangeLabel(b){ const n=dayShift(b); return `${clockLabel(b.start)}–${clockLabel(b.start+b.len)}${n?' +'+n:''}`; }
 /* Valor v na moeda da viagem t (€ se não houver viagem). Um formatador por língua: toLocaleString criava
@@ -91,6 +91,9 @@ export function blockZoneTime(t, frame, b){
 }
 
 /* ---------- alterações feitas nos painéis ---------- */
+/* Hora de uma atividade posta num dia sem escolher a hora (nunca antes do início do quadro):
+   "Nova atividade" no painel do dia e um dia escolhido no editor para uma que estava por agendar. */
+export const NEW_IN_DAY_START = 9*60, FROM_TRAY_START = 10*60;
 /* Atividade nova (por agendar, ou no dia e hora de where={date, start}), com os valores por omissão. */
 export function newBlock(where, newId){ return {id:newId('a'), ...where, len:60, title:tr('newActivity'), cat:'tour', status:'ideia'}; }
 /* Cópia da atividade id, logo a seguir à original (ou em "por agendar", se a original lá estiver). Não fica bloqueada.

@@ -5,6 +5,9 @@
    A coluna i mostra o intervalo [i*1440+from, i*1440+to) (ver boardHours). O resto é tempo escondido. */
 
 const DAY = 1440;
+/* Máximo de dias de uma viagem. O formulário só aceita 60 (MAX_DAYS em tripform.js); este limite protege
+   dos dados feitos à mão ou malformados (uma data de fim no ano 9999 não pode encher o quadro). */
+export const MAX_TRIP_DATES = 120;
 const utc = s => { const [y,m,d] = s.split('-').map(Number); return Date.UTC(y, m-1, d); };
 
 /* Horário do quadro em minutos desde a meia-noite: começa em from e acaba em to, span minutos depois
@@ -75,7 +78,7 @@ export function hiddenEdge(t, b, n, shiftMin=0){
    shiftMin≠0 quando o quadro está noutro fuso (ver frameShift); shiftMin também pode dar 0 noutro fuso
    (diferença de 24 h), por isso "está nas datas da viagem?" usa sempre as datas da viagem e não ds. */
 export function boardLayout(t, ds, shiftMin=0){
-  const n=ds.length, cols=ds.map(()=>[]), top=ds.map(()=>[]), bot=ds.map(()=>[]), nd=Math.min(120, dayIndex(t, t.end)+1);
+  const n=ds.length, cols=ds.map(()=>[]), top=ds.map(()=>[]), bot=ds.map(()=>[]), nd=Math.min(MAX_TRIP_DATES, dayIndex(t, t.end)+1);
   for(const b of t.blocks){
     for(const s of segments(t,b,n,shiftMin)) cols[s.i].push(Object.assign({b}, s));
     const d=dayIndex(t, b.date); if(!(d>=0 && d<nd)) continue;   // fora das datas: já há um aviso próprio

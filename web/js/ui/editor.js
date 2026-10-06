@@ -3,13 +3,15 @@ import { tr } from '../i18n.js';
 import { esc, shortPlaceName, newId, SNAP, weekdayNames, kindLabels, clockLabel, durationLabel, dayLabel } from '../util.js';
 import { $, toast, fillTzSelect } from './dom.js';
 import { S, activeTrip, pushHistory } from '../state.js';
-import { boardHours, placeName, findBlock, moveTo, toTray, boardFrame, toBoard, editorTime, fromEditor, blockZoneTime, duplicateBlock, dayEnds } from '../trip.js';
+import { boardHours, placeName, findBlock, moveTo, toTray, boardFrame, toBoard, editorTime, fromEditor, blockZoneTime, duplicateBlock, dayEnds, FROM_TRAY_START } from '../trip.js';
 import { catName, hasCat, autoCat, catOptions } from '../costs.js';
 import { TZ, secondTz } from '../tz.js';
 import { commit, commitTyping } from '../sync.js';
 import { closeSheets } from './sheets.js';
 
 let undoTaken=false;   // já foi guardado um ponto de Desfazer desde que o editor abriu?
+/* A lista de durações vai até 3 dias; uma atividade mais longa ganha a sua opção em fillEditor. */
+const MAX_LEN_OPTION = 3*1440;
 export function buildWdays(){ $('#f-wdays').innerHTML=[1,2,3,4,5,6,0].map(w=>`<label><input type="checkbox" value="${w}" id="f-wd-${w}">${weekdayNames()[w]}</label>`).join(''); }
 function fillSelects(){
   const t=activeTrip(); if(!t) return; const hours=boardHours(t); const ds=boardFrame(t).dates;
@@ -17,7 +19,7 @@ function fillSelects(){
   // qualquer hora do dia: o horário do quadro só decide o que se vê
   const grp=(key,a,b)=>{ let o=''; for(let m=a; m<b; m+=SNAP) o+=`<option value="${m}">${clockLabel(m)}${m>=1440?tr('afterMidnight'):''}</option>`; return o?`<optgroup label="${esc(tr(key))}">${o}</optgroup>`:''; };
   $('#f-start').innerHTML=grp('startBefore',0,hours.from)+grp('startBoard',hours.from,hours.to)+grp('startAfter',hours.to,hours.from+1440);
-  let lo=''; for(let m=SNAP; m<=4320; m+=(m<1440?SNAP:30)) lo+=`<option value="${m}">${durationLabel(m)}</option>`; $('#f-len').innerHTML=lo;
+  let lo=''; for(let m=SNAP; m<=MAX_LEN_OPTION; m+=(m<1440?SNAP:30)) lo+=`<option value="${m}">${durationLabel(m)}</option>`; $('#f-len').innerHTML=lo;
   $('#f-place').innerHTML=`<option value="">${tr('anywhere')}</option>`+t.places.map(p=>`<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('');
 }
 /* Fuso da atividade: a primeira opção é a hora da viagem. Sem fuso da viagem não há como converter: fica desativado
@@ -83,7 +85,7 @@ export function initEditor(){
   $('#f-len').addEventListener('change',e=>edit(b=>{ b.len=+e.target.value; }));
   $('#f-start').addEventListener('change',e=>edit(b=>{ const t=activeTrip(), frame=boardFrame(t); Object.assign(b, fromEditor(t,frame,b,editorTime(t,frame,b).date,+e.target.value)); }));
   $('#f-day').addEventListener('change',e=>edit((b,f)=>{ if(e.target.value==='tray'){ toTray(activeTrip(),b.id); return; }
-    const t=activeTrip(), frame=boardFrame(t), p=fromEditor(t,frame,b,e.target.value, f.where==='tray'?Math.max(boardHours(t).from,600):editorTime(t,frame,b).start); moveTo(t,b.id,p.date,p.start); }));
+    const t=activeTrip(), frame=boardFrame(t), p=fromEditor(t,frame,b,e.target.value, f.where==='tray'?Math.max(boardHours(t).from,FROM_TRAY_START):editorTime(t,frame,b).start); moveTo(t,b.id,p.date,p.start); }));
   // a cópia fica logo a seguir ao original (duplicateBlock em trip.js)
   $('#f-dup').addEventListener('click',()=>{ if(!findBlock(activeTrip(),S.editingId)) return; pushHistory(); const c=duplicateBlock(activeTrip(), S.editingId, newId); commit(); openEditor(c.id); toast(tr('tDupActivity')); });
   $('#f-tray').addEventListener('click',()=>{ edit(b=>toTray(activeTrip(),b.id)); $('#editor').hidden=true; S.editingId=null; });
