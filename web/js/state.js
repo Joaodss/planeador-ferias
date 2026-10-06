@@ -3,6 +3,8 @@
    (um módulo ES não pode reatribuir um `let` importado de outro).
    Não mexe no DOM: o botão Desfazer acompanha S.history em render() (ui/board.js). */
 const ACTIVE_KEY='ferias-active-trip';
+/* Pontos do Desfazer guardados: os mais antigos saem (ver o comentário de pushHistory sobre a memória). */
+const MAX_UNDO=60;
 export const SLEEP_KEY='ferias-hide-sleep';
 
 export const S = {
@@ -34,7 +36,7 @@ export function pushHistory(){
 export function pushStoreHistory(){ addPoint({store:JSON.stringify(S.store), id:S.activeId}); }
 function addPoint(p){
   S.history.push(p);
-  if(S.history.length>60) S.history.shift();
+  if(S.history.length>MAX_UNDO) S.history.shift();
 }
 /* Descarta a última entrada (quando afinal não houve alteração). */
 export function dropHistory(){ S.history.pop(); }

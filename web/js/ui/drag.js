@@ -12,13 +12,17 @@ import { commit } from '../sync.js';
 import { render } from './board.js';
 import { openEditor } from './editor.js';
 
+/* O rato só começa a arrastar depois de MOUSE_DRAG_PX (menos é um clique). No toque é preciso carregar LONG_PRESS_MS;
+   mexer mais de TAP_SLOP_PX antes disso é deslizar a página, e um toque ou clique até TAP_SLOP_PX abre o editor. */
+const LONG_PRESS_MS=300, MOUSE_DRAG_PX=4, TAP_SLOP_PX=8;
+
 function onPointerDown(e){
   const el=e.target.closest('.blk'); if(!el || e.button>0 || !activeTrip()) return;
   const f=findBlock(activeTrip(),el.dataset.id); if(!f) return;
   const isGrip=!!e.target.closest('.grip'); const r=el.getBoundingClientRect();
   S.drag={id:el.dataset.id, el, pointerId:e.pointerId, type:e.pointerType, x0:e.clientX, y0:e.clientY, x:e.clientX, y:e.clientY, mode:isGrip?'resize':'move', active:false, offY:e.clientY-r.top, offX:e.clientX-r.left, w:r.width, h:r.height, locked:!!f.b.locked, timer:null};
   if(isGrip && e.pointerType!=='mouse'){ e.preventDefault(); startDrag(); }
-  else if(e.pointerType!=='mouse' && !isGrip){ S.drag.timer=setTimeout(()=>{ const drag=S.drag; if(drag && !drag.active && !drag.cancelled) startDrag(); },300); }
+  else if(e.pointerType!=='mouse' && !isGrip){ S.drag.timer=setTimeout(()=>{ const drag=S.drag; if(drag && !drag.active && !drag.cancelled) startDrag(); },LONG_PRESS_MS); }
 }
 /* Tudo aqui é na hora do quadro (frame, ver boardFrame); as contas de onde fica estão em moves.js.
    As posições do rato passam a minutos com /pxPerMin() antes de lá chegarem. */
@@ -42,8 +46,8 @@ function onPointerMove(e){
   const drag=S.drag; if(!drag || e.pointerId!==drag.pointerId) return;
   drag.x=e.clientX; drag.y=e.clientY;
   if(!drag.active){ const dist=Math.hypot(e.clientX-drag.x0,e.clientY-drag.y0);
-    if(drag.type==='mouse' && dist>4 && !drag.cancelled) startDrag();
-    else if(drag.type!=='mouse' && dist>8){ clearTimeout(drag.timer); drag.cancelled=true; }
+    if(drag.type==='mouse' && dist>MOUSE_DRAG_PX && !drag.cancelled) startDrag();
+    else if(drag.type!=='mouse' && dist>TAP_SLOP_PX){ clearTimeout(drag.timer); drag.cancelled=true; }
     return; }
   e.preventDefault(); queueDrag();
 }
@@ -106,7 +110,7 @@ function endDrag(e){
   if(dragRaf){ cancelAnimationFrame(dragRaf); dragRaf=0; updateDrag(); }
   clearTimeout(S.drag.timer); const d=S.drag; S.drag=null;
   document.body.classList.remove('is-dragging'); if(d.ghost) d.ghost.remove(); clearTargets();
-  if(!d.active){ if(!d.cancelled && e.type==='pointerup' && Math.hypot(e.clientX-d.x0,e.clientY-d.y0)<8 && !(e.target.closest&&e.target.closest('.grip'))) openEditor(d.id); return; }
+  if(!d.active){ if(!d.cancelled && e.type==='pointerup' && Math.hypot(e.clientX-d.x0,e.clientY-d.y0)<TAP_SLOP_PX && !(e.target.closest&&e.target.closest('.grip'))) openEditor(d.id); return; }
   if(e.type==='pointercancel' || !d.target){ dropOwn(d); render(); return; }
   // desfeita, apagada ou substituída por um 409 ou pelo refetch durante o arrasto
   const f=findBlock(activeTrip(),d.id); if(!f){ dropOwn(d); render(); return; }

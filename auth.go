@@ -20,6 +20,20 @@ import (
 const (
 	cookieName = "planner_session"
 	sessionTTL = 30 * 24 * time.Hour // renovada a cada uso (ver requireSession)
+	// sessionRenewEvery: o cookie só volta a ser emitido quando já passou este tempo desde o último,
+	// para não haver um Set-Cookie em cada resposta.
+	sessionRenewEvery = 24 * time.Hour
+
+	// Logins falhados (ver tooManyFailures): quem se engana a escrever não chega a estes números, quem tenta
+	// adivinhar a palavra-passe fica limitado a poucas tentativas por janela. O limite total apanha também
+	// quem muda de endereço a cada tentativa.
+	maxFailuresPerIP = 8
+	maxFailuresTotal = 40
+	failureWindow    = 10 * time.Minute
+	// loginFailDelay: espera depois de cada login falhado, que torna as tentativas seguidas ainda mais lentas.
+	loginFailDelay = 400 * time.Millisecond
+	// maxLoginBytes: o corpo do login só traz o utilizador e a palavra-passe.
+	maxLoginBytes = 4096
 )
 
 /* ---------- sessões ---------- */
@@ -86,7 +100,9 @@ func (s *server) setCookie(w http.ResponseWriter, r *http.Request, value string,
 
 /* ---------- login ---------- */
 
-func equalStr(a, b string) bool {
+// constantTimeEqual compara a e b num tempo que não depende de onde diferem nem do comprimento (compara os hashes):
+// o tempo de resposta do login não revela quantos caracteres estão certos.
+func constantTimeEqual(a, b string) bool {
 	ha, hb := sha256.Sum256([]byte(a)), sha256.Sum256([]byte(b))
 	return subtle.ConstantTimeCompare(ha[:], hb[:]) == 1
 }
@@ -102,11 +118,19 @@ func clientIP(r *http.Request) string {
 	return h
 }
 
-// tooManyFailures limita tentativas falhadas: 8 por endereço e 40 no total, em 10 minutos.
+// tooManyFailures diz se o endereço ip já não pode tentar entrar: maxFailuresPerIP falhas dele ou
+// maxFailuresTotal no total, na última failureWindow.
 func (s *server) tooManyFailures(ip string) bool {
-	s.limMu.Lock()
-	defer s.limMu.Unlock()
-	cut := s.now().Add(-10 * time.Minute)
+	s.failuresMu.Lock()
+	defer s.failuresMu.Unlock()
+	total := s.pruneFailures()
+	return len(s.failures[ip]) >= maxFailuresPerIP || total >= maxFailuresTotal
+}
+
+// pruneFailures esquece as falhas com mais de failureWindow, e os endereços que ficam sem nenhuma,
+// e devolve quantas ficam no total. Chamar com s.failuresMu trancado.
+func (s *server) pruneFailures() int {
+	cut := s.now().Add(-failureWindow)
 	total := 0
 	for k, ts := range s.failures {
 		ts = slices.DeleteFunc(ts, func(t time.Time) bool { return !t.After(cut) })
@@ -117,32 +141,32 @@ func (s *server) tooManyFailures(ip string) bool {
 		s.failures[k] = ts
 		total += len(ts)
 	}
-	return len(s.failures[ip]) >= 8 || total >= 40
+	return total
 }
 
 func (s *server) noteFailure(ip string) {
-	s.limMu.Lock()
+	s.failuresMu.Lock()
 	s.failures[ip] = append(s.failures[ip], s.now())
-	s.limMu.Unlock()
+	s.failuresMu.Unlock()
 }
 
 func (s *server) login(w http.ResponseWriter, r *http.Request) {
 	ip := clientIP(r)
 	if s.tooManyFailures(ip) {
-		fail(w, http.StatusTooManyRequests, "demasiadas tentativas")
+		writeError(w, http.StatusTooManyRequests, "demasiadas tentativas")
 		return
 	}
 	var in struct{ User, Password string }
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&in); err != nil {
-		fail(w, http.StatusBadRequest, "pedido inválido")
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxLoginBytes)).Decode(&in); err != nil {
+		writeError(w, http.StatusBadRequest, "pedido inválido")
 		return
 	}
-	okUser := equalStr(strings.TrimSpace(in.User), s.cfg.user)
-	okPass := equalStr(in.Password, s.cfg.password)
+	okUser := constantTimeEqual(strings.TrimSpace(in.User), s.cfg.user)
+	okPass := constantTimeEqual(in.Password, s.cfg.password)
 	if !okUser || !okPass {
 		s.noteFailure(ip)
 		time.Sleep(s.failDelay)
-		fail(w, http.StatusUnauthorized, "credenciais erradas")
+		writeError(w, http.StatusUnauthorized, "credenciais erradas")
 		return
 	}
 	s.setCookie(w, r, s.newToken(), int(sessionTTL.Seconds()))

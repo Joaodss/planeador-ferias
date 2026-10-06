@@ -57,15 +57,15 @@ func TestLoadConfig(t *testing.T) {
 		"sem nada":            {},
 		"sem utilizador":      {"PLANNER_PASSWORD": testPass},
 		"sem palavra-passe":   {"PLANNER_USER": "eu"},
-		"palavra-passe com 9": {"PLANNER_USER": "eu", "PLANNER_PASSWORD": strings.Repeat("x", 9)},
+		"palavra-passe curta": {"PLANNER_USER": "eu", "PLANNER_PASSWORD": strings.Repeat("x", minPasswordLen-1)},
 		"palavra-passe vazia": {"PLANNER_USER": "eu", "PLANNER_PASSWORD": ""},
 	} {
 		if _, err := loadConfig(env(m)); err == nil {
 			t.Errorf("%s: devia dar erro", name)
 		}
 	}
-	if _, err := loadConfig(env(map[string]string{"PLANNER_USER": "eu", "PLANNER_PASSWORD": strings.Repeat("x", 10)})); err != nil {
-		t.Errorf("palavra-passe com 10 caracteres: %v", err)
+	if _, err := loadConfig(env(map[string]string{"PLANNER_USER": "eu", "PLANNER_PASSWORD": strings.Repeat("x", minPasswordLen)})); err != nil {
+		t.Errorf("palavra-passe com %d caracteres: %v", minPasswordLen, err)
 	}
 }
 

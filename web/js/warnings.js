@@ -4,6 +4,10 @@ import { parseISO, clockLabel, dayLabel, onWeekday, daysPhrase } from './util.js
 import { tripDates, placeName, boardLayout } from './trip.js';
 import { absStart } from './span.js';
 
+/* Noite de festa: uma festa que acaba às 23:00 ou mais tarde, e no dia seguinte uma atividade que cansa
+   (passeio, viagem ou outra festa) a começar antes das 10:00. */
+const LATE_PARTY_END = 23*60, EARLY_START = 10*60, TIRING = ['tour','transport','party'];
+
 /* Pontos a rever da viagem t: {sev ('bad' ou 'warn'), ids das atividades, date, title, detail}.
    tripLayout: o quadro em hora da viagem, boardLayout(t, tripDates(t)), quando quem chama já o calculou (render). */
 export function computeWarnings(t, tripLayout){
@@ -37,8 +41,8 @@ export function computeWarnings(t, tripLayout){
       if(hidden.has(b)){
         W.push({sev:'warn', ids:[b.id], date, title:tr('wHours',{a:b.title}), detail:tr('wHoursD',{time:clockLabel(b.start)})});
       }
-      if(b.cat==='party' && b.start+b.len>=1380 && i<ds.length-1){
-        for(const n of byDate.get(ds[i+1]).filter(n=>['tour','transport','party'].includes(n.cat) && n.start<600))
+      if(b.cat==='party' && b.start+b.len>=LATE_PARTY_END && i<ds.length-1){
+        for(const n of byDate.get(ds[i+1]).filter(n=>TIRING.includes(n.cat) && n.start<EARLY_START))
           W.push({sev:'warn', ids:[b.id,n.id], date:ds[i+1], title:tr('wNight',{b:n.title}), detail:tr('wNightD',{a:b.title, t1:clockLabel(b.start+b.len), b:n.title, t2:clockLabel(n.start), day:dayLabel(ds[i+1])})});
       }
     }

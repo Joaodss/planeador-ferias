@@ -33,16 +33,18 @@ type config struct {
 type server struct {
 	cfg     config
 	key     []byte // chave de assinatura das sessões
-	mu      sync.Mutex
 	static  map[string]staticFile
 	handler http.Handler // as rotas (ver routes)
 
-	// viagens já lidas do disco (protegidas por mu, ver loadRecord)
+	// tripsMu serializa as leituras e gravações dos ficheiros das viagens e protege a cache
+	// das viagens já lidas do disco (ver loadRecord).
+	tripsMu    sync.Mutex
 	cache      map[string]*cachedRec
 	cacheBytes int64
 
-	limMu    sync.Mutex
-	failures map[string][]time.Time
+	// failuresMu protege as horas dos logins falhados de cada endereço (ver tooManyFailures).
+	failuresMu sync.Mutex
+	failures   map[string][]time.Time
 
 	// Efeitos externos. newServer preenche-os com os valores reais; os testes trocam-nos
 	// (relógio fixo, sem espera, cache pequena, disco que falha, log para um buffer).
@@ -64,7 +66,7 @@ func newServer(cfg config) (*server, error) {
 		cfg:       cfg,
 		failures:  map[string][]time.Time{},
 		now:       time.Now,
-		failDelay: 400 * time.Millisecond,
+		failDelay: loginFailDelay,
 		maxCache:  16 << 20, // o contentor tem 64 MB
 		writeFile: writeAtomic,
 		log:       log.Default(),
@@ -78,6 +80,10 @@ func newServer(cfg config) (*server, error) {
 	s.handler = s.routes()
 	return s, nil
 }
+
+// minPasswordLen: a palavra-passe é a única proteção de uma página aberta à internet e o limite de tentativas
+// (ver tooManyFailures) só abranda quem a tenta adivinhar. Uma palavra-passe curta não aguentava muito tempo.
+const minPasswordLen = 10
 
 // loadConfig lê e valida a configuração do ambiente (getenv é os.Getenv; os testes passam um mapa).
 func loadConfig(getenv func(string) string) (config, error) {
@@ -97,8 +103,8 @@ func loadConfig(getenv func(string) string) (config, error) {
 	if cfg.user == "" || cfg.password == "" {
 		return cfg, errors.New("define PLANNER_USER e PLANNER_PASSWORD antes de arrancar (ver .env.example)")
 	}
-	if len(cfg.password) < 10 {
-		return cfg, errors.New("PLANNER_PASSWORD tem de ter pelo menos 10 caracteres")
+	if len(cfg.password) < minPasswordLen {
+		return cfg, fmt.Errorf("PLANNER_PASSWORD tem de ter pelo menos %d caracteres", minPasswordLen)
 	}
 	return cfg, nil
 }

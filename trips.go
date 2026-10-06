@@ -17,8 +17,10 @@ import (
 )
 
 const (
-	maxBody     = 2 << 20 // 2 MB por viagem
-	backupsKept = 30
+	// maxTripBytes: o maior corpo de um PUT de viagem (2 MB). Acima dele a resposta é 413 e a página deixa
+	// de tentar gravar essa viagem (applyPutResponse em sync.js). O login tem o seu limite, maxLoginBytes.
+	maxTripBytes = 2 << 20
+	backupsKept  = 30 // cópias diárias guardadas de cada viagem (ver backup)
 )
 
 // record é o que fica em disco para cada viagem.
@@ -41,9 +43,9 @@ func (s *server) tripPath(id string) string {
 	return filepath.Join(s.cfg.dataDir, "trips", id+".json")
 }
 
-// validRecord confirma que raw é um registo que a página consegue abrir (JSON com a viagem num objeto)
-// e devolve a revisão.
-func validRecord(raw []byte) (int64, error) {
+// parseRecordRev devolve a revisão do registo raw e confirma que a página o consegue abrir
+// (JSON com a viagem num objeto).
+func parseRecordRev(raw []byte) (int64, error) {
 	var rec record
 	if err := json.Unmarshal(raw, &rec); err != nil {
 		return 0, err
@@ -55,7 +57,7 @@ func validRecord(raw []byte) (int64, error) {
 }
 
 // loadRecord devolve o registo da viagem id e só volta a ler o disco se o ficheiro mudou.
-// Chamar com s.mu trancado.
+// Chamar com s.tripsMu trancado.
 func (s *server) loadRecord(id string) (*cachedRec, error) {
 	p := s.tripPath(id)
 	fi, err := os.Stat(p)
@@ -71,7 +73,7 @@ func (s *server) loadRecord(id string) (*cachedRec, error) {
 		s.forget(id)
 		return nil, err
 	}
-	rev, err := validRecord(raw)
+	rev, err := parseRecordRev(raw)
 	if err != nil {
 		s.forget(id)
 		return nil, err
@@ -108,7 +110,7 @@ func (s *server) recordBytes(id string, c *cachedRec) ([]byte, error) {
 	}
 	raw, err := os.ReadFile(s.tripPath(id))
 	if err == nil {
-		_, err = validRecord(raw)
+		_, err = parseRecordRev(raw)
 	}
 	return raw, err
 }
@@ -144,7 +146,7 @@ func writeAtomic(p string, data []byte) error {
 func (s *server) listTrips(w http.ResponseWriter, r *http.Request) {
 	raws, etag, err := s.readTripRecords()
 	if err != nil {
-		fail(w, 500, "não consigo ler os dados")
+		writeError(w, 500, "não consigo ler os dados")
 		return
 	}
 	h := w.Header()
@@ -158,7 +160,7 @@ func (s *server) listTrips(w http.ResponseWriter, r *http.Request) {
 	tz, _ := json.Marshal(s.cfg.homeTz)
 	h.Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-	// os bytes da cache nunca mudam (cada gravação guarda outros), por isso escrevem-se já sem s.mu
+	// os bytes da cache nunca mudam (cada gravação guarda outros), por isso escrevem-se já sem s.tripsMu
 	io.WriteString(w, `{"user":`)
 	w.Write(user)
 	io.WriteString(w, `,"homeTz":`)
@@ -176,8 +178,8 @@ func (s *server) listTrips(w http.ResponseWriter, r *http.Request) {
 // readTripRecords devolve os registos das viagens legíveis e o ETag da lista, que muda quando muda alguma
 // viagem (revisão, tamanho ou data do ficheiro), o utilizador ou o fuso.
 func (s *server) readTripRecords() ([][]byte, string, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.tripsMu.Lock()
+	defer s.tripsMu.Unlock()
 	entries, err := os.ReadDir(filepath.Join(s.cfg.dataDir, "trips"))
 	if err != nil {
 		return nil, "", err
@@ -217,29 +219,29 @@ func (s *server) putTrip(w http.ResponseWriter, r *http.Request, id string) {
 		BaseRev int64           `json:"baseRev"`
 		Trip    json.RawMessage `json:"trip"`
 	}
-	// Só um corpo acima de maxBody é "demasiado grande"; qualquer outra falha (ligação cortada a meio,
+	// Só um corpo acima de maxTripBytes é "demasiado grande"; qualquer outra falha (ligação cortada a meio,
 	// JSON partido, lixo depois do objeto) é um pedido inválido. io.ReadAll + Unmarshal em vez de um
 	// json.Decoder: o buffer do Decoder cresce para o dobro de cada vez e uma viagem de 1,2 MB
 	// alocava mais 1,3 MB (BenchmarkPutTrip); Unmarshal também já recusa o que vem depois do objeto.
-	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBody))
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxTripBytes))
 	if errors.As(err, new(*http.MaxBytesError)) {
-		fail(w, http.StatusRequestEntityTooLarge, "viagem demasiado grande")
+		writeError(w, http.StatusRequestEntityTooLarge, "viagem demasiado grande")
 		return
 	}
 	if err != nil || json.Unmarshal(body, &in) != nil {
-		fail(w, http.StatusBadRequest, "JSON inválido")
+		writeError(w, http.StatusBadRequest, "JSON inválido")
 		return
 	}
 	var head struct {
 		ID string `json:"id"`
 	}
 	if err := json.Unmarshal(in.Trip, &head); err != nil || head.ID != id {
-		fail(w, http.StatusBadRequest, "a viagem não corresponde ao identificador")
+		writeError(w, http.StatusBadRequest, "a viagem não corresponde ao identificador")
 		return
 	}
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.tripsMu.Lock()
+	defer s.tripsMu.Unlock()
 	p := s.tripPath(id)
 	var rev int64
 	cur, err := s.loadRecord(id) // com a cache, quase sempre só um Stat
@@ -250,13 +252,13 @@ func (s *server) putTrip(w http.ResponseWriter, r *http.Request, id string) {
 			return
 		}
 	case err != nil:
-		fail(w, 500, "não consigo ler a viagem")
+		writeError(w, 500, "não consigo ler a viagem")
 		return
 	default:
 		if cur.rev != in.BaseRev { // alguém gravou entretanto
 			b, err := s.recordBytes(id, cur)
 			if err != nil {
-				fail(w, 500, "não consigo ler a viagem")
+				writeError(w, 500, "não consigo ler a viagem")
 				return
 			}
 			writeRawJSON(w, http.StatusConflict, b)
@@ -275,7 +277,7 @@ func (s *server) putTrip(w http.ResponseWriter, r *http.Request, id string) {
 	out.WriteByte('}')
 	if err := s.writeFile(p, out.Bytes()); err != nil {
 		s.log.Printf("erro a gravar %s: %v", id, err)
-		fail(w, 500, "não consegui gravar")
+		writeError(w, 500, "não consegui gravar")
 		return
 	}
 	if fi, err := os.Stat(p); err == nil {
@@ -288,8 +290,8 @@ func (s *server) putTrip(w http.ResponseWriter, r *http.Request, id string) {
 
 // deleteTrip não apaga nada: move o ficheiro para a pasta de cópias.
 func (s *server) deleteTrip(w http.ResponseWriter, _ *http.Request, id string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.tripsMu.Lock()
+	defer s.tripsMu.Unlock()
 	p := s.tripPath(id)
 	if _, err := os.Stat(p); errors.Is(err, fs.ErrNotExist) {
 		s.forget(id)
@@ -298,12 +300,12 @@ func (s *server) deleteTrip(w http.ResponseWriter, _ *http.Request, id string) {
 	}
 	dir := filepath.Join(s.cfg.dataDir, "backups", id)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
-		fail(w, 500, "não consegui apagar")
+		writeError(w, 500, "não consegui apagar")
 		return
 	}
 	dst := filepath.Join(dir, "apagada-"+s.now().UTC().Format("2006-01-02T150405Z")+".json")
 	if err := os.Rename(p, dst); err != nil {
-		fail(w, 500, "não consegui apagar")
+		writeError(w, 500, "não consegui apagar")
 		return
 	}
 	s.forget(id)

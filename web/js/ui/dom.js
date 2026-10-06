@@ -11,8 +11,10 @@ export function refreshSlot(){ SLOT = parseFloat(getComputedStyle(document.docum
 export function pxPerMin(){ return SLOT/30; }
 
 /* ---------- avisos ao utilizador ---------- */
+/* Um aviso fica à vista 4,2 s: dá para ler uma frase curta sem tapar o quadro muito tempo. */
+const TOAST_MS=4200;
 let toastT=null;
-export function toast(m){ const t=$('#toast'); t.textContent=m; t.hidden=false; clearTimeout(toastT); toastT=setTimeout(()=>t.hidden=true, 4200); }
+export function toast(m){ const t=$('#toast'); t.textContent=m; t.hidden=false; clearTimeout(toastT); toastT=setTimeout(()=>t.hidden=true, TOAST_MS); }
 export function announce(m){ $('#announce').textContent=m; }
 
 /* ---------- selects de fuso ---------- */

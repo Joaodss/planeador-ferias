@@ -7,10 +7,11 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
-	"time"
 )
 
-var idRe = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+// tripIDRe: os identificadores de viagem que o servidor aceita no caminho (e no nome do ficheiro).
+// clean.js exporta a mesma expressão como ID.
+var tripIDRe = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 
 const csp = "default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
 
@@ -50,7 +51,7 @@ func secHeaders(next http.Handler) http.Handler {
 func csrfGuard(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Header.Get("X-Requested-With") != "planner" {
-			fail(w, http.StatusForbidden, "pedido recusado")
+			writeError(w, http.StatusForbidden, "pedido recusado")
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -58,16 +59,16 @@ func csrfGuard(next http.Handler) http.Handler {
 }
 
 // requireSession só deixa passar pedidos com sessão válida. A sessão é deslizante: enquanto a página
-// for usada, a validade volta aos 30 dias (no máximo uma renovação por dia). Só pede login quem não
-// abrir a página durante um mês.
+// for usada, a validade volta a sessionTTL (no máximo uma renovação por sessionRenewEvery). Só pede login
+// quem não abrir a página durante um mês.
 func (s *server) requireSession(next http.HandlerFunc) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		exp, ok := s.session(r)
 		if !ok {
-			fail(w, http.StatusUnauthorized, "sessão em falta")
+			writeError(w, http.StatusUnauthorized, "sessão em falta")
 			return
 		}
-		if exp.Sub(s.now()) < sessionTTL-24*time.Hour {
+		if exp.Sub(s.now()) < sessionTTL-sessionRenewEvery {
 			s.setCookie(w, r, s.newToken(), int(sessionTTL.Seconds()))
 		}
 		next(w, r)
@@ -78,8 +79,8 @@ func (s *server) requireSession(next http.HandlerFunc) http.Handler {
 func tripHandler(h func(http.ResponseWriter, *http.Request, string)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
-		if !idRe.MatchString(id) {
-			fail(w, http.StatusBadRequest, "identificador inválido")
+		if !tripIDRe.MatchString(id) {
+			writeError(w, http.StatusBadRequest, "identificador inválido")
 			return
 		}
 		h(w, r, id)
@@ -93,6 +94,12 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	if err := json.NewEncoder(w).Encode(v); err != nil {
 		log.Printf("aviso: resposta JSON por enviar: %v", err)
 	}
+}
+
+// writeError responde {"error": msg} com o código status. A página só mostra a mensagem em casos raros:
+// quase sempre decide pelo código.
+func writeError(w http.ResponseWriter, status int, msg string) {
+	writeJSON(w, status, map[string]string{"error": msg})
 }
 
 // writeRawJSON responde com JSON que já está em bytes (um registo lido do disco).
@@ -114,8 +121,4 @@ func etagMatch(inm, etag string) bool {
 		}
 	}
 	return false
-}
-
-func fail(w http.ResponseWriter, status int, msg string) {
-	writeJSON(w, status, map[string]string{"error": msg})
 }

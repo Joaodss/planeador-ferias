@@ -3,7 +3,7 @@ import { tr } from '../i18n.js';
 import { esc, newId, statusLabel, dayLabel } from '../util.js';
 import { $, toast, announce } from './dom.js';
 import { S, activeTrip, pushHistory } from '../state.js';
-import { tripDates, boardHours, money, blocksOf, addPlace, boardLayout, rangeLabel, setDayPlaces, splitDayPlaces, newBlock } from '../trip.js';
+import { tripDates, boardHours, money, blocksOf, addPlace, boardLayout, rangeLabel, setDayPlaces, splitDayPlaces, newBlock, NEW_IN_DAY_START } from '../trip.js';
 import { blockCostPerPerson, dayCostPP } from '../costs.js';
 import { commit } from '../sync.js';
 import { closeSheets } from './sheets.js';
@@ -64,7 +64,7 @@ export function initDaysheet(){
   });
   $('#d-addplace').addEventListener('click',()=>{ const v=$('#d-newplace').value; if(!v.trim()) return; pushHistory(); const p=addPlace(activeTrip(),v); $('#d-newplace').value=''; commit(); fillDay({refresh:true}); $('#d-place').value=p.id; toast(tr('tPlaceAdded',{name:p.name})); });
   $('#d-newplace').addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); $('#d-addplace').click(); } });
-  $('#d-add').addEventListener('click',()=>{ const t=activeTrip(), hours=boardHours(t); let s=Math.max(hours.from,540);
+  $('#d-add').addEventListener('click',()=>{ const t=activeTrip(), hours=boardHours(t); let s=Math.max(hours.from,NEW_IN_DAY_START);
     pushHistory(); const b=newBlock({date:S.dayOpen, start:Math.min(s,hours.to-60)}, newId); t.blocks.push(b); commit(); openEditor(b.id,{isNew:true}); });
   $('#d-addcost').addEventListener('click',()=>addCost($('#d-costs'), S.dayOpen));
 }

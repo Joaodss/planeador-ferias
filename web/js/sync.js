@@ -20,6 +20,10 @@ let ui={
 };
 export function connectUI(hooks){ ui={...ui, ...hooks}; }
 
+/* Tempos (ms): grava 1,2 s depois da última alteração, para várias seguidas irem num só pedido; sem ligação tenta
+   de novo de 8 em 8 s (e de 5 em 5 s ao arrancar); a escrever, o quadro só é redesenhado depois de 150 ms parado. */
+const SAVE_DELAY=1200, OFFLINE_RETRY=8000, BOOT_RETRY=5000, TYPING_RENDER_DELAY=150;
+
 let saveTimer=null, renderTimer=null;
 let edits=0;      // conta os commit(): se não mudou durante uma gravação, o que foi serializado no início ainda é o estado atual
 let listTag='';   // ETag da última lista de viagens aplicada: o refresh() pergunta com If-None-Match
@@ -78,7 +82,7 @@ export function refreshSaveLabel(){
   if(S.dirty) return ui.saveState('dirty',tr('unsaved'));
   ui.saveState('saved',tr('allSaved'));
 }
-export function scheduleSave(delay){ clearTimeout(saveTimer); saveTimer=setTimeout(doSave, delay ?? 1200); refreshSaveLabel(); }
+export function scheduleSave(delay){ clearTimeout(saveTimer); saveTimer=setTimeout(doSave, delay ?? SAVE_DELAY); refreshSaveLabel(); }
 async function doSave(){
   if(S.saving || !S.authed) return;
   // snapshot serve para ver o que mudou, para o corpo dos PUT e, se nada mudar entretanto, para o estado no fim
@@ -107,12 +111,12 @@ async function doSave(){
   S.saving=false; S.dirty = edits===e0 ? dirtyIn(snapshot) : computeDirty(); refreshSaveLabel();
   if(conflict){ clearHistory(); ui.closeSheets(); ensureActive(); ui.render(); ui.toast(tr('tConflict')); }
   if(tooBig) ui.toast(tr('tTooBig'));
-  if(S.dirty && S.authed) scheduleSave(S.online?1200:8000);
+  if(S.dirty && S.authed) scheduleSave(S.online?SAVE_DELAY:OFFLINE_RETRY);
 }
 /* Depois de qualquer alteração: marca por gravar, agenda a gravação e redesenha. */
 export function commit(){ edited(); ui.render(); }
-/* O mesmo nos campos de texto, a cada tecla: o quadro só é redesenhado numa pausa de 150 ms, não a cada letra. */
-export function commitTyping(){ edited(); renderTimer=setTimeout(()=>ui.render(),150); }
+/* O mesmo nos campos de texto, a cada tecla: o quadro só é redesenhado numa pausa da escrita, não a cada letra. */
+export function commitTyping(){ edited(); renderTimer=setTimeout(()=>ui.render(),TYPING_RENDER_DELAY); }
 function edited(){ S.dirty=true; edits++; scheduleSave(); clearTimeout(renderTimer); }
 /* Desfaz o último ponto (ver restoreLast em state.js) e grava. */
 export function undo(){ if(!restoreLast()) return; ui.closeSheets(); commit(); ui.announce(tr('undone')); }
@@ -135,10 +139,10 @@ async function loadAll(){
   applyServer(await r.json(), r.headers.get('ETag')); clearHistory(); S.dirty=false; S.online=true;
   startSession(); ensureActive(); ui.render(); refreshSaveLabel();
 }
-/* Arranque: vai buscar as viagens; sem ligação mostra o aviso e tenta de novo a cada 5 s. */
+/* Arranque: vai buscar as viagens; sem ligação mostra o aviso e tenta de novo (BOOT_RETRY). */
 export async function boot(){
   try{ await loadAll(); }
-  catch(e){ if(isAuthError(e)) return; ui.showOffline(); setTimeout(boot,5000); }
+  catch(e){ if(isAuthError(e)) return; ui.showOffline(); setTimeout(boot,BOOT_RETRY); }
 }
 /* Entrar: devolve o código HTTP do login (200, 401 credenciais erradas, 429 demasiadas tentativas).
    Com 200 abre o quadro; se a sessão tinha acabado com alterações por gravar, grava-as em vez de ir buscar a lista. */
