@@ -13,7 +13,7 @@ export function renderWarnings(){
   box.insertAdjacentHTML('beforeend',`<p class="hint">${tr('warnHint')}</p>`);
   sortWarnings(S.lastWarnings).forEach(w=>{
     const it=document.createElement('button'); it.type='button'; it.className='warn-item'+(w.sev==='bad'?' bad':'');
-    it.innerHTML=`<span class="sev"></span><span><div class="wt">${esc(w.t)}</div><div class="wd">${esc(w.d)}</div></span>`;
+    it.innerHTML=`<span class="sev"></span><span><div class="wt">${esc(w.title)}</div><div class="wd">${esc(w.detail)}</div></span>`;
     it.addEventListener('click',()=>{ if(isMobile()) $('#warnings').hidden=true; focusBlock(w.ids[0]); });
     box.appendChild(it);
   });

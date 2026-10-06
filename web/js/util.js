@@ -11,7 +11,7 @@ export function short(n){ return n.split(' ·')[0]; }
 export const SNAP = 15;
 
 /* Textos que dependem da língua. */
-export const WD = () => tr('wd'), MON = () => tr('mon'), CATS = () => tr('cats'), STATUS = () => tr('status');
+export const WD = () => tr('wd'), MON = () => tr('mon'), kindLabels = () => tr('cats'), STATUS = () => tr('status');
 /* Nome do estado, ou '' se não for um dos conhecidos: só o enum entra no HTML e nas classes (st-…). */
 export const statusLabel = s => typeof s==='string' && Object.hasOwn(STATUS(), s) ? STATUS()[s] : '';
 export const artDay = w => tr('onDay',{w});

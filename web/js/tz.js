@@ -5,12 +5,12 @@
 let ALL = [];
 try{ ALL = Intl.supportedValuesOf('timeZone'); }catch{}
 
-const fmts = {};
-function fmt(tz){
-  if(!fmts[tz]) fmts[tz] = new Intl.DateTimeFormat('en-US',{timeZone:tz, hourCycle:'h23', year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit'});
-  return fmts[tz];
+const dtfs = {};
+function dtf(tz){
+  if(!dtfs[tz]) dtfs[tz] = new Intl.DateTimeFormat('en-US',{timeZone:tz, hourCycle:'h23', year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit'});
+  return dtfs[tz];
 }
-function valid(tz){ if(!tz) return false; try{ fmt(tz); return true; }catch{ return false; } }
+function valid(tz){ if(!tz) return false; try{ dtf(tz); return true; }catch{ return false; } }
 /* O Chrome e o Node listam os nomes antigos do CLDR (Asia/Calcutta, Europe/Kiev), mas aceitam os atuais.
    A lista de sugestões mostra o nome atual quando o browser o aceita. */
 const RENAMED = {'Asia/Calcutta':'Asia/Kolkata', 'Europe/Kiev':'Europe/Kyiv', 'Asia/Saigon':'Asia/Ho_Chi_Minh', 'Asia/Katmandu':'Asia/Kathmandu',
@@ -22,7 +22,7 @@ function local(){ try{ return Intl.DateTimeFormat().resolvedOptions().timeZone |
 
 /* Diferença (minutos) entre a hora local de tz e UTC no instante ms. */
 function offsetAt(tz, ms){
-  const p = {}; for(const x of fmt(tz).formatToParts(new Date(ms))) p[x.type] = x.value;
+  const p = {}; for(const x of dtf(tz).formatToParts(new Date(ms))) p[x.type] = x.value;
   const asUTC = Date.UTC(+p.year, +p.month-1, +p.day, +p.hour, +p.minute, +p.second);
   return Math.round((asUTC - Math.floor(ms/1000)*1000) / 60000);
 }

@@ -25,7 +25,7 @@ function onPointerDown(e){
 function startDrag(){
   const drag=S.drag; if(!drag) return;
   if(drag.locked){ toast(tr('tLocked')); drag.cancelled=true; return; }
-  drag.active=true; pushHistory(); drag.snap=S.history[S.history.length-1]; document.body.classList.add('is-dragging');
+  drag.active=true; pushHistory(); drag.undoPoint=S.history[S.history.length-1]; document.body.classList.add('is-dragging');
   const t=T(), f=findBlock(T(),drag.id), col=drag.el.closest('.day-col'); drag.F=boardFrame(t);
   if(drag.mode==='move'){
     // no quadro, o fantasma tem o tamanho do pedaço agarrado (uma atividade de 30 h não cabe no ecrã)
@@ -99,7 +99,7 @@ function autoScroll(){
   requestAnimationFrame(autoScroll);
 }
 /* Tira o ponto de Desfazer do arrasto, mas só se ainda for o do topo: um 409 ou o refetch podem tê-lo apagado. */
-function dropOwn(d){ if(S.history.length && S.history[S.history.length-1]===d.snap) dropHistory(); }
+function dropOwn(d){ if(S.history.length && S.history[S.history.length-1]===d.undoPoint) dropHistory(); }
 function endDrag(e){
   if(!S.drag || e.pointerId!==S.drag.pointerId) return;
   // a última posição pode ainda estar à espera do próximo frame
