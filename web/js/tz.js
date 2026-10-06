@@ -1,6 +1,7 @@
 /* Fusos horários.
    As horas do planeador são a hora local da viagem (o fuso escolhido em "Datas e sítios").
    Daqui sai só a conversão para um segundo fuso, mostrada ao lado na grelha. */
+import { tzCountry } from './tzcountries.js';
 
 let ALL = [];
 try{ ALL = Intl.supportedValuesOf('timeZone'); }catch{}
@@ -45,20 +46,65 @@ function diffLabel(min){
 
 export const TZ = {all: ALL, valid, local, offsetAt, diff, city, diffLabel};
 
-/* Opções dos selects de fuso: por região (o que vem antes da primeira "/") e, dentro de cada uma, pelo nome
-   da cidade, para que escrever as primeiras letras salte para ela. "America/Argentina/Salta" → "Salta (Argentina)".
-   Os fusos sem região (UTC no Firefox) ficam no grupo ''. cur entra na lista se for válido e lá não estiver
-   (um nome antigo guardado noutro browser). Devolve [{region, zones:[{tz, label}]}], com as regiões por ordem. */
-export function tzGroups(cur){
-  const zs = cur && valid(cur) && !ALL.includes(cur) ? ALL.concat(cur) : ALL, by = new Map();
-  for(const z of zs){
-    const p = z.split('/'), region = p.length>1 ? p[0] : '';
-    const label = p.length>2 ? `${city(z)} (${p.slice(1,-1).join(' / ').replace(/_/g,' ')})` : city(z);
-    if(!by.has(region)) by.set(region, []);
-    by.get(region).push({tz:z, label});
-  }
-  for(const a of by.values()) a.sort((x,y)=>x.label.localeCompare(y.label));
-  return [...by].sort((a,b)=>a[0].localeCompare(b[0])).map(([region, zones])=>({region, zones}));
+/* "GMT+05:30", "GMT−03:00", "GMT+00:00": a diferença (minutos) para UTC, sempre com sinal e minutos. */
+export function gmtLabel(min){
+  const h = Math.floor(Math.abs(min)/60);
+  const m = Math.abs(min)%60;
+  return 'GMT' + (min<0 ? '−' : '+') + String(h).padStart(2,'0') + ':' + String(m).padStart(2,'0');
+}
+
+/* Nome do país com o código ISO cc, na língua lang ("PT" → "Portugal"); o próprio código se o browser não souber. */
+const countryNames = {};
+export function countryName(cc, lang){
+  if(!cc) return '';
+  try{
+    countryNames[lang] = countryNames[lang] || new Intl.DisplayNames([lang], {type:'region'});
+    return countryNames[lang].of(cc) || cc;
+  }catch{ return cc; }
+}
+
+/* Texto sem acentos e em minúsculas, para procurar: "São Tomé" → "sao tome". */
+const fold = s => String(s).normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+
+/* Opções dos selects de fuso: pela diferença para GMT e, com a mesma diferença, pelo nome da cidade.
+   "Europe/Lisbon" → "(GMT+01:00) Lisbon, Portugal", com o país na língua lang (tzcountries.js).
+   A sub-região só aparece quando não é o próprio país: "America/Indiana/Knox" → "Knox (Indiana), United States",
+   mas "America/Argentina/Salta" → "Salta, Argentina".
+   A diferença muda com a hora de verão, por isso é a do meio-dia (UTC) da data "AAAA-MM-DD" (o início da viagem,
+   como em secondTz); sem data válida, a de agora. cur entra na lista se for válido e lá não estiver
+   (um nome antigo guardado noutro browser). key é o que tzMatch procura: o texto da opção, o nome do fuso e o país
+   também em inglês e pelo código. Devolve [{tz, offset, label, key}], já por ordem. */
+export function tzOptions(cur, date, lang='en'){
+  const zs = cur && valid(cur) && !ALL.includes(cur) ? ALL.concat(cur) : ALL;
+  const [y,m,d] = String(date||'').split('-').map(Number);
+  const noon = Date.UTC(y, m-1, d, 12);
+  const ms = Number.isNaN(noon) ? Date.now() : noon;
+  const opts = zs.map(z=>{
+    const cc = tzCountry(z);
+    const country = countryName(cc, lang);
+    const english = countryName(cc, 'en');
+    const sub = z.split('/').slice(1,-1).join(' / ').replace(/_/g,' ');
+    const place = sub && fold(sub)!==fold(english) ? `${city(z)} (${sub})` : city(z);
+    const name = country ? `${place}, ${country}` : place;
+    return {tz:z, offset:offsetAt(z, ms), city:city(z), name, extra:`${z} ${english} ${cc}`};
+  });
+  opts.sort((a,b)=>a.offset-b.offset || a.city.localeCompare(b.city));
+  return opts.map(o=>{
+    const label = `(${gmtLabel(o.offset)}) ${o.name}`;
+    return {tz:o.tz, offset:o.offset, label, key:fold(`${label} ${o.extra}`.replace(/_/g,' '))};
+  });
+}
+
+/* A opção o (de tzOptions) serve para a pesquisa query se tiver todas as palavras dela, sem contar acentos nem
+   maiúsculas: "lisbon", "portugal", "new york", "gmt+05". As cidades só têm o nome em inglês (o do fuso); os países
+   têm o da língua da página e o inglês. Uma pesquisa vazia serve a todas. */
+export function tzMatch(o, query){
+  return fold(query).replace(/_/g, ' ').split(/\s+/).every(w=>o.key.includes(w));
+}
+/* As opções que servem para query, por ordem, mais a escolhida (keep) mesmo que não sirva: se saísse da lista,
+   o select passava a mostrar outra sem ninguém a ter escolhido. */
+export function tzFilter(opts, query, keep){
+  return opts.filter(o=>o.tz===keep || tzMatch(o, query));
 }
 
 /* ---------- segundo fuso ----------

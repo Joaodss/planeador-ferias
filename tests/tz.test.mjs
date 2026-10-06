@@ -2,7 +2,7 @@
 import { store, storage, clearStore } from './env.mjs';
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveTz, TZ, tzGroups, setServerHomeTz, defaultHomeTz, ownHomeTz, homeTz, saveHomeTz, secondTz, viewingHome, setViewingHome, viewOffset } from '../web/js/tz.js';
+import { resolveTz, TZ, tzOptions, gmtLabel, countryName, tzMatch, tzFilter, setServerHomeTz, defaultHomeTz, ownHomeTz, homeTz, saveHomeTz, secondTz, viewingHome, setViewingHome, viewOffset } from '../web/js/tz.js';
 
 process.env.TZ = 'Europe/Lisbon';   // o fuso do "browser" (TZ.local); o Node aplica-o logo
 const noon = date => Date.parse(date + 'T12:00:00Z');
@@ -151,22 +151,94 @@ test('a lista de sugestões mostra os nomes atuais, sem repetidos', () => {
   assert.equal(new Set(TZ.all).size, TZ.all.length);
 });
 
-test('tzGroups: regiões por ordem, cidades por nome, sub-região entre parênteses e o fuso guardado que falta (#43)', () => {
-  const g = tzGroups('');
-  const regions = g.map(x => x.region);
-  assert.deepEqual(regions, [...regions].sort(), 'regiões por ordem');
-  assert.equal(g.reduce((n, x) => n + x.zones.length, 0), TZ.all.length, 'todos os fusos, uma vez');
-  const europe = g.find(x => x.region === 'Europe').zones;
-  assert.deepEqual(europe.find(z => z.tz === 'Europe/Lisbon'), { tz: 'Europe/Lisbon', label: 'Lisbon' });
-  const labels = europe.map(z => z.label);
-  assert.deepEqual(labels, [...labels].sort((a, b) => a.localeCompare(b)), 'cidades por nome');
-  const salta = g.find(x => x.region === 'America').zones.find(z => z.tz === 'America/Argentina/Salta');
-  assert.equal(salta.label, 'Salta (Argentina)');
-  // um nome antigo que o browser aceita mas não está na lista (o Node lista Asia/Calcutta, mas TZ.all troca-o por Asia/Kolkata)
+test('gmtLabel: sinal, horas e minutos sempre com dois algarismos', () => {
+  assert.equal(gmtLabel(0), 'GMT+00:00');
+  assert.equal(gmtLabel(60), 'GMT+01:00');
+  assert.equal(gmtLabel(345), 'GMT+05:45');
+  assert.equal(gmtLabel(-210), 'GMT−03:30');
+  assert.equal(gmtLabel(-600), 'GMT−10:00');
+});
+
+test('tzOptions: pela diferença para GMT, depois pela cidade, com o país e a sub-região quando não é o país', () => {
+  const o = tzOptions('', '2027-07-01');
+  assert.equal(o.length, TZ.all.length, 'todos os fusos, uma vez');
+  assert.deepEqual(new Set(o.map(z => z.tz)), new Set(TZ.all));
+  const byOffset = (a, b) => a.offset - b.offset || TZ.city(a.tz).localeCompare(TZ.city(b.tz));
+  assert.deepEqual(o, [...o].sort(byOffset), 'por diferença e, com a mesma, pela cidade');
+  assert.ok(o[0].offset < 0 && o.at(-1).offset > 0);
+  const lisbon = o.find(z => z.tz === 'Europe/Lisbon');
+  assert.deepEqual([lisbon.offset, lisbon.label], [60, '(GMT+01:00) Lisbon, Portugal']);
+  const label = tz => o.find(z => z.tz === tz).label;
+  assert.equal(label('Asia/Kathmandu'), '(GMT+05:45) Kathmandu, Nepal');
+  assert.equal(label('America/Argentina/Salta'), '(GMT−03:00) Salta, Argentina', 'a sub-região é o país: não se repete');
+  assert.equal(label('America/Indiana/Knox'), '(GMT−05:00) Knox (Indiana), United States');
+  assert.equal(label('America/North_Dakota/New_Salem'), '(GMT−05:00) New Salem (North Dakota), United States');
+  // Lisboa e Londres têm a mesma diferença: ficam juntas, pela cidade
+  const i = o.findIndex(z => z.tz === 'Europe/Lisbon'), j = o.findIndex(z => z.tz === 'Europe/London');
+  assert.ok(o[j].offset === o[i].offset && j > i);
+});
+
+test('tzOptions: o país vem na língua pedida', () => {
+  const pt = tzOptions('', '2027-07-01', 'pt');
+  assert.equal(pt.find(z => z.tz === 'Europe/Berlin').label, '(GMT+02:00) Berlin, Alemanha');
+  assert.equal(pt.find(z => z.tz === 'America/New_York').label, '(GMT−04:00) New York, Estados Unidos');
+});
+
+test('tzOptions: a diferença é a da data dada (hora de verão); sem data válida, a de agora', () => {
+  const lisbon = date => tzOptions('', date).find(z => z.tz === 'Europe/Lisbon');
+  assert.equal(lisbon('2027-01-15').label, '(GMT+00:00) Lisbon, Portugal');
+  assert.equal(lisbon('2027-07-01').label, '(GMT+01:00) Lisbon, Portugal');
+  // no inverno do norte, Sydney está 11 h à frente; no verão do norte, 10 h
+  assert.equal(tzOptions('', '2027-01-15').find(z => z.tz === 'Australia/Sydney').offset, 660);
+  assert.equal(tzOptions('', '2027-07-01').find(z => z.tz === 'Australia/Sydney').offset, 600);
+  const now = TZ.offsetAt('Europe/Lisbon', Date.now());
+  assert.equal(lisbon('').offset, now);
+  assert.equal(lisbon(undefined).offset, now);
+  assert.equal(lisbon('nada').offset, now);
+});
+
+test('tzOptions: um nome antigo guardado entra na lista; um inválido não (#43)', () => {
+  // o Node lista Asia/Calcutta, mas TZ.all troca-o por Asia/Kolkata; o nome antigo fica sem país
   assert.equal(TZ.all.includes('Asia/Calcutta'), false);
-  const asia = tzGroups('Asia/Calcutta').find(x => x.region === 'Asia').zones;
-  assert.deepEqual(asia.filter(z => /Calcutta|Kolkata/.test(z.tz)).map(z => z.label).sort(), ['Calcutta', 'Kolkata']);
-  assert.equal(tzGroups('Marte/Base').reduce((n, x) => n + x.zones.length, 0), TZ.all.length, 'um inválido não entra');
-  // fusos sem região (UTC, quando o motor não o lista) entram no grupo '', que fica à frente
-  if (!TZ.all.includes('UTC')) assert.deepEqual(tzGroups('UTC')[0], { region: '', zones: [{ tz: 'UTC', label: 'UTC' }] });
+  const o = tzOptions('Asia/Calcutta', '2027-07-01');
+  assert.deepEqual(o.filter(z => /Calcutta|Kolkata/.test(z.tz)).map(z => z.label), ['(GMT+05:30) Calcutta', '(GMT+05:30) Kolkata, India']);
+  assert.equal(tzOptions('Marte/Base', '2027-07-01').length, TZ.all.length, 'um inválido não entra');
+  // um fuso sem região (UTC, quando o motor não o lista) também entra
+  if (!TZ.all.includes('UTC')) assert.equal(tzOptions('UTC', '2027-07-01').find(z => z.tz === 'UTC').label, '(GMT+00:00) UTC');
+});
+
+test('countryName: na língua pedida; o código se a língua não servir; vazio sem código', () => {
+  assert.equal(countryName('PT', 'pt'), 'Portugal');
+  assert.equal(countryName('DE', 'pt'), 'Alemanha');
+  assert.equal(countryName('DE', 'en'), 'Germany');
+  assert.equal(countryName('', 'en'), '');
+  assert.equal(countryName('DE', '!!'), 'DE', 'língua inválida');
+});
+
+test('tzMatch: por cidade, país (na língua da página, em inglês ou o código), GMT ou nome do fuso, sem acentos', () => {
+  const o = tzOptions('', '2027-07-01', 'pt');
+  const find = q => o.filter(z => tzMatch(z, q)).map(z => z.tz);
+  assert.deepEqual(find('lisbon'), ['Europe/Lisbon']);
+  assert.deepEqual(find('NEW YORK'), ['America/New_York']);
+  assert.deepEqual(find('new_york'), ['America/New_York'], 'o _ do nome do fuso conta como espaço');
+  assert.deepEqual(find('alemanha').sort(), ['Europe/Berlin', 'Europe/Busingen']);
+  assert.deepEqual(find('germany').sort(), ['Europe/Berlin', 'Europe/Busingen']);
+  assert.ok(find('portugal').includes('Atlantic/Azores'));
+  assert.ok(find('BR').includes('America/Sao_Paulo'), 'o código do país');
+  assert.deepEqual(find('são paulo'), ['America/Sao_Paulo'], 'sem acentos');
+  assert.ok(find('Japão').includes('Asia/Tokyo'));
+  assert.deepEqual(find('gmt+05:45'), ['Asia/Kathmandu']);
+  assert.deepEqual(find('indiana knox'), ['America/Indiana/Knox'], 'todas as palavras, por qualquer ordem');
+  assert.deepEqual(find('europe/lis'), ['Europe/Lisbon']);
+  assert.deepEqual(find('atlantida'), []);
+  assert.equal(find('').length, o.length, 'vazia: todas');
+  assert.equal(find('  ').length, o.length);
+});
+
+test('tzFilter: as que servem, por ordem, e a escolhida mesmo que não sirva', () => {
+  const o = tzOptions('', '2027-07-01');
+  assert.deepEqual(tzFilter(o, 'germany', '').map(z => z.tz), ['Europe/Berlin', 'Europe/Busingen']);
+  assert.deepEqual(tzFilter(o, 'germany', 'Asia/Tokyo').map(z => z.tz).sort(), ['Asia/Tokyo', 'Europe/Berlin', 'Europe/Busingen']);
+  assert.deepEqual(tzFilter(o, 'atlantida', 'Asia/Tokyo').map(z => z.tz), ['Asia/Tokyo']);
+  assert.equal(tzFilter(o, '', '').length, o.length);
 });

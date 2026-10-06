@@ -1,7 +1,7 @@
 /* Painel da viagem: criar/editar datas e horário, sítios, categorias de custo, duplicar e apagar. */
 import { tr } from '../i18n.js';
 import { esc, pad, newId, iso, addDays } from '../util.js';
-import { $, toast, fillTzSelect } from './dom.js';
+import { $, toast, fillTzSelect, linkTzSearch } from './dom.js';
 import { S, activeTrip, ensureActive, setActive, pushHistory, pushStoreHistory } from '../state.js';
 import { addPlace, removePlace } from '../trip.js';
 import { validateTrip, tripFields, newTrip, applyTripEdit } from '../tripform.js';
@@ -17,12 +17,14 @@ export function openTripSheet({isNew=false}={}){
   closeSheets(); tripMode=isNew?'new':'edit'; const t=activeTrip(); $('#tripsheet').hidden=false; $('#t-err').hidden=true; $('#t-del-confirm').hidden=true;
   $('#t-h').textContent=tr(isNew?'newTrip':'datesPlaces'); $('#t-submit').textContent=tr(isNew?'createTrip':'save');
   $('#t-places-wrap').hidden=isNew;
-  if(isNew||!t){ const n=new Date(); const s=iso(addDays(n,30)), e=iso(addDays(n,36)); $('#t-name').value=''; $('#t-start').value=s; $('#t-end').value=e; $('#t-ds').value='7'; $('#t-de').value='1'; $('#t-people').value='2'; $('#t-cur').value='€'; $('#t-budget').value=''; fillTzSelect($('#t-tz'), tr('tzNone'), homeTz()); }
-  else { $('#t-name').value=t.name; $('#t-start').value=t.start; $('#t-end').value=t.end; $('#t-ds').value=String(t.dayStart); $('#t-de').value=String(t.dayEnd); $('#t-people').value=String(t.people||1); $('#t-cur').value=t.currency||'€'; $('#t-budget').value=t.budget||''; fillTzSelect($('#t-tz'), tr('tzNone'), t.tz||''); renderPlaces(); renderCats(); }
-  // a primeira opção do segundo fuso é o valor por omissão (PLANNER_HOME_TZ ou o do browser)
-  fillTzSelect($('#t-hometz'), tr('homeTzDefault',{tz:TZ.city(defaultHomeTz())||'—'}), ownHomeTz());
+  if(isNew||!t){ const n=new Date(); const s=iso(addDays(n,30)), e=iso(addDays(n,36)); $('#t-name').value=''; $('#t-start').value=s; $('#t-end').value=e; $('#t-ds').value='7'; $('#t-de').value='1'; $('#t-people').value='2'; $('#t-cur').value='€'; $('#t-budget').value=''; fillTzSelect($('#t-tz'), tr('tzNone'), homeTz(), s); }
+  else { $('#t-name').value=t.name; $('#t-start').value=t.start; $('#t-end').value=t.end; $('#t-ds').value=String(t.dayStart); $('#t-de').value=String(t.dayEnd); $('#t-people').value=String(t.people||1); $('#t-cur').value=t.currency||'€'; $('#t-budget').value=t.budget||''; fillTzSelect($('#t-tz'), tr('tzNone'), t.tz||'', t.start); renderPlaces(); renderCats(); }
+  fillHomeTz(ownHomeTz());
   $('#t-name').focus();
 }
+/* A primeira opção do segundo fuso é o valor por omissão (PLANNER_HOME_TZ ou o do browser).
+   A diferença para GMT de cada opção é a da data em que a viagem começa. */
+function fillHomeTz(cur){ fillTzSelect($('#t-hometz'), tr('homeTzDefault',{tz:TZ.city(defaultHomeTz())||'—'}), cur, $('#t-start').value); }
 
 /* sítios */
 function renderPlaces(){
@@ -49,6 +51,9 @@ function renderCats(){
 /* Opções fixas e botões do painel (main.js chama-a uma vez ao arrancar). */
 export function initTripsheet(){
   const h=Array.from({length:24},(_,i)=>`<option value="${i}">${pad(i)}:00</option>`).join(''); $('#t-ds').innerHTML=h; $('#t-de').innerHTML=h;
+  linkTzSearch($('#t-tz')); linkTzSearch($('#t-hometz'));
+  // com outra data de início a hora de verão pode ser outra: refaz as diferenças para GMT, sem mudar a escolha
+  $('#t-start').addEventListener('change',()=>{ fillTzSelect($('#t-tz'), tr('tzNone'), $('#t-tz').value, $('#t-start').value); fillHomeTz($('#t-hometz').value); });
 
   $('#t-addplace').addEventListener('click',()=>{ const v=$('#t-newplace').value; if(!v.trim()) return; pushHistory(); addPlace(activeTrip(),v); $('#t-newplace').value=''; commit(); renderPlaces(); });
   $('#t-newplace').addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); $('#t-addplace').click(); } });
