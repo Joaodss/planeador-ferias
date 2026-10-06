@@ -3,7 +3,7 @@ import './env.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { I18N } from '../web/js/i18n.js';
-import { pad, esc, newId, short, SNAP, WD, MON, CATS, STATUS, statusLabel, artDay, daysPhrase,
+import { pad, esc, newId, short, SNAP, WD, MON, kindLabels, STATUS, statusLabel, artDay, daysPhrase,
   parseISO, iso, addDays, mlabel, durLabel, dayLabel } from '../web/js/util.js';
 
 // as datas locais têm de atravessar a mudança de hora; o Node aplica o TZ novo logo, e as datas só se leem dentro dos testes
@@ -68,7 +68,7 @@ test('dayLabel com e sem mês, em PT e EN', () => {
     assert.equal(dayLabel('2027-07-05', true), 'Mon 5 Jul');
     assert.equal(WD()[6], 'Sat');
     assert.equal(MON()[0], 'Jan');
-    assert.equal(CATS().food, 'Meal');
+    assert.equal(kindLabels().food, 'Meal');
   });
 });
 

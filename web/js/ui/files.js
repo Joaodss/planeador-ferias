@@ -2,7 +2,7 @@
 import { tr } from '../i18n.js';
 import { newId } from '../util.js';
 import { $, toast } from './dom.js';
-import { S, T, setActive, pushHistory } from '../state.js';
+import { S, T, setActive, pushStoreHistory } from '../state.js';
 import { planSheet, detailRows, costSheet, excelName } from '../excel.js';
 import { backupName, backupJSON, parseBackup, mergeTrips } from '../backup.js';
 import { commit } from '../sync.js';
@@ -45,7 +45,7 @@ export function initFiles(){
   $('#import-file').addEventListener('change', async e=>{
     const f=e.target.files[0]; e.target.value=''; if(!f) return;
     let trips; try{ trips=parseBackup(await f.text()); }catch{ toast(tr('tImportBad')); return; }
-    pushHistory(true);
+    pushStoreHistory();
     const {added, replaced, first}=mergeTrips(S.store, trips, newId);
     setActive(first);
     closeSheets(); commit(); $('#scroller').scrollTo(0,0);

@@ -1,15 +1,15 @@
 /* Editor de uma atividade. */
 import { tr } from '../i18n.js';
-import { esc, short, newId, SNAP, WD, CATS, mlabel, durLabel, dayLabel } from '../util.js';
+import { esc, short, newId, SNAP, WD, kindLabels, mlabel, durLabel, dayLabel } from '../util.js';
 import { $, toast, fillTzSelect } from './dom.js';
 import { S, T, pushHistory } from '../state.js';
 import { view, placeName, findBlock, moveTo, toTray, boardFrame, toBoard, editorTime, fromEditor, blockZoneTime, duplicateBlock, dayEnds } from '../trip.js';
 import { catName, hasCat, autoCat, catOptions } from '../costs.js';
 import { TZ, secondTz } from '../tz.js';
-import { commit } from '../sync.js';
+import { commit, commitTyping } from '../sync.js';
 import { closeSheets } from './sheets.js';
 
-let editorSnap=false;   // já foi guardado um ponto de Desfazer nesta edição?
+let undoTaken=false;   // já foi guardado um ponto de Desfazer desde que o editor abriu?
 export function buildWdays(){ $('#f-wdays').innerHTML=[1,2,3,4,5,6,0].map(w=>`<label><input type="checkbox" value="${w}" id="f-wd-${w}">${WD()[w]}</label>`).join(''); }
 function fillSelects(){
   const t=T(); if(!t) return; const v=view(t); const ds=boardFrame(t).ds;
@@ -27,29 +27,31 @@ function fillTz(t, b){
   fillTzSelect($('#f-tz'), ok ? tr('fTzTrip',{city:TZ.city(t.tz)}) : tr('fTzNeedTrip'), b.tz||'');
   $('#f-tz').disabled=!ok && !b.tz;
 }
-export function openEditor(id,isNew){
-  if(S.suppressClick) return; closeSheets(); S.editingId=id; editorSnap=!!isNew;
-  fillSelects(); $('#editor').hidden=false; $('#f-del-confirm').hidden=true; fillEditor(true);
+/* isNew: a atividade acabou de ser criada (com o seu ponto de Desfazer) e o título fica selecionado para escrever. */
+export function openEditor(id, {isNew=false}={}){
+  if(S.suppressClick) return; closeSheets(); S.editingId=id; undoTaken=isNew;
+  fillSelects(); $('#editor').hidden=false; $('#f-del-confirm').hidden=true; fillEditor();
   if(isNew){ const i=$('#f-title'); i.focus(); i.select(); } else $('#editor [data-close]').focus();
 }
-/* F: o boardFrame(t) que render() já calculou. */
-export function fillEditor(full, F0){
+/* Sem opções (ao abrir) escreve todos os campos. Com refresh (render()) não mexe no campo com foco.
+   frame: o boardFrame(t) que render() já calculou. */
+export function fillEditor({refresh=false, frame}={}){
   const f=findBlock(T(),S.editingId); if(!f){ $('#editor').hidden=true; S.editingId=null; return; }
   // dia e hora mostrados na hora do quadro (vb), como na grelha, ou no fuso da atividade (z), se tiver um
-  const b=f.b, act=document.activeElement, t=T(), F=F0||boardFrame(t), vb=f.where==='tray'?null:toBoard(t,F,b), fd=vb&&editorTime(t,F,b);
-  const set=(sel,val)=>{ const el=$(sel); if(full||el!==act){ if(el.type==='checkbox') el.checked=!!val; else el.value=val; } };
-  if(full || ($('#f-tz')!==act && $('#f-tz').value!==(b.tz||''))) fillTz(t,b);
+  const b=f.b, act=document.activeElement, t=T(), F=frame||boardFrame(t), vb=f.where==='tray'?null:toBoard(t,F,b), fd=vb&&editorTime(t,F,b);
+  const set=(sel,val)=>{ const el=$(sel); if(!refresh||el!==act){ if(el.type==='checkbox') el.checked=!!val; else el.value=val; } };
+  if(!refresh || ($('#f-tz')!==act && $('#f-tz').value!==(b.tz||''))) fillTz(t,b);
   set('#f-title',b.title); if(fd && ![...$('#f-day').options].some(o=>o.value===fd.date)) $('#f-day').insertAdjacentHTML('beforeend',`<option value="${fd.date}">${dayLabel(fd.date,true)}</option>`);
   set('#f-day', fd?fd.date:'tray'); $('#f-start').disabled=f.where==='tray';
   if(fd){ if(![...$('#f-start').options].some(o=>+o.value===fd.start)) $('#f-start').insertAdjacentHTML('beforeend',`<option value="${fd.start}">${mlabel(fd.start)}${tr('outsideBoard')}</option>`); set('#f-start',String(fd.start)); }
   if(![...$('#f-len').options].some(o=>+o.value===b.len)) $('#f-len').insertAdjacentHTML('beforeend',`<option value="${b.len}">${durLabel(b.len)}</option>`);
   set('#f-len',String(b.len)); set('#f-cat',b.cat); set('#f-status',b.status||''); set('#f-place',b.place||'');
-  if(full||$('#f-ccat')!==act){ $('#f-ccat').innerHTML=catOptions(t, (b.ccat&&hasCat(t,b.ccat))?b.ccat:'', `<option value="">${tr('autoCat',{name:esc(catName(t,autoCat(t,b)))})}</option>`); }
+  if(!refresh||$('#f-ccat')!==act){ $('#f-ccat').innerHTML=catOptions(t, (b.ccat&&hasCat(t,b.ccat))?b.ccat:'', `<option value="">${tr('autoCat',{name:esc(catName(t,autoCat(t,b)))})}</option>`); }
   set('#f-pp',b.pp??''); set('#f-total',b.total??''); set('#f-address',b.address||''); set('#f-link',b.link||''); set('#f-ref',b.ref||''); set('#f-note',b.note||''); set('#f-lock',b.locked);
-  [0,1,2,3,4,5,6].forEach(w=>{ const c=$('#f-wd-'+w); if(full||c!==act) c.checked=!!(b.weekdays&&b.weekdays.includes(w)); });
+  [0,1,2,3,4,5,6].forEach(w=>{ const c=$('#f-wd-'+w); if(!refresh||c!==act) c.checked=!!(b.weekdays&&b.weekdays.includes(w)); });
   const cur=t.currency||'€'; $('#f-pp-l').textContent=tr('costPPCur',{cur}); $('#f-total-l').textContent=tr('costTotalCur',{cur});
   const lo=$('#f-link-open'); if(/^https?:\/\//i.test(b.link||'')){ lo.hidden=false; lo.href=b.link; lo.textContent=tr('openLink'); } else lo.hidden=true;
-  $('#f-tray').hidden=f.where==='tray'; $('#ed-h').textContent=CATS()[b.cat]||tr('activity');
+  $('#f-tray').hidden=f.where==='tray'; $('#ed-h').textContent=kindLabels()[b.cat]||tr('activity');
   // a outra hora: a do quadro quando os campos estão no fuso da atividade; senão o segundo fuso,
   // ou a hora da viagem quando o quadro está no segundo fuso
   const sec=secondTz(t), other=sec && (F.off ? {tz:t.tz, diff:-sec.diff} : sec), fs=$('#f-sec'), bz=vb&&blockZoneTime(t,F,b);
@@ -58,22 +60,22 @@ export function fillEditor(full, F0){
     fs.textContent=tr('secAt',{city:TZ.city(other.tz), range:`${mlabel(a)}–${mlabel(a+b.len)}`})+(sh<0?tr('prevDay'):sh>0?tr('nextDay'):''); fs.hidden=false; }
   else fs.hidden=true;
 }
-/* Aplica uma alteração à atividade aberta (um só ponto de Desfazer por abertura do editor).
-   lazy nos campos de texto: o quadro só é redesenhado numa pausa da escrita (ver commit). */
-function edit(fn, lazy){ const f=findBlock(T(),S.editingId); if(!f) return; if(!editorSnap){ pushHistory(); editorSnap=true; } fn(f.b,f); commit(lazy); }
-const optStr=(k)=>e=>edit(b=>{ const v=e.target.value.trim(); if(v) b[k]=e.target.value; else delete b[k]; }, true);
+/* Aplica uma alteração à atividade aberta (um só ponto de Desfazer por abertura do editor) e grava com done:
+   commit, ou commitTyping nos campos de texto, onde o quadro só é redesenhado numa pausa da escrita. */
+function edit(fn, done=commit){ const f=findBlock(T(),S.editingId); if(!f) return; if(!undoTaken){ pushHistory(); undoTaken=true; } fn(f.b,f); done(); }
+const optStr=(k)=>e=>edit(b=>{ const v=e.target.value.trim(); if(v) b[k]=e.target.value; else delete b[k]; }, commitTyping);
 /* Campos do editor (main.js chama-a uma vez ao arrancar). */
 export function initEditor(){
   buildWdays();
-  $('#f-title').addEventListener('input',e=>edit(b=>{ b.title=e.target.value||tr('untitled'); }, true));
+  $('#f-title').addEventListener('input',e=>edit(b=>{ b.title=e.target.value||tr('untitled'); }, commitTyping));
   ['note','address','link','ref'].forEach(k=>$('#f-'+k).addEventListener('input',optStr(k)));
   $('#f-cat').addEventListener('change',e=>edit(b=>{ b.cat=e.target.value; }));
   $('#f-status').addEventListener('change',e=>edit(b=>{ if(e.target.value) b.status=e.target.value; else delete b.status; }));
   $('#f-place').addEventListener('change',e=>edit(b=>{ if(e.target.value) b.place=e.target.value; else delete b.place; }));
   $('#f-ccat').addEventListener('change',e=>edit(b=>{ if(e.target.value) b.ccat=e.target.value; else delete b.ccat; }));
   $('#f-lock').addEventListener('change',e=>edit(b=>{ if(e.target.checked) b.locked=true; else delete b.locked; }));
-  $('#f-pp').addEventListener('input',e=>edit(b=>{ const v=parseFloat(e.target.value); if(v>0) b.pp=v; else delete b.pp; }, true));
-  $('#f-total').addEventListener('input',e=>edit(b=>{ const v=parseFloat(e.target.value); if(v>0) b.total=v; else delete b.total; }, true));
+  $('#f-pp').addEventListener('input',e=>edit(b=>{ const v=parseFloat(e.target.value); if(v>0) b.pp=v; else delete b.pp; }, commitTyping));
+  $('#f-total').addEventListener('input',e=>edit(b=>{ const v=parseFloat(e.target.value); if(v>0) b.total=v; else delete b.total; }, commitTyping));
   $('#f-wdays').addEventListener('change',()=>edit(b=>{ const ws=[0,1,2,3,4,5,6].filter(w=>$('#f-wd-'+w).checked); if(ws.length&&ws.length<7) b.weekdays=ws; else delete b.weekdays; }));
   /* Dia e hora vêm na hora do quadro (pode ser o segundo fuso) ou no fuso da atividade; fromEditor converte para a hora da viagem.
      Mudar o fuso da atividade não mexe na hora guardada: só muda como o dia e a hora se mostram. */

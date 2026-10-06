@@ -2,7 +2,7 @@
    ui/files.js carrega a biblioteca, converte as linhas em folhas e descarrega o ficheiro.
    Módulo sem DOM (testado em tests/excel.test.mjs). */
 import { tr } from './i18n.js';
-import { CATS, statusLabel, parseISO, mlabel, durLabel, dayLabel } from './util.js';
+import { kindLabels, statusLabel, parseISO, mlabel, durLabel, dayLabel } from './util.js';
 import { days, view, placeName, boardLayout } from './trip.js';
 import { dayShift } from './span.js';
 import { catName, blockCat, nPeople, costItems } from './costs.js';
@@ -50,7 +50,7 @@ export function detailRows(t){
     b.date ? dayLabel(b.date,true) : tr('unscheduled'),
     b.date ? mlabel(b.start) : '',
     b.date ? mlabel(b.start+b.len)+(dayShift(b)?' +'+dayShift(b):'') : durLabel(b.len),
-    b.title, CATS()[b.cat]||'', placeName(t,b.place)||'', statusLabel(b.status),
+    b.title, kindLabels()[b.cat]||'', placeName(t,b.place)||'', statusLabel(b.status),
     (b.pp||b.total) ? catName(t,blockCat(t,b)) : '',
     b.pp||'', b.total||'', b.address||'', b.link||'', b.ref||'', b.note||''];
   const grid=t.blocks.filter(b=>b.cat!=='sleep').slice().sort((a,b)=>a.date.localeCompare(b.date)||a.start-b.start);

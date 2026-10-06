@@ -25,10 +25,15 @@ export function setActive(id){ S.activeId=id; try{ localStorage.setItem(ACTIVE_K
 /* ---------- desfazer ----------
    Cada ponto guarda em JSON só a viagem ativa, porque quase todas as alterações mexem só nela
    (com várias viagens grandes, 60 cópias da store inteira chegavam às centenas de MB).
-   whole: guarda a store inteira, para criar, duplicar, apagar e importar viagens.
    id: a viagem aberta, que o Desfazer volta a mostrar. */
-export function pushHistory(whole){
-  const t=T(); S.history.push(whole||!t ? {store:JSON.stringify(S.store), id:S.activeId} : {id:t.id, trip:JSON.stringify(t)});
+export function pushHistory(){
+  const t=T();
+  if(t) addPoint({id:t.id, trip:JSON.stringify(t)}); else pushStoreHistory();
+}
+/* Ponto com a store inteira, para criar, duplicar, apagar e importar viagens. */
+export function pushStoreHistory(){ addPoint({store:JSON.stringify(S.store), id:S.activeId}); }
+function addPoint(p){
+  S.history.push(p);
   if(S.history.length>60) S.history.shift();
 }
 /* Descarta a última entrada (quando afinal não houve alteração). */

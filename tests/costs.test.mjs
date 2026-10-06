@@ -3,7 +3,7 @@ import './env.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { I18N } from '../web/js/i18n.js';
-import { cats, ownCats, catName, hasCat, autoCat, blockCat, lineCat, nPeople, blockTotal, lineTotal, costLines, dayCostPP, dayTotalsPP, tripTotal, costItems, catOptions,
+import { costCats, ownCats, catName, hasCat, autoCat, blockCat, lineCat, nPeople, blockTotal, lineTotal, costLines, dayCostPP, dayTotalsPP, tripTotal, costItems, catOptions,
   tripStats, costSummary } from '../web/js/costs.js';
 
 const D1 = '2027-07-05', D2 = '2027-07-06';
@@ -25,20 +25,20 @@ function trip(extra) {
   };
 }
 
-test('cats: categorias por omissão traduzidas; ownCats copia uma vez e depois devolve sempre a mesma lista', () => {
+test('costCats: categorias por omissão traduzidas; ownCats copia uma vez e depois devolve sempre a mesma lista', () => {
   const t = trip();
-  assert.deepEqual(cats(t).map(c => c.id), ['alojamento', 'transporte', 'alimentacao', 'atividades', 'festas', 'compras', 'outros']);
-  assert.equal(cats(null)[0].name, 'Alojamento');
+  assert.deepEqual(costCats(t).map(c => c.id), ['alojamento', 'transporte', 'alimentacao', 'atividades', 'festas', 'compras', 'outros']);
+  assert.equal(costCats(null)[0].name, 'Alojamento');
   I18N.set('en');
-  try { assert.equal(cats(t)[0].name, 'Accommodation'); } finally { I18N.set('pt'); }
+  try { assert.equal(costCats(t)[0].name, 'Accommodation'); } finally { I18N.set('pt'); }
   assert.equal(t.costCats, undefined, 'só ler não copia as categorias para a viagem');
 
   const own = ownCats(t);
   assert.equal(t.costCats, own);
   assert.equal(ownCats(t), own);
-  assert.equal(cats(t), own);
+  assert.equal(costCats(t), own);
   I18N.set('en');
-  try { assert.equal(cats(t)[0].name, 'Alojamento', 'depois de copiadas, os nomes são da viagem'); } finally { I18N.set('pt'); }
+  try { assert.equal(costCats(t)[0].name, 'Alojamento', 'depois de copiadas, os nomes são da viagem'); } finally { I18N.set('pt'); }
 });
 
 test('catName e hasCat: uma categoria desconhecida dá "Sem categoria"', () => {

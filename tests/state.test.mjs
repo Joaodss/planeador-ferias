@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 store['ferias-active-trip'] = 'b';   // a viagem aberta da última vez: state.js lê-a quando é carregado
-const { S, T, ensureActive, setActive, pushHistory, dropHistory, clearHistory, restoreLast, SLEEP_KEY } = await import('../web/js/state.js');
+const { S, T, ensureActive, setActive, pushHistory, pushStoreHistory, dropHistory, clearHistory, restoreLast, SLEEP_KEY } = await import('../web/js/state.js');
 
 const trip = id => ({ id, name: 'Viagem ' + id, blocks: [] });
 
@@ -39,7 +39,7 @@ test('T, ensureActive e setActive: escolhe a primeira, guarda no localStorage, a
   assert.equal(store['ferias-active-trip'], 'b');
 });
 
-test('pushHistory guarda só a viagem ativa; com whole guarda a store', () => {
+test('pushHistory guarda só a viagem ativa; pushStoreHistory guarda a store', () => {
   S.store = { version: 2, trips: [trip('a'), trip('b')] };
   setActive('a');
   clearHistory();
@@ -48,7 +48,7 @@ test('pushHistory guarda só a viagem ativa; com whole guarda a store', () => {
   pushHistory();
   assert.deepEqual(S.history.at(-1), { id: 'a', trip: JSON.stringify(trip('a')) });
 
-  pushHistory(true);
+  pushStoreHistory();
   assert.deepEqual(S.history.at(-1), { store: JSON.stringify(S.store), id: 'a' });
 
   // sem viagem ativa (por exemplo, antes de criar a primeira) guarda a store
@@ -92,7 +92,7 @@ test('restoreLast repõe só a viagem do ponto e volta a abri-la; um ponto da st
   assert.deepEqual(S.store.trips.map(t => t.id), ['b', 'a']);
 
   // ponto da store inteira (criar, duplicar, apagar, importar)
-  pushHistory(true); const before = JSON.stringify(S.store);
+  pushStoreHistory(); const before = JSON.stringify(S.store);
   S.store.trips.push(trip('c')); setActive('c');
   restoreLast();
   assert.equal(JSON.stringify(S.store), before);

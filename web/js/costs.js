@@ -7,10 +7,10 @@ const DEFAULT_CAT_IDS = ['alojamento','transporte','alimentacao','atividades','f
 const defaultCats = () => DEFAULT_CAT_IDS.map(id=>({id, name:tr('defaultCats')[id]}));
 const AUTO_CAT = {tour:'atividades', party:'festas', transport:'transporte', food:'alimentacao', rest:'outros', sleep:'outros'};
 const NO_CAT = 'sem';
-export function cats(t){ return (t && t.costCats) || defaultCats(); }
+export function costCats(t){ return (t && t.costCats) || defaultCats(); }
 export function ownCats(t){ if(!t.costCats) t.costCats=defaultCats(); return t.costCats; }
-export function catName(t,id){ const c=cats(t).find(c=>c.id===id); return c ? c.name : tr('noCat'); }
-export function hasCat(t,id){ return cats(t).some(c=>c.id===id); }
+export function catName(t,id){ const c=costCats(t).find(c=>c.id===id); return c ? c.name : tr('noCat'); }
+export function hasCat(t,id){ return costCats(t).some(c=>c.id===id); }
 export function autoCat(t,b){ const id=AUTO_CAT[b.cat]; return hasCat(t,id) ? id : NO_CAT; }
 export function blockCat(t,b){ return (b.ccat && hasCat(t,b.ccat)) ? b.ccat : autoCat(t,b); }
 export function lineCat(t,c){ return (c.cat && hasCat(t,c.cat)) ? c.cat : NO_CAT; }
@@ -34,7 +34,7 @@ export function costItems(t){
   for(const c of (t.costs||[])){ const v=lineTotal(t,c); if(v>0) out.push({label:c.label||tr('noDesc'), date:c.date||null, cat:lineCat(t,c), total:v, paid:!!c.paid}); }
   return out;
 }
-export function catOptions(t, sel, first){ return (first||'') + cats(t).map(c=>`<option value="${esc(c.id)}"${c.id===sel?' selected':''}>${esc(c.name)}</option>`).join(''); }
+export function catOptions(t, sel, first){ return (first||'') + costCats(t).map(c=>`<option value="${esc(c.id)}"${c.id===sel?' selected':''}>${esc(c.name)}</option>`).join(''); }
 
 /* Totais do rodapé do quadro: por pessoa, para o grupo e quantas atividades estão por reservar. */
 export function tripStats(t){

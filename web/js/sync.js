@@ -42,20 +42,20 @@ async function api(method, path, body, headers){
 }
 
 /* ---------- decisões (funções puras) ---------- */
-/* O que falta gravar, comparando o JSON de cada viagem (snap) com o que o servidor confirmou (synced):
+/* O que falta gravar, comparando o JSON de cada viagem (snapshot) com o que o servidor confirmou (synced):
    deletes são as viagens que o servidor tem e a página já não; puts as que mudaram ou são novas. */
-export function pendingOps(snap, synced){
-  return {deletes:[...synced.keys()].filter(id=>!snap.has(id)), puts:[...snap.keys()].filter(id=>synced.get(id)!==snap.get(id))};
+export function pendingOps(snapshot, synced){
+  return {deletes:[...synced.keys()].filter(id=>!snapshot.has(id)), puts:[...snapshot.keys()].filter(id=>synced.get(id)!==snapshot.get(id))};
 }
-/* Trata a resposta a um PUT da viagem t, enviada com o JSON js. st={trips, revs, synced, snap} é mudado aqui.
+/* Trata a resposta a um PUT da viagem t, enviada com o JSON js. st={trips, revs, synced, snapshot} é mudado aqui.
    200: fica a revisão nova. 409: fica a versão do servidor, ou a viagem sai se foi apagada noutro dispositivo.
    413: fica marcada como gravada, para não tentar para sempre. Devolve 'ok', 'conflict', 'tooBig' ou 'error'. */
 export function applyPutResponse(st, t, js, status, body){
   if(status>=200 && status<300){ st.revs.set(t.id, body.rev); st.synced.set(t.id, js); return 'ok'; }
   if(status===409){
-    const i=st.trips.indexOf(t); st.snap.delete(t.id);
+    const i=st.trips.indexOf(t); st.snapshot.delete(t.id);
     if(body.deleted){ if(i>=0) st.trips.splice(i,1); st.synced.delete(t.id); st.revs.delete(t.id); }
-    else { const nt=normTrip(body.trip), njs=JSON.stringify(nt); if(i>=0) st.trips[i]=nt; st.revs.set(nt.id, body.rev); st.synced.set(nt.id, njs); st.snap.set(nt.id, njs); }
+    else { const nt=normTrip(body.trip), njs=JSON.stringify(nt); if(i>=0) st.trips[i]=nt; st.revs.set(nt.id, body.rev); st.synced.set(nt.id, njs); st.snapshot.set(nt.id, njs); }
     return 'conflict';
   }
   if(status===413){ st.synced.set(t.id, js); return 'tooBig'; }
@@ -69,9 +69,9 @@ export function sameRevisions(trips, revs, serverTrips){
 
 /* ---------- gravar ---------- */
 /* O JSON de cada viagem, serializado uma só vez por gravação. */
-const snapshot = () => new Map(S.store.trips.map(t=>[t.id, JSON.stringify(t)]));
-function dirtyIn(snap){ const o=pendingOps(snap, synced); return o.deletes.length>0 || o.puts.length>0; }
-export function computeDirty(){ return dirtyIn(snapshot()); }
+const snapshotTrips = () => new Map(S.store.trips.map(t=>[t.id, JSON.stringify(t)]));
+function dirtyIn(snapshot){ const o=pendingOps(snapshot, synced); return o.deletes.length>0 || o.puts.length>0; }
+export function computeDirty(){ return dirtyIn(snapshotTrips()); }
 export function refreshSaveLabel(){
   if(S.saving) return ui.saveState('saving',tr('saving'));
   if(!S.online) return ui.saveState('error',tr('saveError'));
@@ -81,8 +81,8 @@ export function refreshSaveLabel(){
 export function scheduleSave(delay){ clearTimeout(saveTimer); saveTimer=setTimeout(doSave, delay ?? 1200); refreshSaveLabel(); }
 async function doSave(){
   if(S.saving || !S.authed) return;
-  // snap serve para ver o que mudou, para o corpo dos PUT e, se nada mudar entretanto, para o estado no fim
-  const snap=snapshot(), e0=edits, {deletes, puts}=pendingOps(snap, synced);
+  // snapshot serve para ver o que mudou, para o corpo dos PUT e, se nada mudar entretanto, para o estado no fim
+  const snapshot=snapshotTrips(), e0=edits, {deletes, puts}=pendingOps(snapshot, synced);
   if(!deletes.length && !puts.length){ S.dirty=false; refreshSaveLabel(); return; }
   S.saving=true; refreshSaveLabel(); let conflict=false, tooBig=false;
   try{
@@ -94,24 +94,26 @@ async function doSave(){
     const todo=new Set(puts);
     // pela ordem da store de agora: uma viagem apagada enquanto se esperava pelos pedidos já não é enviada
     for(const t of S.store.trips.slice()){
-      if(!todo.has(t.id)) continue; const js=snap.get(t.id);
-      // O corpo junta-se à mão para levar o JSON de snap tal e qual: é o que fica em synced se a gravação correr bem.
+      if(!todo.has(t.id)) continue; const js=snapshot.get(t.id);
+      // O corpo junta-se à mão para levar o JSON de snapshot tal e qual: é o que fica em synced se a gravação correr bem.
       // Com JSON.stringify({baseRev, trip}) a viagem era serializada outra vez e podia já não ser a mesma,
       // porque pode ser editada enquanto se espera pelos pedidos anteriores.
       const r=await api('PUT','/api/trips/'+encodeURIComponent(t.id), `{"baseRev":${revs.get(t.id) ?? 0},"trip":${js}}`);
-      const res=applyPutResponse({trips:S.store.trips, revs, synced, snap}, t, js, r.status, r.ok||r.status===409 ? await r.json() : null);
+      const res=applyPutResponse({trips:S.store.trips, revs, synced, snapshot}, t, js, r.status, r.ok||r.status===409 ? await r.json() : null);
       if(res==='conflict') conflict=true; else if(res==='tooBig') tooBig=true; else if(res==='error') throw new ApiError('http');
     }
     S.online=true;
   }catch(e){ if(!isAuthError(e)) S.online=false; }
-  S.saving=false; S.dirty = edits===e0 ? dirtyIn(snap) : computeDirty(); refreshSaveLabel();
+  S.saving=false; S.dirty = edits===e0 ? dirtyIn(snapshot) : computeDirty(); refreshSaveLabel();
   if(conflict){ clearHistory(); ui.closeSheets(); ensureActive(); ui.render(); ui.toast(tr('tConflict')); }
   if(tooBig) ui.toast(tr('tTooBig'));
   if(S.dirty && S.authed) scheduleSave(S.online?1200:8000);
 }
-/* Depois de qualquer alteração: marca por gravar, agenda a gravação e redesenha.
-   lazy (campos de texto, a cada tecla): o quadro só é redesenhado numa pausa de 150 ms, não a cada letra. */
-export function commit(lazy){ S.dirty=true; edits++; scheduleSave(); clearTimeout(renderTimer); if(lazy) renderTimer=setTimeout(()=>ui.render(),150); else ui.render(); }
+/* Depois de qualquer alteração: marca por gravar, agenda a gravação e redesenha. */
+export function commit(){ edited(); ui.render(); }
+/* O mesmo nos campos de texto, a cada tecla: o quadro só é redesenhado numa pausa de 150 ms, não a cada letra. */
+export function commitTyping(){ edited(); renderTimer=setTimeout(()=>ui.render(),150); }
+function edited(){ S.dirty=true; edits++; scheduleSave(); clearTimeout(renderTimer); }
 /* Desfaz o último ponto (ver restoreLast em state.js) e grava. */
 export function undo(){ if(!restoreLast()) return; ui.closeSheets(); commit(); ui.announce(tr('undone')); }
 

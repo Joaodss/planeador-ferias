@@ -142,7 +142,7 @@ func writeAtomic(p string, data []byte) error {
 // A página volta a pedir a lista sempre que o separador fica visível: com If-None-Match igual ao
 // ETag (nada mudou), a resposta é um 304 sem corpo.
 func (s *server) listTrips(w http.ResponseWriter, r *http.Request) {
-	raws, etag, err := s.tripList()
+	raws, etag, err := s.readTripRecords()
 	if err != nil {
 		fail(w, 500, "não consigo ler os dados")
 		return
@@ -173,9 +173,9 @@ func (s *server) listTrips(w http.ResponseWriter, r *http.Request) {
 	io.WriteString(w, "]}\n")
 }
 
-// tripList devolve os registos das viagens legíveis e o ETag da lista, que muda quando muda alguma
+// readTripRecords devolve os registos das viagens legíveis e o ETag da lista, que muda quando muda alguma
 // viagem (revisão, tamanho ou data do ficheiro), o utilizador ou o fuso.
-func (s *server) tripList() ([][]byte, string, error) {
+func (s *server) readTripRecords() ([][]byte, string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	entries, err := os.ReadDir(filepath.Join(s.cfg.dataDir, "trips"))

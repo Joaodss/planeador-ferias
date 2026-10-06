@@ -38,8 +38,8 @@ export function keyMove(t, F, b, key, shift){
    Devolve {date, start} (hora da viagem) e {bd, bs} (hora do quadro). */
 export function dropSlot(t, F, colDate, minute, grab){
   const raw=boardTime(t,F,colDate,minute)-grab;
-  const sl=slotAt(t, Math.round(raw/SNAP)*SNAP, F.ds.length);
-  const bd=F.ds[sl.i], bs=sl.start;
+  const slot=slotAt(t, Math.round(raw/SNAP)*SNAP, F.ds.length);
+  const bd=F.ds[slot.i], bs=slot.start;
   return {...fromBoard(t,F,bd,bs), bd, bs};
 }
 

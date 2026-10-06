@@ -6,7 +6,7 @@ import { test, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { S, T, pushHistory } from '../web/js/state.js';
 import { tr } from '../web/js/i18n.js';
-import { connectUI, boot, commit, undo, signIn, signOut, computeDirty, onVisibilityChange, initSync, isAuthError,
+import { connectUI, boot, commit, commitTyping, undo, signIn, signOut, computeDirty, onVisibilityChange, initSync, isAuthError,
   pendingOps, applyPutResponse, sameRevisions } from '../web/js/sync.js';
 
 /* ---------- servidor falso ---------- */
@@ -63,14 +63,14 @@ mock.timers.enable({ apis: ['setTimeout'] });
 /* ---------- funções puras ---------- */
 test('pendingOps: DELETE das viagens que já não estão na página, PUT das que mudaram ou são novas', () => {
   const synced = new Map([['a', '{"a":1}'], ['b', '{"b":1}'], ['c', '{"c":1}']]);
-  const snap = new Map([['a', '{"a":1}'], ['b', '{"b":2}'], ['d', '{"d":1}']]);
-  assert.deepEqual(pendingOps(snap, synced), { deletes: ['c'], puts: ['b', 'd'] });
+  const snapshot = new Map([['a', '{"a":1}'], ['b', '{"b":2}'], ['d', '{"d":1}']]);
+  assert.deepEqual(pendingOps(snapshot, synced), { deletes: ['c'], puts: ['b', 'd'] });
   assert.deepEqual(pendingOps(new Map(synced), synced), { deletes: [], puts: [] });
 });
 
 test('applyPutResponse: 200, 409 com a versão do servidor, 409 {deleted}, 413 e erros', () => {
   const t = trip('a'), js = JSON.stringify(t);
-  const st = () => ({ trips: [t, trip('b')], revs: new Map([['a', 1]]), synced: new Map(), snap: new Map([['a', js]]) });
+  const st = () => ({ trips: [t, trip('b')], revs: new Map([['a', 1]]), synced: new Map(), snapshot: new Map([['a', js]]) });
 
   let s = st();
   assert.equal(applyPutResponse(s, t, js, 200, { rev: 2 }), 'ok');
@@ -82,12 +82,12 @@ test('applyPutResponse: 200, 409 com a versão do servidor, 409 {deleted}, 413 e
   assert.deepEqual(s.trips[0].blocks, []);
   assert.equal(s.revs.get('a'), 5);
   assert.equal(s.synced.get('a'), JSON.stringify(s.trips[0]));
-  assert.equal(s.snap.get('a'), s.synced.get('a'), 'snap acompanha, para o estado final não a dar como por gravar');
+  assert.equal(s.snapshot.get('a'), s.synced.get('a'), 'snapshot acompanha, para o estado final não a dar como por gravar');
 
   s = st();
   assert.equal(applyPutResponse(s, t, js, 409, { deleted: true }), 'conflict');
   assert.deepEqual(s.trips.map(x => x.id), ['b']);
-  assert.deepEqual([s.revs.has('a'), s.synced.has('a'), s.snap.has('a')], [false, false, false]);
+  assert.deepEqual([s.revs.has('a'), s.synced.has('a'), s.snapshot.has('a')], [false, false, false]);
 
   s = st();
   assert.equal(applyPutResponse(s, t, js, 413, null), 'tooBig');
@@ -157,13 +157,18 @@ test('grava só as viagens que mudaram, com baseRev, 1,2 s depois da última alt
   assert.equal(JSON.parse(sent('PUT')[1].body).baseRev, 4, 'parte da revisão que o servidor devolveu');
 });
 
-test('commit(true) só redesenha numa pausa de 150 ms; sem alterações a gravação não faz pedidos', async () => {
+test('commitTyping só redesenha numa pausa de 150 ms; sem alterações a gravação não faz pedidos', async () => {
   await start([[trip('a'), 1]]);
-  commit(true); commit(true);
+  commitTyping(); commitTyping();
   await tick(149);
   assert.equal(ui.render.mock.callCount(), 0);
   await tick(1);
   assert.equal(ui.render.mock.callCount(), 1);
+  // um commit() a seguir redesenha logo e a pausa pendente já não redesenha outra vez
+  commitTyping(); commit();
+  assert.equal(ui.render.mock.callCount(), 2);
+  await tick(150);
+  assert.equal(ui.render.mock.callCount(), 2);
   await tick(1200);
   assert.equal(calls.length, 0, 'commit sem mudar nada não grava');
   assert.equal(S.dirty, false);

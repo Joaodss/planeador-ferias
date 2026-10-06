@@ -10,21 +10,21 @@ import { closeSheets } from './sheets.js';
 import { openEditor } from './editor.js';
 import { renderCostRows, addCost } from './costsheet.js';
 
-export function openDay(date){ closeSheets(); S.dayOpen=date; $('#daysheet').hidden=false; fillDay(true); $('#d-place').focus(); }
-/* full: ao abrir e depois de Aplicar mostra o que está gravado. Num refresh (render(), full=false) os selects
+export function openDay(date){ closeSheets(); S.dayOpen=date; $('#daysheet').hidden=false; fillDay(); $('#d-place').focus(); }
+/* Sem opções (ao abrir e depois de Aplicar) mostra o que está gravado. Com refresh (render() e um sítio novo) os selects
    são um rascunho que só conta em Aplicar: refazem-se as opções (os sítios ou as datas podem ter mudado),
    mas fica o que estava escolhido, se ainda existir. O select com foco não se mexe.
-   L0: o layout em hora da viagem que render() já calculou (boardLayout(t, days(t))). */
-export function fillDay(full, L0){
+   tripLayout: o quadro em hora da viagem que render() já calculou (boardLayout(t, days(t))). */
+export function fillDay({refresh=false, tripLayout}={}){
   const t=T(); if(!t||!S.dayOpen) return; const ds=days(t); const cur=t.dayPlaces[S.dayOpen]||[];
   $('#d-h').textContent=dayLabel(S.dayOpen,true);
-  const refill=(el, html, saved)=>{ if(!full && el===document.activeElement) return;
-    const draft=el.value; el.innerHTML=html; el.value=full ? saved : draft; if(el.selectedIndex<0) el.value=saved; };
+  const refill=(el, html, saved)=>{ if(refresh && el===document.activeElement) return;
+    const draft=el.value; el.innerHTML=html; el.value=refresh ? draft : saved; if(el.selectedIndex<0) el.value=saved; };
   const popts=t.places.map(p=>`<option value="${esc(p.id)}">${esc(p.name)}</option>`).join(''), sp=splitDayPlaces(cur);
   refill($('#d-place'), `<option value="">${tr('noPlace')}</option>`+popts, sp.first);
   refill($('#d-place2'), `<option value="">${tr('noChange')}</option>`+popts, sp.last);
   // paragens: ao abrir, as gravadas; num refresh, as do rascunho (sai a linha de um sítio que já não existe)
-  if(full){ $('#d-stops').innerHTML=''; sp.stops.forEach(p=>addStopRow(p)); }
+  if(!refresh){ $('#d-stops').innerHTML=''; sp.stops.forEach(p=>addStopRow(p)); }
   else $('#d-stops').querySelectorAll('select').forEach(el=>{ refill(el, popts, el.value); if(el.selectedIndex<0) el.parentElement.remove(); });
   numberStops(); $('#d-addstop').disabled=!t.places.length;
   const di=ds.indexOf(S.dayOpen);
@@ -33,10 +33,10 @@ export function fillDay(full, L0){
   const cost=list.reduce((s,b)=>s+blockCostPP(t,b),0);
   $('#d-list-h').textContent = tr('dayActivities')+(cost?' · '+money(t,cost)+' '+tr('perPersonLower'):'');
   const dc=dayCostPP(t,S.dayOpen); $('#d-costs-h').textContent = tr('dayCosts')+(dc?' · '+money(t,dc)+' '+tr('perPersonLower'):'');
-  renderCostRows($('#d-costs'), S.dayOpen, full===true);
+  renderCostRows($('#d-costs'), S.dayOpen, {refresh});
   // atividades de dias anteriores que ainda decorrem neste dia (ex.: um voo de 30 h)
-  const L=L0||boardLayout(t,ds), i=ds.indexOf(S.dayOpen);
-  const cont=i<0?[]:L.cols[i].filter(s=>s.cutTop && s.b.date!==S.dayOpen).map(s=>s.b);
+  const {cols}=tripLayout||boardLayout(t,ds), i=ds.indexOf(S.dayOpen);
+  const cont=i<0?[]:cols[i].filter(s=>s.cutTop && s.b.date!==S.dayOpen).map(s=>s.b);
   if(!list.length && !cont.length) box.innerHTML=`<p class="hint">${tr('dayEmpty')}</p>`;
   cont.concat(list).filter(b=>b.cat!=='sleep').forEach(b=>{ const it=document.createElement('button'); it.type='button'; it.className='day-item cat-'+b.cat;
     const from=b.date!==S.dayOpen ? `<span class="from">${tr('fromDay',{day:dayLabel(b.date)})}</span>` : '';
@@ -60,11 +60,11 @@ export function initDaysheet(){
     pushHistory();
     const later=[...$('#d-stops').querySelectorAll('select')].map(el=>el.value).concat($('#d-place2').value);
     if(setDayPlaces(T(), S.dayOpen, $('#d-until').value, $('#d-place').value, later)) toast(tr('tPlaceLastDay'));
-    commit(); fillDay(true); announce(tr('placeSaved'));
+    commit(); fillDay(); announce(tr('placeSaved'));
   });
-  $('#d-addplace').addEventListener('click',()=>{ const v=$('#d-newplace').value; if(!v.trim()) return; pushHistory(); const p=addPlace(T(),v); $('#d-newplace').value=''; commit(); fillDay(false); $('#d-place').value=p.id; toast(tr('tPlaceAdded',{name:p.name})); });
+  $('#d-addplace').addEventListener('click',()=>{ const v=$('#d-newplace').value; if(!v.trim()) return; pushHistory(); const p=addPlace(T(),v); $('#d-newplace').value=''; commit(); fillDay({refresh:true}); $('#d-place').value=p.id; toast(tr('tPlaceAdded',{name:p.name})); });
   $('#d-newplace').addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); $('#d-addplace').click(); } });
   $('#d-add').addEventListener('click',()=>{ const t=T(), v=view(t); let s=Math.max(v.T0,540);
-    pushHistory(); const b=newBlock({date:S.dayOpen, start:Math.min(s,v.T1-60)}, newId); t.blocks.push(b); commit(); openEditor(b.id,true); });
+    pushHistory(); const b=newBlock({date:S.dayOpen, start:Math.min(s,v.T1-60)}, newId); t.blocks.push(b); commit(); openEditor(b.id,{isNew:true}); });
   $('#d-addcost').addEventListener('click',()=>addCost($('#d-costs'), S.dayOpen));
 }
