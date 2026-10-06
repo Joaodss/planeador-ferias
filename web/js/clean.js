@@ -2,11 +2,14 @@
    O servidor não conhece o esquema da viagem, por isso o cliente é a única barreira contra dados malformados:
    uma atividade sem data partia o quadro em todos os dispositivos e um estado com HTML entrava na página.
    Módulo puro (testado em tests/clean.test.mjs); normTrip (trip.js) chama-o com newId. */
+import { TZ } from './tz.js';
 
 /* IDs guardados (em português de propósito): nunca mudar o nome, só a tradução. */
 export const STATUSES = ['ideia', 'reservar', 'reservado', 'pago'];
 export const KINDS = ['tour', 'party', 'transport', 'food', 'rest', 'sleep'];
 
+/* Sítios de um dia no máximo: onde começam, as paragens pelo caminho e onde acabam. */
+export const MAX_DAY_PLACES = 12;
 /* Data AAAA-MM-DD e identificador (o mesmo que o servidor aceita no caminho). backup.js também os usa. */
 export const ISO = /^\d{4}-\d{2}-\d{2}$/, ID = /^[A-Za-z0-9_-]{1,64}$/;
 /* Número finito a partir de um número ou de texto ("600"); qualquer outra coisa dá d. */
@@ -31,6 +34,8 @@ function cleanBlock(b, placed, used, newId){
   const ws = Array.isArray(b.weekdays) ? [...new Set(b.weekdays.map(w => int(w, 0, 6, -1)))].filter(w => w>=0) : [];
   if(ws.length && ws.length<7) b.weekdays = ws; else delete b.weekdays;
   for(const k of ['place', 'ccat']) if(typeof b[k]!=='string' || !b[k]) delete b[k];
+  // fuso próprio da atividade (ex.: um voo): só um que o browser reconheça
+  if(typeof b.tz!=='string' || !TZ.valid(b.tz)) delete b.tz;
   for(const k of ['address', 'link', 'ref', 'note']) if(b[k]!=null) b[k] = text(b[k]);
   return b;
 }
@@ -53,7 +58,7 @@ export function cleanTrip(t, newId){
   const pids = new Set();
   t.places = list(t.places).map(p => { p.id = uid(p.id, pids, 'p', newId); p.name = text(p.name); p.c = int(p.c, 1, 8, 1); return p; });
   const dp = {};
-  if(obj(t.dayPlaces)) for(const [d, v] of Object.entries(t.dayPlaces)) if(ISO.test(d) && Array.isArray(v)){ const a = v.filter(x => typeof x==='string' && x).slice(0, 2); if(a.length) dp[d] = a; }
+  if(obj(t.dayPlaces)) for(const [d, v] of Object.entries(t.dayPlaces)) if(ISO.test(d) && Array.isArray(v)){ const a = v.filter(x => typeof x==='string' && x).slice(0, MAX_DAY_PLACES); if(a.length) dp[d] = a; }
   t.dayPlaces = dp;
   const cids = new Set();
   t.costs = list(t.costs).map(c => {

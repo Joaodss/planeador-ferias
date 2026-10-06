@@ -63,6 +63,7 @@
       <div class="field"><label for="f-day" data-i18n="fDay">Dia</label><select id="f-day"></select></div>
       <div class="field"><label for="f-start" data-i18n="fStart">Começa</label><select id="f-start"></select></div>
     </div>
+    <div class="field"><label for="f-tz" data-i18n="fTz">Fuso do dia e da hora</label><select id="f-tz"></select></div>
     <p class="hint sec-time" id="f-sec" hidden></p>
     <div class="row2">
       <div class="field"><label for="f-len" data-i18n="fLen">Duração</label><select id="f-len"></select></div>
@@ -100,7 +101,9 @@
   <header><h2 id="d-h" data-i18n="day">Dia</h2><button class="x" type="button" data-close="daysheet" data-i18n-aria="close" aria-label="Fechar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button></header>
   <div class="body">
     <div class="field"><label for="d-place" data-i18n="dPlace">Onde estão</label><select id="d-place"></select></div>
-    <div class="field"><label for="d-place2" data-i18n="dPlace2">Mudam durante o dia para</label><select id="d-place2"></select></div>
+    <div class="field"><span class="lbl" id="d-stops-l" data-i18n="dStops">Passam por</span><div class="stops" id="d-stops" role="group" aria-labelledby="d-stops-l"></div><button class="btn add-stop" type="button" id="d-addstop" data-i18n="addStop">Adicionar paragem</button></div>
+    <div class="field"><label for="d-place2" data-i18n="dPlace2">Acabam o dia em</label><select id="d-place2"></select></div>
+    <p class="hint" data-i18n="dStopsHint">Numa viagem de carro, junta as paragens pelo caminho. O cabeçalho do dia mostra só onde começam e onde acabam, mas as atividades nas paragens não dão aviso.</p>
     <div class="field"><label for="d-until" data-i18n="dUntil">Aplicar também aos dias seguintes até</label><select id="d-until"></select></div>
     <div class="actions"><button class="btn primary" type="button" id="d-apply" data-i18n="savePlace">Guardar sítio</button></div>
     <div class="field"><label for="d-newplace" data-i18n="newPlace">Novo sítio</label><div style="display:flex;gap:8px"><input type="text" id="d-newplace" data-i18n-ph="newPlacePh" placeholder="Ex.: Lisboa, Hotel X, Algarve"><button class="btn" type="button" id="d-addplace" data-i18n="add">Adicionar</button></div></div>
@@ -128,8 +131,8 @@
         <div class="field"><label for="t-de" data-i18n="tDayEnd">E vai até às</label><select id="t-de"></select></div>
       </div>
       <div class="row2">
-        <div class="field"><label for="t-tz" data-i18n="tTz">Fuso horário da viagem</label><input type="text" id="t-tz" list="tz-list" autocomplete="off" autocapitalize="none" spellcheck="false" data-i18n-ph="tTzPh" placeholder="Ex.: Asia/Tokyo"></div>
-        <div class="field"><label for="t-hometz" data-i18n="tHomeTz">Segundo fuso (neste dispositivo)</label><input type="text" id="t-hometz" list="tz-list" autocomplete="off" autocapitalize="none" spellcheck="false"></div>
+        <div class="field"><label for="t-tz" data-i18n="tTz">Fuso horário da viagem</label><select id="t-tz"></select></div>
+        <div class="field"><label for="t-hometz" data-i18n="tHomeTz">Segundo fuso (neste dispositivo)</label><select id="t-hometz"></select></div>
       </div>
       <p class="hint" data-i18n="tzHint">As horas do quadro são a hora local da viagem. Quando o segundo fuso é diferente, aparece numa coluna de horas ao lado.</p>
       <div class="row2">
@@ -176,7 +179,6 @@
   <div class="body" id="w-list"></div>
 </aside>
 
-<datalist id="tz-list"></datalist>
 <div class="sr" aria-live="polite" id="announce"></div>
 <div class="toast" id="toast" hidden></div>
 

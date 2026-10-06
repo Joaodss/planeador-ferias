@@ -45,6 +45,22 @@ function diffLabel(min){
 
 export const TZ = {all: ALL, valid, local, offsetAt, diff, city, diffLabel};
 
+/* Opções dos selects de fuso: por região (o que vem antes da primeira "/") e, dentro de cada uma, pelo nome
+   da cidade, para que escrever as primeiras letras salte para ela. "America/Argentina/Salta" → "Salta (Argentina)".
+   Os fusos sem região (UTC no Firefox) ficam no grupo ''. cur entra na lista se for válido e lá não estiver
+   (um nome antigo guardado noutro browser). Devolve [{region, zones:[{tz, label}]}], com as regiões por ordem. */
+export function tzGroups(cur){
+  const zs = cur && valid(cur) && !ALL.includes(cur) ? ALL.concat(cur) : ALL, by = new Map();
+  for(const z of zs){
+    const p = z.split('/'), region = p.length>1 ? p[0] : '';
+    const label = p.length>2 ? `${city(z)} (${p.slice(1,-1).join(' / ').replace(/_/g,' ')})` : city(z);
+    if(!by.has(region)) by.set(region, []);
+    by.get(region).push({tz:z, label});
+  }
+  for(const a of by.values()) a.sort((x,y)=>x.label.localeCompare(y.label));
+  return [...by].sort((a,b)=>a[0].localeCompare(b[0])).map(([region, zones])=>({region, zones}));
+}
+
 /* ---------- segundo fuso ----------
    O segundo fuso aparece numa coluna de horas ao lado da grelha:
    o escolhido neste dispositivo, senão PLANNER_HOME_TZ, senão o do browser. */

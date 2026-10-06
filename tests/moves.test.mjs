@@ -89,4 +89,7 @@ test('clashesOn: dias da semana e sítio do dia', () => {
   assert.equal(clashesOn(t, act(D1, 0, 60, { place: 'po' }), D2), true, 'nesse dia estão em Lisboa');
   assert.equal(clashesOn(t, act(D1, 0, 60, { place: 'lx' }), D2), false);
   assert.equal(clashesOn(t, act(D1, 0, 60, { place: 'po' }), D3), false, 'dia sem sítio não choca');
+  t.dayPlaces[D3] = ['lx', 'co', 'po'];
+  assert.equal(clashesOn(t, act(D1, 0, 60, { place: 'co' }), D3), false, 'uma paragem pelo caminho não choca (#41)');
+  assert.equal(clashesOn(t, act(D1, 0, 60, { place: 'fa' }), D3), true);
 });

@@ -3,7 +3,7 @@ import { tr } from '../i18n.js';
 import { esc, short, WD, MON, statusLabel, parseISO, mlabel, durLabel, dayLabel, newId } from '../util.js';
 import { $, isMobile, refreshSlot, PXM, announce } from './dom.js';
 import { S, T, ensureActive, pushHistory } from '../state.js';
-import { days, view, money, placeById, placeName, findBlock, boardLayout, rangeLabel, boardFrame, toBoard, fromBoard, newBlock, routeSummary, dateRangeLabel } from '../trip.js';
+import { days, view, money, placeById, placeName, findBlock, boardLayout, rangeLabel, boardFrame, toBoard, fromBoard, blockZoneTime, newBlock, routeSummary, dateRangeLabel, dayEnds } from '../trip.js';
 import { laneLayout } from '../span.js';
 import { keyMove } from '../moves.js';
 import { tripStats, dayTotalsPP } from '../costs.js';
@@ -18,8 +18,9 @@ import { renderDash } from './costsheet.js';
 import { renderWarnings } from './review.js';
 
 /* seg: o pedaço visível numa coluna (null no tabuleiro). Um pedaço cortado continua noutro dia ou nas horas escondidas.
-   vb: dia e hora da atividade no quadro (toBoard), que pode estar no segundo fuso. */
-function blockEl(t, b, warnMap, seg, vb){
+   vb: dia e hora da atividade no quadro (toBoard), que pode estar no segundo fuso.
+   bz: a hora local no fuso da atividade, quando não é o do quadro (blockZoneTime). */
+function blockEl(t, b, warnMap, seg, vb, bz){
   const inTray=!seg; const el=document.createElement('div');
   el.className='blk cat-'+b.cat+(b.locked?' locked':'')+(b.status==='ideia'?' status-ideia':'')+(seg&&seg.cutTop?' cut-top':'')+(seg&&seg.cutBot?' cut-bot':'');
   el.dataset.id=b.id; el.tabIndex=0; el.setAttribute('role','button');
@@ -27,12 +28,13 @@ function blockEl(t, b, warnMap, seg, vb){
   const cost = b.pp ? `<span class="eur">${money(t,b.pp)} pp</span>` : (b.total ? `<span class="eur">${money(t,b.total)}</span>` : '');
   const sl = statusLabel(b.status), st = sl ? `<span class="st st-${b.status}">${(b.status==='reservado'||b.status==='pago')?'✓ ':''}${esc(sl)}</span>` : '';
   const time = inTray ? durLabel(b.len) : rangeLabel({start:vb.start, len:b.len});
-  el.innerHTML = `<div class="t">${esc(b.title)}</div><div class="m"><span>${time}</span>${cost}${st}</div>`
+  const ltz = bz ? tr('secAt',{city:TZ.city(bz.tz), range:`${mlabel(bz.start)}–${mlabel(bz.start+bz.len)}`})+(bz.days<0?tr('prevDay'):bz.days>0?tr('nextDay'):'') : '';
+  el.innerHTML = `<div class="t">${esc(b.title)}</div><div class="m"><span>${time}</span>${bz?`<span class="ltz" title="${esc(ltz)}">${mlabel(bz.start)} ${esc(TZ.city(bz.tz))}</span>`:''}${cost}${st}</div>`
     + (w?`<span class="badge" title="${esc(w.map(x=>x.t).join('\n'))}">!</span>`:'')
     + (b.locked?`<svg class="lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>`:'')
     + (inTray||seg.cutBot?'':'<div class="grip" aria-hidden="true"></div>');
   if(w){ el.classList.add('has-badge'); if(w.some(x=>x.sev==='bad')) el.classList.add('bad'); }
-  el.setAttribute('aria-label', `${b.title}, ${inTray?tr('unscheduledLower'):dayLabel(vb.date,true)+' '+time}${sl?', '+sl:''}${w?', '+tr('nWarnings',{n:w.length}):''}`);
+  el.setAttribute('aria-label', `${b.title}, ${inTray?tr('unscheduledLower'):dayLabel(vb.date,true)+' '+time}${ltz?', '+ltz:''}${sl?', '+sl:''}${w?', '+tr('nWarnings',{n:w.length}):''}`);
   return el;
 }
 export function render(){
@@ -83,12 +85,13 @@ export function render(){
     const d=parseISO(date), wd=d.getDay(), extra=!inTrip.has(date);
     // dia fora da viagem: só aparece quando, na hora do segundo fuso, há atividades nele. Não tem painel.
     const h=document.createElement(extra?'div':'button'); h.className='dh'+((wd===0||wd===6)?' weekend':'')+(extra?' extra':''); if(!extra){ h.type='button'; h.dataset.date=date; }
-    const locs=t.dayPlaces[date]||[];
+    // ends: só onde começam e onde acabam; as paragens do meio aparecem na dica e na leitura do ecrã
+    const locs=t.dayPlaces[date]||[], ends=dayEnds(locs);
     const cost=costOf.get(date)||0;
-    if(locs.length) h.style.setProperty('--loc-c', `linear-gradient(90deg, ${locs.map((l,k)=>`var(--p${((placeById(t,l)||{c:1}).c-1)%8+1}) ${k*100/locs.length}% ${(k+1)*100/locs.length}%`).join(',')})`);
+    if(ends.length) h.style.setProperty('--loc-c', `linear-gradient(90deg, ${ends.map((l,k)=>`var(--p${((placeById(t,l)||{c:1}).c-1)%8+1}) ${k*100/ends.length}% ${(k+1)*100/ends.length}%`).join(',')})`);
     const showMonth = i===0 || d.getDate()===1;
     h.innerHTML = `<div class="strip"></div><div class="date"><span class="num">${d.getDate()}</span><span class="wd">${WD()[wd]}${showMonth?' · '+MON()[d.getMonth()]:''}</span><span class="cost">${cost?money(t,cost)+' pp':''}</span></div>`
-      + (locs.length ? `<div class="loc" title="${esc(locs.map(l=>placeName(t,l)).join(' → '))}">${locs.map(l=>esc(short(placeName(t,l)))).join(' <span class="ferry">→</span> ')}</div>` : `<div class="loc none">${extra?tr('outsideTrip'):tr('whereClick')}</div>`);
+      + (ends.length ? `<div class="loc" title="${esc(locs.map(l=>placeName(t,l)).join(' → '))}">${ends.map(l=>esc(short(placeName(t,l)))).join(` <span class="ferry">${locs.length>2?'⇢':'→'}</span> `)}</div>` : `<div class="loc none">${extra?tr('outsideTrip'):tr('whereClick')}</div>`);
     if(!extra) h.setAttribute('aria-label', `${dayLabel(date,true)}${locs.length?', '+locs.map(l=>placeName(t,l)).join(tr('placesJoin')):''}. ${tr('openDay')}`);
     board.appendChild(h);
   });
@@ -102,7 +105,7 @@ export function render(){
     const list=BL.cols[i];
     const layout=laneLayout(list.filter(noSleep));
     for(const s of list){
-      const el=blockEl(t,s.b,warnMap,s,toBoard(t,F,s.b)); const L=layout.get(s.b.id)||{lane:0,n:1}; const wp=100/L.n;
+      const el=blockEl(t,s.b,warnMap,s,toBoard(t,F,s.b),blockZoneTime(t,F,s.b)); const L=layout.get(s.b.id)||{lane:0,n:1}; const wp=100/L.n;
       const top=s.top*PXM(), hp=(s.bot-s.top)*PXM()-2;
       el.style.top=(top+1)+'px'; el.style.height=hp+'px'; el.style.left=`calc(${L.lane*wp}% + 3px)`; el.style.width=`calc(${wp}% - 6px)`;
       if(hp<40) el.classList.add('short');

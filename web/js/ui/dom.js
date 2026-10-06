@@ -1,4 +1,7 @@
-/* Ajudas de DOM partilhadas pela interface: seletor, avisos, tamanho do ecrã e escala da grelha. */
+/* Ajudas de DOM partilhadas pela interface: seletor, avisos, tamanho do ecrã, escala da grelha e selects de fuso. */
+import { tr } from '../i18n.js';
+import { esc } from '../util.js';
+import { tzGroups } from '../tz.js';
 export const $ = s => document.querySelector(s);
 export const isMobile = () => matchMedia('(max-width:640px)').matches;
 
@@ -11,3 +14,15 @@ export function PXM(){ return SLOT/30; }
 let toastT=null;
 export function toast(m){ const t=$('#toast'); t.textContent=m; t.hidden=false; clearTimeout(toastT); toastT=setTimeout(()=>t.hidden=true, 4200); }
 export function announce(m){ $('#announce').textContent=m; }
+
+/* ---------- selects de fuso ---------- */
+/* Enche um select de fusos como os outros dropdowns (#43): primeiro a opção first (valor ''),
+   depois os fusos por região (tzGroups em tz.js). Fica escolhido cur. */
+export function fillTzSelect(el, first, cur){
+  const R=tr('tzRegions');
+  el.innerHTML=`<option value="">${esc(first)}</option>`+tzGroups(cur).map(g=>{
+    const o=g.zones.map(z=>`<option value="${esc(z.tz)}">${esc(z.label)}</option>`).join('');
+    return g.region ? `<optgroup label="${esc(R[g.region]||g.region)}">${o}</optgroup>` : o;
+  }).join('');
+  el.value=cur||'';
+}

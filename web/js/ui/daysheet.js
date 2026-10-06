@@ -3,7 +3,7 @@ import { tr } from '../i18n.js';
 import { esc, newId, statusLabel, dayLabel } from '../util.js';
 import { $, toast, announce } from './dom.js';
 import { S, T, pushHistory } from '../state.js';
-import { days, view, money, blockCostPP, blocksOf, addPlace, boardLayout, rangeLabel, setDayPlaces, newBlock } from '../trip.js';
+import { days, view, money, blockCostPP, blocksOf, addPlace, boardLayout, rangeLabel, setDayPlaces, splitDayPlaces, newBlock } from '../trip.js';
 import { dayCostPP } from '../costs.js';
 import { commit } from '../sync.js';
 import { closeSheets } from './sheets.js';
@@ -20,9 +20,13 @@ export function fillDay(full, L0){
   $('#d-h').textContent=dayLabel(S.dayOpen,true);
   const refill=(el, html, saved)=>{ if(!full && el===document.activeElement) return;
     const draft=el.value; el.innerHTML=html; el.value=full ? saved : draft; if(el.selectedIndex<0) el.value=saved; };
-  const popts=t.places.map(p=>`<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('');
-  refill($('#d-place'), `<option value="">${tr('noPlace')}</option>`+popts, cur[0]||'');
-  refill($('#d-place2'), `<option value="">${tr('noChange')}</option>`+popts, cur[1]||'');
+  const popts=t.places.map(p=>`<option value="${esc(p.id)}">${esc(p.name)}</option>`).join(''), sp=splitDayPlaces(cur);
+  refill($('#d-place'), `<option value="">${tr('noPlace')}</option>`+popts, sp.first);
+  refill($('#d-place2'), `<option value="">${tr('noChange')}</option>`+popts, sp.last);
+  // paragens: ao abrir, as gravadas; num refresh, as do rascunho (sai a linha de um sítio que já não existe)
+  if(full){ $('#d-stops').innerHTML=''; sp.stops.forEach(p=>addStopRow(p)); }
+  else $('#d-stops').querySelectorAll('select').forEach(el=>{ refill(el, popts, el.value); if(el.selectedIndex<0) el.parentElement.remove(); });
+  numberStops(); $('#d-addstop').disabled=!t.places.length;
   const di=ds.indexOf(S.dayOpen);
   refill($('#d-until'), `<option value="">${tr('justThisDay')}</option>`+ds.slice(di+1).map(d=>`<option value="${d}">${dayLabel(d,true)}</option>`).join(''), '');
   const list=blocksOf(t,S.dayOpen); const box=$('#d-list'); box.innerHTML='';
@@ -39,11 +43,23 @@ export function fillDay(full, L0){
     it.innerHTML=`<span class="tm">${rangeLabel(b)}</span><span class="nm">${esc(b.title)}${from}</span>${statusLabel(b.status)?`<span class="st st-${b.status}" style="margin-left:auto;font-size:10px;font-weight:700;padding:0 5px;border-radius:4px">${esc(statusLabel(b.status))}</span>`:''}`;
     it.addEventListener('click',()=>openEditor(b.id)); box.appendChild(it); });
 }
+/* Uma linha de paragem (rascunho até Aplicar): o sítio p e o botão Remover. */
+function addStopRow(p){
+  const t=T(), row=document.createElement('div'); row.className='stop-row';
+  row.innerHTML=`<select>${t.places.map(x=>`<option value="${esc(x.id)}">${esc(x.name)}</option>`).join('')}</select><button class="btn danger" type="button">${tr('remove')}</button>`;
+  const sel=row.querySelector('select'); sel.value=p;
+  row.querySelector('button').addEventListener('click',()=>{ const next=row.nextElementSibling; row.remove(); numberStops(); (next ? next.querySelector('select') : $('#d-addstop')).focus(); });
+  $('#d-stops').appendChild(row);
+  return sel;
+}
+function numberStops(){ $('#d-stops').querySelectorAll('.stop-row').forEach((row,k)=>{ row.querySelector('select').setAttribute('aria-label',tr('stopN',{n:k+1})); row.querySelector('button').setAttribute('aria-label',tr('removeStopN',{n:k+1})); }); }
 /* Botões do painel do dia (main.js chama-a uma vez ao arrancar). */
 export function initDaysheet(){
+  $('#d-addstop').addEventListener('click',()=>{ const t=T(); if(!t.places.length) return; const sel=addStopRow(t.places[0].id); numberStops(); sel.focus(); });
   $('#d-apply').addEventListener('click',()=>{
     pushHistory();
-    if(setDayPlaces(T(), S.dayOpen, $('#d-until').value, $('#d-place').value, $('#d-place2').value)) toast(tr('tPlaceLastDay'));
+    const later=[...$('#d-stops').querySelectorAll('select')].map(el=>el.value).concat($('#d-place2').value);
+    if(setDayPlaces(T(), S.dayOpen, $('#d-until').value, $('#d-place').value, later)) toast(tr('tPlaceLastDay'));
     commit(); fillDay(true); announce(tr('placeSaved'));
   });
   $('#d-addplace').addEventListener('click',()=>{ const v=$('#d-newplace').value; if(!v.trim()) return; pushHistory(); const p=addPlace(T(),v); $('#d-newplace').value=''; commit(); fillDay(false); $('#d-place').value=p.id; toast(tr('tPlaceAdded',{name:p.name})); });

@@ -18,7 +18,7 @@
      tz.js        fusos horários e segundo fuso
      sync.js      pedidos ao servidor, gravação e sessão
    js/ui/         interface
-     dom.js       $, toast, announce, tamanho do ecrã e escala da grelha
+     dom.js       $, toast, announce, tamanho do ecrã, escala da grelha e selects de fuso
      login.js     ecrãs de login e sem ligação, botão Sair
      board.js     quadro, render() e teclado
      drag.js      arrastar e redimensionar
