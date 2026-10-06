@@ -1,7 +1,7 @@
 /* Cálculo de custos: categorias, totais e parcelas. */
 import { tr } from './i18n.js';
 import { esc } from './util.js';
-import { days } from './trip.js';
+import { tripDates } from './trip.js';
 
 const DEFAULT_CAT_IDS = ['alojamento','transporte','alimentacao','atividades','festas','compras','outros'];
 const defaultCats = () => DEFAULT_CAT_IDS.map(id=>({id, name:tr('defaultCats')[id]}));
@@ -15,22 +15,24 @@ export function autoCat(t,b){ const id=AUTO_CAT[b.cat]; return hasCat(t,id) ? id
 export function blockCat(t,b){ return (b.ccat && hasCat(t,b.ccat)) ? b.ccat : autoCat(t,b); }
 export function lineCat(t,c){ return (c.cat && hasCat(t,c.cat)) ? c.cat : NO_CAT; }
 export function nPeople(t){ return Math.max(1, t.people||1); }
-export function blockTotal(t,b){ return (b.pp||0)*nPeople(t) + (b.total||0); }
+/* Custo de uma atividade: pp é por pessoa e total para o grupo; uma pode ter os dois. */
+export function blockCostTotal(t,b){ return (b.pp||0)*nPeople(t) + (b.total||0); }
+export function blockCostPerPerson(t,b){ return (b.pp||0) + (b.total||0)/nPeople(t); }
 export function lineTotal(t,c){ return c.per==='pp' ? (c.amount||0)*nPeople(t) : (c.amount||0); }
 export function costLines(t,date){ return (t.costs||[]).filter(c=> date===null ? !c.date : c.date===date); }
 export function dayCostPP(t, date){ return costLines(t,date).reduce((s,c)=>s+lineTotal(t,c),0)/nPeople(t); }
 /* Custo por pessoa de cada dia (atividades + custos do dia) numa só passagem: date → valor. */
 export function dayTotalsPP(t){
   const n=nPeople(t), m=new Map(), add=(d,v)=>m.set(d,(m.get(d)||0)+v);
-  for(const b of t.blocks) add(b.date, (b.pp||0)+(b.total||0)/n);
+  for(const b of t.blocks) add(b.date, blockCostPerPerson(t,b));
   for(const c of (t.costs||[])) if(c.date) add(c.date, lineTotal(t,c)/n);
   return m;
 }
-export function tripTotal(t){ return t.blocks.reduce((s,b)=>s+blockTotal(t,b),0) + (t.costs||[]).reduce((s,c)=>s+lineTotal(t,c),0); }
+export function tripTotal(t){ return t.blocks.reduce((s,b)=>s+blockCostTotal(t,b),0) + (t.costs||[]).reduce((s,c)=>s+lineTotal(t,c),0); }
 /* Todas as parcelas de custo da viagem, já em valor total para o grupo. */
 export function costItems(t){
   const out=[];
-  for(const b of t.blocks){ const v=blockTotal(t,b); if(v>0) out.push({label:b.title, date:b.date, cat:blockCat(t,b), total:v, paid:b.status==='pago', blockId:b.id}); }
+  for(const b of t.blocks){ const v=blockCostTotal(t,b); if(v>0) out.push({label:b.title, date:b.date, cat:blockCat(t,b), total:v, paid:b.status==='pago', blockId:b.id}); }
   for(const c of (t.costs||[])){ const v=lineTotal(t,c); if(v>0) out.push({label:c.label||tr('noDesc'), date:c.date||null, cat:lineCat(t,c), total:v, paid:!!c.paid}); }
   return out;
 }
@@ -58,7 +60,7 @@ export function costSummary(t){
   const byCat=[...groups.entries()]
     .map(([id,list])=>({id, sum:sum(list), list:list.slice().sort((a,b)=>String(a.date||'').localeCompare(String(b.date||''))||b.total-a.total)}))
     .sort((a,b)=>b.sum-a.sum);
-  const ds=days(t), inTrip=new Set(ds), sumOf=new Map();
+  const ds=tripDates(t), inTrip=new Set(ds), sumOf=new Map();
   for(const i of items) if(i.date) sumOf.set(i.date, (sumOf.get(i.date)||0)+i.total);
   const byDay=ds.map(d=>({d, sum:sumOf.get(d)||0}));
   const general=sum(items.filter(i=>!i.date || !inTrip.has(i.date)));

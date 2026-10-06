@@ -27,7 +27,7 @@
      daysheet.js  painel do dia
      tripsheet.js painel da viagem (sítios, categorias)
      costsheet.js painel de custos
-     review.js    painel dos pontos a rever
+     warnings.js  painel dos pontos a rever
      toolbar.js   barra de ferramentas e indicador de gravação
      files.js     Excel, cópia de segurança e importar */
 import { I18N } from './i18n.js';
@@ -41,12 +41,12 @@ import { initEditor } from './ui/editor.js';
 import { initDaysheet } from './ui/daysheet.js';
 import { initTripsheet } from './ui/tripsheet.js';
 import { initCostsheet } from './ui/costsheet.js';
-import { initReview } from './ui/review.js';
+import { initWarnings } from './ui/warnings.js';
 import { initToolbar, showSaveState } from './ui/toolbar.js';
 import { initFiles } from './ui/files.js';
 
 initLogin(); initBoard(); initDrag(); initSheets(); initEditor(); initDaysheet();
-initTripsheet(); initCostsheet(); initReview(); initToolbar(); initFiles();
+initTripsheet(); initCostsheet(); initWarnings(); initToolbar(); initFiles();
 connectUI({render, closeSheets, toast, announce, saveState:showSaveState, showLogin, showApp, showOffline});
 initSync();
 I18N.apply();

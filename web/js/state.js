@@ -18,8 +18,8 @@ export const S = {
 };
 try{ S.activeId = localStorage.getItem(ACTIVE_KEY); }catch{}
 
-export function T(){ return S.store.trips.find(t=>t.id===S.activeId) || null; }
-export function ensureActive(){ if(!T()) S.activeId = S.store.trips.length ? S.store.trips[0].id : null; }
+export function activeTrip(){ return S.store.trips.find(t=>t.id===S.activeId) || null; }
+export function ensureActive(){ if(!activeTrip()) S.activeId = S.store.trips.length ? S.store.trips[0].id : null; }
 export function setActive(id){ S.activeId=id; try{ localStorage.setItem(ACTIVE_KEY,id); }catch{} }
 
 /* ---------- desfazer ----------
@@ -27,7 +27,7 @@ export function setActive(id){ S.activeId=id; try{ localStorage.setItem(ACTIVE_K
    (com várias viagens grandes, 60 cópias da store inteira chegavam às centenas de MB).
    id: a viagem aberta, que o Desfazer volta a mostrar. */
 export function pushHistory(){
-  const t=T();
+  const t=activeTrip();
   if(t) addPoint({id:t.id, trip:JSON.stringify(t)}); else pushStoreHistory();
 }
 /* Ponto com a store inteira, para criar, duplicar, apagar e importar viagens. */

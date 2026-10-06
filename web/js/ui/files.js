@@ -2,7 +2,7 @@
 import { tr } from '../i18n.js';
 import { newId } from '../util.js';
 import { $, toast } from './dom.js';
-import { S, T, setActive, pushStoreHistory } from '../state.js';
+import { S, activeTrip, setActive, pushStoreHistory } from '../state.js';
 import { planSheet, detailRows, costSheet, excelName } from '../excel.js';
 import { backupName, backupJSON, parseBackup, mergeTrips } from '../backup.js';
 import { commit } from '../sync.js';
@@ -23,7 +23,7 @@ function loadXLSX(){
 export function initFiles(){
   /* Excel: as folhas vêm de excel.js; aqui só se carrega o SheetJS e se descarrega o ficheiro. */
   $('#export').addEventListener('click', async ()=>{
-    const t=T(); if(!t) return;
+    const t=activeTrip(); if(!t) return;
     if(!(await loadXLSX())){ toast(tr('tExcelFail')); return; }
     const XLSX=window.XLSX, wb=XLSX.utils.book_new();
     const plan=planSheet(t), ws=XLSX.utils.aoa_to_sheet(plan.aoa); ws['!merges']=plan.merges; ws['!cols']=plan.cols;

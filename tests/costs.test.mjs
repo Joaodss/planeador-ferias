@@ -3,7 +3,7 @@ import './env.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { I18N } from '../web/js/i18n.js';
-import { costCats, ownCats, catName, hasCat, autoCat, blockCat, lineCat, nPeople, blockTotal, lineTotal, costLines, dayCostPP, dayTotalsPP, tripTotal, costItems, catOptions,
+import { costCats, ownCats, catName, hasCat, autoCat, blockCat, lineCat, nPeople, blockCostTotal, blockCostPerPerson, lineTotal, costLines, dayCostPP, dayTotalsPP, tripTotal, costItems, catOptions,
   tripStats, costSummary } from '../web/js/costs.js';
 
 const D1 = '2027-07-05', D2 = '2027-07-06';
@@ -65,7 +65,7 @@ test('autoCat e blockCat: tipo → categoria; ccat que já não existe volta à 
   assert.equal(blockCat(sem, { cat: 'tour', ccat: 'compras' }), 'compras');
 });
 
-test('lineCat, lineTotal (pp × pessoas ou total), nPeople (0 ou undefined → 1), blockTotal e tripTotal', () => {
+test('lineCat, lineTotal (pp × pessoas ou total), nPeople (0 ou undefined → 1), blockCostTotal e tripTotal', () => {
   const t = trip();
   assert.equal(lineCat(t, { cat: 'alojamento' }), 'alojamento');
   assert.equal(lineCat(t, { cat: 'apagada' }), 'sem');
@@ -76,11 +76,22 @@ test('lineCat, lineTotal (pp × pessoas ou total), nPeople (0 ou undefined → 1
   assert.equal(lineTotal(t, { amount: 5, per: 'pp' }), 10);
   assert.equal(lineTotal(t, { amount: 5, per: 'total' }), 5);
   assert.equal(lineTotal(t, { per: 'pp' }), 0);
-  assert.equal(blockTotal(t, { pp: 100, total: 20 }), 220);
-  assert.equal(blockTotal(t, {}), 0);
+  assert.equal(blockCostTotal(t, { pp: 100, total: 20 }), 220);
+  assert.equal(blockCostTotal(t, {}), 0);
   // 10×2 + 30 + 100×2+20 + 0  +  100 + 5×2 + 0
   assert.equal(tripTotal(t), 270 + 110);
   assert.equal(tripTotal({ people: 1, blocks: [] }), 0, 'viagem antiga sem costs');
+});
+
+test('blockCostPerPerson: só pp, só total (people 0, 1 e 3), os dois', () => {
+  const t = trip();
+  assert.equal(blockCostPerPerson(t, { pp: 10 }), 10);
+  assert.equal(blockCostPerPerson(t, {}), 0);
+  for (const [people, want] of [[0, 30], [1, 30], [3, 10]]) {
+    t.people = people;
+    assert.equal(blockCostPerPerson(t, { total: 30 }), want, `${people} pessoas`);
+  }
+  assert.equal(blockCostPerPerson(t, { pp: 10, total: 30 }), 20);
 });
 
 test('costLines(null) só dá os gerais; costLines(data) só os desse dia; dayCostPP', () => {

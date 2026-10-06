@@ -2,7 +2,7 @@
 import { tr } from '../i18n.js';
 import { esc, newId, dayLabel } from '../util.js';
 import { $ } from './dom.js';
-import { T, pushHistory } from '../state.js';
+import { activeTrip, pushHistory } from '../state.js';
 import { money } from '../trip.js';
 import { catName, hasCat, lineCat, nPeople, costLines, catOptions, costSummary } from '../costs.js';
 import { commit, commitTyping } from '../sync.js';
@@ -14,7 +14,7 @@ import { openDay } from './daysheet.js';
    se o foco estiver numa das linhas, para não estragar o que se está a escrever. */
 export function renderCostRows(box, date, {refresh=false}={}){
   if(refresh && box.contains(document.activeElement)) return;
-  const t=T(); if(!t) return; const lines=costLines(t,date); box.innerHTML='';
+  const t=activeTrip(); if(!t) return; const lines=costLines(t,date); box.innerHTML='';
   if(!lines.length){ box.innerHTML = `<p class="hint">${tr(date===null ? 'noGeneralCosts' : 'noDayCosts')}</p>`; return; }
   for(const c of lines){
     const row=document.createElement('div'); row.className='cost-row'; const k='c-'+c.id;
@@ -35,7 +35,7 @@ export function renderCostRows(box, date, {refresh=false}={}){
   }
 }
 export function addCost(box, date, defCat){
-  const t=T(); if(!t) return; pushHistory(); t.costs=t.costs||[];
+  const t=activeTrip(); if(!t) return; pushHistory(); t.costs=t.costs||[];
   const c={id:newId('c'), label:'', amount:0, per:'total'}; if(date) c.date=date; if(defCat && hasCat(t,defCat)) c.cat=defCat;
   t.costs.push(c); commit(); renderCostRows(box,date);
   const inp=box.querySelector('#'+CSS.escape('c-'+c.id+'-l')); if(inp) inp.focus();
@@ -48,7 +48,7 @@ function barRow(t, label, value, max, total, extra){
 }
 /* Com refresh (render()), as linhas de custo gerais ficam como estão se tiverem o foco (ver renderCostRows). */
 export function renderDash({refresh=false}={}){
-  const t=T(); if(!t) return; const n=nPeople(t);
+  const t=activeTrip(); if(!t) return; const n=nPeople(t);
   // as contas estão em costSummary (costs.js); aqui só se escreve o HTML
   const {total, paid, byCat:rows, byDay, general:gen, budget}=costSummary(t);
   // resumo
@@ -81,6 +81,6 @@ export function renderDash({refresh=false}={}){
 function openCosts(){ closeSheets(); $('#costsheet').hidden=false; renderDash(); $('#costsheet [data-close]').focus(); }
 /* Botões do painel de custos (main.js chama-a uma vez ao arrancar). */
 export function initCostsheet(){
-  $('#costs-btn').addEventListener('click',()=>{ if(!T()) return; if(!$('#costsheet').hidden){ $('#costsheet').hidden=true; return; } openCosts(); });
+  $('#costs-btn').addEventListener('click',()=>{ if(!activeTrip()) return; if(!$('#costsheet').hidden){ $('#costsheet').hidden=true; return; } openCosts(); });
   $('#c-add-general').addEventListener('click',()=>addCost($('#c-general'), null));
 }

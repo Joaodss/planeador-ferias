@@ -4,7 +4,7 @@ import { store, clearStore } from './env.mjs';
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { I18N } from '../web/js/i18n.js';
-import { normTrip, days, rangeLabel, money, blockCostPP, placeById, placeName, addPlace, findBlock, blocksOf, moveTo, toTray, boardFrame, toBoard, fromBoard,
+import { normTrip, tripDates, rangeLabel, money, placeById, placeName, addPlace, findBlock, blocksOf, moveTo, toTray, boardFrame, toBoard, fromBoard,
   newBlock, duplicateBlock, removePlace, setDayPlaces, splitDayPlaces, dayEnds, routeSummary, dateRangeLabel,
   toZone, fromZone, editorTime, fromEditor, blockZoneTime } from '../web/js/trip.js';
 import { tr } from '../web/js/i18n.js';
@@ -16,14 +16,14 @@ const trip = extra => normTrip({ id: 't', name: 'Teste', start: D1, end: D3, day
 beforeEach(clearStore);
 
 test('days: datas inclusive; início depois do fim → []; máximo 120; sem viagem → []', () => {
-  assert.deepEqual(days(trip()), [D1, D2, D3]);
-  assert.deepEqual(days(trip({ end: D1 })), [D1]);
-  assert.deepEqual(days(trip({ start: D3, end: D1 })), []);
-  assert.deepEqual(days({ start: '2027-12-30', end: '2028-01-02' }), ['2027-12-30', '2027-12-31', '2028-01-01', '2028-01-02']);
-  const long = days({ start: '2027-01-01', end: '2028-12-31' });
+  assert.deepEqual(tripDates(trip()), [D1, D2, D3]);
+  assert.deepEqual(tripDates(trip({ end: D1 })), [D1]);
+  assert.deepEqual(tripDates(trip({ start: D3, end: D1 })), []);
+  assert.deepEqual(tripDates({ start: '2027-12-30', end: '2028-01-02' }), ['2027-12-30', '2027-12-31', '2028-01-01', '2028-01-02']);
+  const long = tripDates({ start: '2027-01-01', end: '2028-12-31' });
   assert.equal(long.length, 120);
   assert.equal(long.at(-1), '2027-04-30');
-  assert.deepEqual(days(null), []);
+  assert.deepEqual(tripDates(null), []);
 });
 
 test('rangeLabel: +1 e +2 nas que passam da meia-noite', () => {
@@ -50,17 +50,6 @@ test('money: moeda que não é € vem antes do número, em PT e EN', () => {
   I18N.set('en');
   try { assert.equal(money(t, 1234.5), 'R$1,234.5'); } finally { I18N.set('pt'); }
   assert.equal(money(null, 5), '5 €', 'sem viagem usa €');
-});
-
-test('blockCostPP: só pp, só total (people 0, 1 e 3), os dois', () => {
-  const t = trip();
-  assert.equal(blockCostPP(t, { pp: 10 }), 10);
-  assert.equal(blockCostPP(t, {}), 0);
-  for (const [people, want] of [[0, 30], [1, 30], [3, 10]]) {
-    t.people = people;
-    assert.equal(blockCostPP(t, { total: 30 }), want, `${people} pessoas`);
-  }
-  assert.equal(blockCostPP(t, { pp: 10, total: 30 }), 20);
 });
 
 test('addPlace: tira espaços, não repete (sem olhar a maiúsculas), primeira cor livre e depois cíclica, vazio → null', () => {
@@ -127,35 +116,35 @@ test('boardFrame, toBoard e fromBoard: nada muda na hora da viagem; no segundo f
   store['ferias-home-tz'] = 'America/New_York';   // 5 h atrás de Lisboa em julho
 
   // Na hora da viagem: as colunas são os dias da viagem e nada é convertido.
-  const F0 = boardFrame(t);
-  assert.deepEqual(F0, { ds: [D1, D2, D3], d0: D1, sh: 0, off: 0 });
+  const frame0 = boardFrame(t);
+  assert.deepEqual(frame0, { dates: [D1, D2, D3], firstDate: D1, shiftMin: 0, offsetMin: 0 });
   for (const b of blocks) {
-    assert.deepEqual(toBoard(t, F0, b), { date: b.date, start: b.start });
-    assert.deepEqual(fromBoard(t, F0, b.date, b.start), { date: b.date, start: b.start });
+    assert.deepEqual(toBoard(t, frame0, b), { date: b.date, start: b.start });
+    assert.deepEqual(fromBoard(t, frame0, b.date, b.start), { date: b.date, start: b.start });
   }
 
   // No fuso de Nova Iorque: as 09:00 de dia 5 em Lisboa são as 04:00, antes do início do quadro (08:00),
   // e ficam no fim da coluna de dia 4, que só aparece por isso.
   store['ferias-view-home'] = '1';
-  const F = boardFrame(t);
-  assert.deepEqual(F.ds, ['2027-07-04', D1, D2, D3]);
-  assert.equal(F.off, -300);
-  assert.deepEqual(toBoard(t, F, blocks[0]), { date: '2027-07-04', start: H(28) });
-  assert.deepEqual(toBoard(t, F, blocks[1]), { date: D2, start: H(20) });
+  const frame = boardFrame(t);
+  assert.deepEqual(frame.dates, ['2027-07-04', D1, D2, D3]);
+  assert.equal(frame.offsetMin, -300);
+  assert.deepEqual(toBoard(t, frame, blocks[0]), { date: '2027-07-04', start: H(28) });
+  assert.deepEqual(toBoard(t, frame, blocks[1]), { date: D2, start: H(20) });
   for (const b of blocks) {
-    const v = toBoard(t, F, b);
-    assert.deepEqual(fromBoard(t, F, v.date, v.start), { date: b.date, start: b.start }, b.id);
+    const v = toBoard(t, frame, b);
+    assert.deepEqual(fromBoard(t, frame, v.date, v.start), { date: b.date, start: b.start }, b.id);
   }
 
   // Kiritimati (+14) visto de Pago Pago (−11): 25 h atrás, duas colunas antes da viagem.
   const far = trip({ tz: 'Pacific/Kiritimati', blocks: [{ id: 'cedo', date: D1, start: 0, len: 60, title: 'Cedo', cat: 'tour' }] });
   store['ferias-home-tz'] = 'Pacific/Pago_Pago';
-  assert.deepEqual(boardFrame(far).ds, ['2027-07-03', '2027-07-04', D1, D2, D3]);
+  assert.deepEqual(boardFrame(far).dates, ['2027-07-03', '2027-07-04', D1, D2, D3]);
   far.blocks[0].start = -H(40);   // mais cedo ainda (só possível com dados à mão): continua a haver só duas
-  assert.equal(boardFrame(far).ds[0], '2027-07-03');
+  assert.equal(boardFrame(far).dates[0], '2027-07-03');
   // dias fora da viagem não acrescentam colunas
   far.blocks[0] = { id: 'fora', date: '2027-06-01', start: 0, len: 60, title: 'Fora', cat: 'tour' };
-  assert.deepEqual(boardFrame(far).ds, [D1, D2, D3]);
+  assert.deepEqual(boardFrame(far).dates, [D1, D2, D3]);
 });
 
 let ids = 0;
@@ -273,13 +262,13 @@ test('fromZone numa mudança de hora: a diferença é a do dia da viagem a que s
 });
 
 test('editorTime e fromEditor: no fuso da atividade quando tem um, senão na hora do quadro (#42)', () => {
-  const t = trip({ tz: 'Europe/Lisbon' }), F = boardFrame(t);
+  const t = trip({ tz: 'Europe/Lisbon' }), frame = boardFrame(t);
   const b = { id: 'a', date: D1, start: H(20), len: 60, title: 'Voo', cat: 'transport', tz: 'Asia/Tokyo' };
-  assert.deepEqual(editorTime(t, F, b), { date: D2, start: H(4), off: H(8) });
-  assert.deepEqual(fromEditor(t, F, b, D2, H(5)), { date: D1, start: H(21) });
+  assert.deepEqual(editorTime(t, frame, b), { date: D2, start: H(4), off: H(8) });
+  assert.deepEqual(fromEditor(t, frame, b, D2, H(5)), { date: D1, start: H(21) });
   const c = { ...b, tz: undefined };
-  assert.deepEqual(editorTime(t, F, c), { date: D1, start: H(20) });
-  assert.deepEqual(fromEditor(t, F, c, D2, H(5)), { date: D2, start: H(5) });
+  assert.deepEqual(editorTime(t, frame, c), { date: D1, start: H(20) });
+  assert.deepEqual(fromEditor(t, frame, c, D2, H(5)), { date: D2, start: H(5) });
   const u = trip();   // sem fuso da viagem, o fuso da atividade não conta
   assert.deepEqual(editorTime(u, boardFrame(u), b), { date: D1, start: H(20) });
   assert.deepEqual(fromEditor(u, boardFrame(u), b, D2, H(5)), { date: D2, start: H(5) });

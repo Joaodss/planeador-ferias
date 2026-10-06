@@ -3,7 +3,7 @@
    currency, budget, tz, homeTz}. Módulo sem DOM (testado em tests/tripform.test.mjs); ui/tripsheet.js lê e escreve os campos. */
 import { parseISO } from './util.js';
 import { resolveTz } from './tz.js';
-import { days, toTray } from './trip.js';
+import { tripDates, toTray } from './trip.js';
 
 export const MAX_DAYS = 60;
 
@@ -46,7 +46,7 @@ export function applyTripEdit(t, fields){
   Object.assign(t, rest);
   if(budget) t.budget=budget; else delete t.budget;
   if(tz) t.tz=tz; else delete t.tz;
-  const inTrip=new Set(days(t));
+  const inTrip=new Set(tripDates(t));
   const out=t.blocks.filter(b=>!inTrip.has(b.date));
   for(const b of out) toTray(t, b.id);
   for(const c of t.costs||[]) if(c.date && !inTrip.has(c.date)) delete c.date;

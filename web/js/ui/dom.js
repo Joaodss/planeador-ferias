@@ -8,7 +8,7 @@ export const isMobile = () => matchMedia('(max-width:640px)').matches;
 /* Altura de 30 min na grelha (vem do CSS --slot). render() volta a lê-la com refreshSlot() antes de desenhar. */
 let SLOT = 24;
 export function refreshSlot(){ SLOT = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--slot')) || 24; }
-export function PXM(){ return SLOT/30; }
+export function pxPerMin(){ return SLOT/30; }
 
 /* ---------- avisos ao utilizador ---------- */
 let toastT=null;

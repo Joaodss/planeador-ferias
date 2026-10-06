@@ -2,8 +2,8 @@
    ui/files.js carrega a biblioteca, converte as linhas em folhas e descarrega o ficheiro.
    Módulo sem DOM (testado em tests/excel.test.mjs). */
 import { tr } from './i18n.js';
-import { kindLabels, statusLabel, parseISO, mlabel, durLabel, dayLabel } from './util.js';
-import { days, view, placeName, boardLayout } from './trip.js';
+import { kindLabels, statusLabel, parseISO, clockLabel, durationLabel, dayLabel } from './util.js';
+import { tripDates, boardHours, placeName, boardLayout } from './trip.js';
 import { dayShift } from './span.js';
 import { catName, blockCat, nPeople, costItems } from './costs.js';
 
@@ -13,10 +13,10 @@ const r2 = x => Math.round(x*100)/100;
    Atividades que se sobrepõem na mesma coluna ficam na mesma célula, separadas por xAnd;
    uma célula que ocupa várias meias horas fica unida (merges, no formato do SheetJS). */
 export function planSheet(t){
-  const v=view(t), ds=days(t), rows=v.span/30;
+  const hours=boardHours(t), ds=tripDates(t), rows=hours.span/30;
   const MONL=tr('xMonths'), WDX=tr('xWeekdays');
   const aoa=[[''].concat(ds.map(d=>{ const x=parseISO(d); return tr('xDay',{d:x.getDate(), m:MONL[x.getMonth()], w:WDX[x.getDay()]}); }))];
-  for(let r=0;r<rows;r++) aoa.push([mlabel(v.T0+r*30)].concat(ds.map(()=>'')));
+  for(let r=0;r<rows;r++) aoa.push([clockLabel(hours.from+r*30)].concat(ds.map(()=>'')));
   const merges=[], L=boardLayout(t,ds);
   const cell=b=>b.title+(b.pp?`\n${b.pp} ${tr('xPP')}`:'')+(b.total?`\n${b.total}`:'');
   ds.forEach((d,ci)=>{
@@ -48,8 +48,8 @@ export function planSheet(t){
 export function detailRows(t){
   const rowOf=b=>[
     b.date ? dayLabel(b.date,true) : tr('unscheduled'),
-    b.date ? mlabel(b.start) : '',
-    b.date ? mlabel(b.start+b.len)+(dayShift(b)?' +'+dayShift(b):'') : durLabel(b.len),
+    b.date ? clockLabel(b.start) : '',
+    b.date ? clockLabel(b.start+b.len)+(dayShift(b)?' +'+dayShift(b):'') : durationLabel(b.len),
     b.title, kindLabels()[b.cat]||'', placeName(t,b.place)||'', statusLabel(b.status),
     (b.pp||b.total) ? catName(t,blockCat(t,b)) : '',
     b.pp||'', b.total||'', b.address||'', b.link||'', b.ref||'', b.note||''];
