@@ -2,5 +2,7 @@ data/
 .env
 /planner
 /planeador-ferias
+/planner.exe
+/planeador-ferias.exe
 *.log
 node_modules/
