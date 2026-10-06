@@ -91,7 +91,8 @@ palavras-passe), ou fazes `docker login ghcr.io` no servidor com um token com pe
 └── .session-secret          segredo que assina as sessões
 ```
 
-- Dentro de cada viagem: `tz` (fuso da viagem, opcional: as horas da grelha são a hora local desse fuso), `blocks` (atividades, com `pp`/`total` e `ccat` para a categoria de custo), `costs`
+- Dentro de cada viagem: `tz` (fuso da viagem, opcional: as horas da grelha são a hora local desse fuso), `dayPlaces` (os sítios de cada dia: onde começam, as paragens pelo caminho e onde acabam),
+  `blocks` (atividades, com `pp`/`total`, `ccat` para a categoria de custo e `tz`, um fuso próprio opcional em que o editor mostra o dia e a hora), `costs`
   (custos do dia ou gerais), `costCats` (categorias) e `budget` (orçamento).
 - As escritas são atómicas (ficheiro temporário + troca), por isso uma falha de energia não corrompe uma viagem.
 - Cada viagem tem um número de revisão. Se dois dispositivos editarem a mesma viagem, o segundo a gravar

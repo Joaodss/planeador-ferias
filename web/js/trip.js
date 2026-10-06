@@ -2,8 +2,8 @@
    Todas as funções recebem a viagem t: quem chama na interface passa T(). */
 import { I18N, tr } from './i18n.js';
 import { parseISO, iso, addDays, newId, mlabel, MON } from './util.js';
-import { view, dayShift, absStart, addISO, frameShift, toFrame, fromFrame, dateAt } from './span.js';
-import { viewOffset } from './tz.js';
+import { view, dayShift, dayIndex, absStart, addISO, frameShift, toFrame, fromFrame, dateAt } from './span.js';
+import { TZ, viewOffset, homeTz } from './tz.js';
 import { cleanTrip } from './clean.js';
 
 export { view, boardLayout } from './span.js';
@@ -56,6 +56,40 @@ export function toBoard(t,F,b){ return F.off ? toFrame(t,b,F.sh,F.d0) : {date:b.
 /* Dia e hora do quadro → date/start a guardar (hora da viagem). */
 export function fromBoard(t,F,date,start){ return F.off ? fromFrame(t,date,start,F.sh,F.d0) : {date, start}; }
 
+/* ---------- fuso de uma atividade ----------
+   Uma atividade pode ter um fuso seu, b.tz (ex.: a partida de um voo). date/start guardam-se sempre na hora da viagem:
+   o fuso só muda como o editor mostra e lê o dia e a hora, e a hora local que o bloco mostra no quadro.
+   off: minutos que o fuso da atividade está à frente da hora da viagem, ao meio-dia UTC do dia (TZ.diff). */
+/* Dia e hora (de relógio, start < 1440) da atividade b no seu fuso, com off; null sem fuso, sem dia ou sem fuso da viagem. */
+export function toZone(t, b){
+  if(!b.tz || b.date==null) return null;
+  const off=TZ.diff(t.tz, b.tz, b.date);
+  if(off===null) return null;
+  const A=absStart(t,b)+off, i=Math.floor(A/1440);
+  return {date:addISO(t.start,i), start:A-i*1440, off};
+}
+/* O contrário: dia e hora no fuso tz → date/start a guardar. A diferença conta-se no dia da viagem a que se chega:
+   se esse dia tiver outra diferença (mudança de hora pelo meio), volta a converter com ela. */
+export function fromZone(t, tz, date, start){
+  const A=dayIndex(t,date)*1440+start, off=TZ.diff(t.tz, tz, date)||0;
+  const p=dateAt(t, A-off), off2=TZ.diff(t.tz, tz, p.date)||0;
+  return off2===off ? p : dateAt(t, A-off2);
+}
+/* Dia e hora que o editor mostra: no fuso da atividade, se tiver um (e a viagem também), senão na hora do quadro. */
+export function editorTime(t, F, b){ return toZone(t,b) || toBoard(t,F,b); }
+/* O contrário: o dia e a hora escolhidos no editor → date/start a guardar. */
+export function fromEditor(t, F, b, date, start){
+  return b.tz && TZ.diff(t.tz, b.tz, date)!==null ? fromZone(t, b.tz, date, start) : fromBoard(t, F, date, start);
+}
+/* Hora local para o bloco no quadro (F: boardFrame), quando o fuso da atividade não é o do quadro.
+   {tz, start, len, days}: days é quantos dias o relógio do fuso está à frente do dia do quadro. null quando não há nada a mostrar. */
+export function blockZoneTime(t, F, b){
+  const z=toZone(t,b);
+  if(!z || z.off===F.off || b.tz===(F.off ? homeTz() : t.tz)) return null;
+  const vb=toBoard(t,F,b), days=dayIndex(t,z.date)-dayIndex(t,vb.date)-Math.floor(vb.start/1440);
+  return {tz:b.tz, start:z.start, len:b.len, days};
+}
+
 /* ---------- alterações feitas nos painéis ---------- */
 /* Atividade nova (por agendar, ou no dia e hora de where={date, start}), com os valores por omissão. */
 export function newBlock(where, newId){ return {id:newId('a'), ...where, len:60, title:tr('newActivity'), cat:'tour', status:'ideia'}; }
@@ -75,23 +109,37 @@ export function duplicateBlock(t, id, newId){
 export function removePlace(t, id){
   t.places=t.places.filter(p=>p.id!==id);
   for(const d of Object.keys(t.dayPlaces)){
-    t.dayPlaces[d]=t.dayPlaces[d].filter(p=>p!==id);
+    t.dayPlaces[d]=noRepeats(t.dayPlaces[d].filter(p=>p!==id));
     if(!t.dayPlaces[d].length) delete t.dayPlaces[d];
   }
   for(const b of t.blocks.concat(t.tray)) if(b.place===id) delete b.place;
 }
-/* Painel do dia, "Aplicar": o sítio p1 de from até until (inclusive; until vazio = só from).
-   O segundo sítio p2 (para onde se vai durante o dia) só fica no último dia do intervalo. Sem p1 nem p2, limpa.
-   Devolve true quando p2 ficou só no último dia de um intervalo com mais de um dia (a página avisa). */
-export function setDayPlaces(t, from, until, p1, p2){
+/* Os sítios de um dia são [onde começam, paragens pelo caminho…, onde acabam] (uma viagem de carro passa por vários).
+   Sem vazios nem o mesmo sítio duas vezes seguidas. */
+function noRepeats(ids){ const out=[]; for(const p of ids) if(p && p!==out[out.length-1]) out.push(p); return out; }
+/* A lista de um dia separada como no painel do dia: first, as paragens do meio e last ('' quando não há). */
+export function splitDayPlaces(list){
+  const a=list||[];
+  return {first:a[0]||'', stops:a.slice(1,-1), last:a.length>1 ? a[a.length-1] : ''};
+}
+/* O que o cabeçalho do dia mostra: só onde começam e onde acabam. As paragens do meio ficam na dica. */
+export function dayEnds(list){
+  const a=list||[];
+  if(a.length<2 || a[0]===a[a.length-1]) return a.slice(0,1);
+  return [a[0], a[a.length-1]];
+}
+/* Painel do dia, "Aplicar": o sítio first de from até until (inclusive; until vazio = só from).
+   later são os sítios por onde passam durante o dia (as paragens e, no fim, onde acabam): só ficam no último dia
+   do intervalo. Sem sítios, limpa. Devolve true quando later ficou só no último dia de um intervalo com mais
+   de um dia (a página avisa). */
+export function setDayPlaces(t, from, until, first, later=[]){
   const ds=days(t), i=ds.indexOf(from), j=until ? ds.indexOf(until) : i;
+  const day=noRepeats([first]), end=noRepeats([first, ...later]);
   for(let k=i;k<=j;k++){
-    const arr=[];
-    if(p1) arr.push(p1);
-    if(p2 && p2!==p1 && k===j) arr.push(p2);
-    if(arr.length) t.dayPlaces[ds[k]]=arr; else delete t.dayPlaces[ds[k]];
+    const arr=k===j ? end : day;
+    if(arr.length) t.dayPlaces[ds[k]]=arr.slice(); else delete t.dayPlaces[ds[k]];
   }
-  return !!(p2 && j>i && p2!==p1);
+  return j>i && end.length>day.length;
 }
 
 /* ---------- cabeçalho do quadro ---------- */

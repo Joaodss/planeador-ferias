@@ -5,7 +5,8 @@ import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { I18N } from '../web/js/i18n.js';
 import { normTrip, days, rangeLabel, money, blockCostPP, placeById, placeName, addPlace, findBlock, blocksOf, moveTo, toTray, boardFrame, toBoard, fromBoard,
-  newBlock, duplicateBlock, removePlace, setDayPlaces, routeSummary, dateRangeLabel } from '../web/js/trip.js';
+  newBlock, duplicateBlock, removePlace, setDayPlaces, splitDayPlaces, dayEnds, routeSummary, dateRangeLabel,
+  toZone, fromZone, editorTime, fromEditor, blockZoneTime } from '../web/js/trip.js';
 import { tr } from '../web/js/i18n.js';
 
 process.env.TZ = 'Europe/Lisbon';   // TZ.local(): o segundo fuso quando não há outro escolhido
@@ -200,22 +201,103 @@ test('removePlace: sai dos sítios, dos dias e das atividades na grelha e em "po
   assert.deepEqual(t.places.map(p => p.id), ['po']);
   assert.deepEqual(t.dayPlaces, { [D2]: ['po'], [D3]: ['po'] });
   assert.deepEqual([t.blocks[0].place, t.blocks[1].place, t.tray[0].place], [undefined, 'po', undefined]);
+  const u = trip({ places: [{ id: 'lx', name: 'Lisboa', c: 1 }, { id: 'si', name: 'Sintra', c: 2 }], dayPlaces: { [D1]: ['lx', 'si', 'lx'] } });
+  removePlace(u, 'si');
+  assert.deepEqual(u.dayPlaces, { [D1]: ['lx'] }, 'sem a paragem do meio, Lisboa não fica repetida');
 });
 
 test('setDayPlaces: um dia, um intervalo, segundo sítio só no último dia, e limpar', () => {
   const t = trip();
-  assert.equal(setDayPlaces(t, D1, '', 'lx', ''), false);
+  assert.equal(setDayPlaces(t, D1, '', 'lx'), false);
   assert.deepEqual(t.dayPlaces, { [D1]: ['lx'] });
-  assert.equal(setDayPlaces(t, D1, D3, 'lx', 'po'), true, 'o Porto só fica no último dia: a página avisa');
+  assert.equal(setDayPlaces(t, D1, D3, 'lx', ['po']), true, 'o Porto só fica no último dia: a página avisa');
   assert.deepEqual(t.dayPlaces, { [D1]: ['lx'], [D2]: ['lx'], [D3]: ['lx', 'po'] });
-  assert.equal(setDayPlaces(t, D2, '', 'lx', 'po'), false, 'num dia só não há aviso');
+  assert.equal(setDayPlaces(t, D2, '', 'lx', ['po']), false, 'num dia só não há aviso');
   assert.deepEqual(t.dayPlaces[D2], ['lx', 'po']);
-  assert.equal(setDayPlaces(t, D1, D2, 'lx', 'lx'), false, 'o mesmo sítio duas vezes conta uma');
+  assert.equal(setDayPlaces(t, D1, D2, 'lx', ['lx']), false, 'o mesmo sítio duas vezes conta uma');
   assert.deepEqual(t.dayPlaces[D2], ['lx']);
-  setDayPlaces(t, D3, '', '', 'po');
+  setDayPlaces(t, D3, '', '', ['po']);
   assert.deepEqual(t.dayPlaces[D3], ['po'], 'só o segundo sítio');
-  setDayPlaces(t, D1, D3, '', '');
+  setDayPlaces(t, D1, D3, '', ['']);
   assert.deepEqual(t.dayPlaces, {}, 'sem sítios limpa');
+});
+
+test('setDayPlaces com paragens: ficam pela ordem só no último dia, sem vazios nem repetidos seguidos (#41)', () => {
+  const t = trip();
+  assert.equal(setDayPlaces(t, D1, D2, 'lx', ['co', '', 'co', 'po']), true, 'paragens num intervalo: a página avisa');
+  assert.deepEqual(t.dayPlaces, { [D1]: ['lx'], [D2]: ['lx', 'co', 'po'] });
+  assert.equal(setDayPlaces(t, D3, '', 'po', ['co', 'po']), false);
+  assert.deepEqual(t.dayPlaces[D3], ['po', 'co', 'po'], 'ida e volta no mesmo dia');
+  setDayPlaces(t, D3, '', 'po', ['co', '']);
+  assert.deepEqual(t.dayPlaces[D3], ['po', 'co'], 'sem sítio no fim, a última paragem é onde acabam');
+});
+
+test('splitDayPlaces e dayEnds: o painel separa início, paragens e fim; o cabeçalho só mostra início e fim (#41)', () => {
+  assert.deepEqual(splitDayPlaces(undefined), { first: '', stops: [], last: '' });
+  assert.deepEqual(splitDayPlaces(['lx']), { first: 'lx', stops: [], last: '' });
+  assert.deepEqual(splitDayPlaces(['lx', 'po']), { first: 'lx', stops: [], last: 'po' });
+  assert.deepEqual(splitDayPlaces(['lx', 'co', 'av', 'po']), { first: 'lx', stops: ['co', 'av'], last: 'po' });
+  assert.deepEqual(dayEnds(undefined), []);
+  assert.deepEqual(dayEnds(['lx']), ['lx']);
+  assert.deepEqual(dayEnds(['lx', 'po']), ['lx', 'po']);
+  assert.deepEqual(dayEnds(['lx', 'co', 'av', 'po']), ['lx', 'po']);
+  assert.deepEqual(dayEnds(['lx', 'si', 'lx']), ['lx'], 'começam e acabam no mesmo sítio');
+});
+
+test('toZone e fromZone: dia e hora no fuso da atividade, ida e volta, e sem fuso → null (#42)', () => {
+  const t = trip({ tz: 'Europe/Lisbon' });   // em julho Tóquio está 8 h à frente de Lisboa e Nova Iorque 5 h atrás
+  const b = extra => ({ id: 'a', date: D1, start: H(10), len: 60, title: 'Voo', cat: 'transport', tz: 'Asia/Tokyo', ...extra });
+  assert.deepEqual(toZone(t, b()), { date: D1, start: H(18), off: H(8) });
+  assert.deepEqual(toZone(t, b({ start: H(20) })), { date: D2, start: H(4), off: H(8) }, 'passa para o dia seguinte em Tóquio');
+  assert.deepEqual(toZone(t, b({ date: D2, start: H(2), tz: 'America/New_York' })), { date: D1, start: H(21), off: -H(5) });
+  assert.deepEqual(toZone(t, b({ start: H(25), tz: 'Europe/Lisbon' })), { date: D2, start: H(1), off: 0 }, 'a 01:00 do quadro é a 01:00 do dia seguinte');
+  assert.equal(toZone(t, b({ tz: undefined })), null);
+  assert.equal(toZone(t, { id: 'x', len: 60, tz: 'Asia/Tokyo' }), null, 'por agendar');
+  assert.equal(toZone(trip(), b()), null, 'viagem sem fuso');
+  assert.deepEqual(fromZone(t, 'Asia/Tokyo', D2, H(4)), { date: D1, start: H(20) });
+  assert.deepEqual(fromZone(t, 'Asia/Tokyo', D1, H(6)), { date: '2027-07-04', start: H(22) }, 'antes da viagem na hora da viagem');
+  assert.deepEqual(fromZone(t, 'Europe/Lisbon', D2, H(1)), { date: D1, start: H(25) }, 'depois da meia-noite fica no dia do quadro');
+  for (const s of [0, H(3), H(9.25), H(17), H(23.75)]) {
+    const p = fromZone(t, 'Asia/Tokyo', D2, s);
+    assert.deepEqual(toZone(t, b(p)), { date: D2, start: s, off: H(8) }, `ida e volta às ${s}`);
+  }
+});
+
+test('fromZone numa mudança de hora: a diferença é a do dia da viagem a que se chega (#42)', () => {
+  // Lisboa muda para a hora de inverno a 31 de outubro de 2027: Tóquio passa de 8 h para 9 h à frente
+  const t = normTrip({ id: 't', name: 'Outono', start: '2027-10-29', end: '2027-11-02', dayStart: 8, dayEnd: 2, tz: 'Europe/Lisbon' });
+  const p = fromZone(t, 'Asia/Tokyo', '2027-10-31', H(1));
+  assert.deepEqual(p, { date: '2027-10-30', start: H(17) });
+  assert.deepEqual(toZone(t, { ...p, len: 60, tz: 'Asia/Tokyo' }), { date: '2027-10-31', start: H(1), off: H(8) });
+  assert.deepEqual(fromZone(t, 'Asia/Tokyo', '2027-11-01', H(18)), { date: '2027-11-01', start: H(9) });
+});
+
+test('editorTime e fromEditor: no fuso da atividade quando tem um, senão na hora do quadro (#42)', () => {
+  const t = trip({ tz: 'Europe/Lisbon' }), F = boardFrame(t);
+  const b = { id: 'a', date: D1, start: H(20), len: 60, title: 'Voo', cat: 'transport', tz: 'Asia/Tokyo' };
+  assert.deepEqual(editorTime(t, F, b), { date: D2, start: H(4), off: H(8) });
+  assert.deepEqual(fromEditor(t, F, b, D2, H(5)), { date: D1, start: H(21) });
+  const c = { ...b, tz: undefined };
+  assert.deepEqual(editorTime(t, F, c), { date: D1, start: H(20) });
+  assert.deepEqual(fromEditor(t, F, c, D2, H(5)), { date: D2, start: H(5) });
+  const u = trip();   // sem fuso da viagem, o fuso da atividade não conta
+  assert.deepEqual(editorTime(u, boardFrame(u), b), { date: D1, start: H(20) });
+  assert.deepEqual(fromEditor(u, boardFrame(u), b, D2, H(5)), { date: D2, start: H(5) });
+});
+
+test('blockZoneTime: a hora local no bloco só quando o fuso da atividade não é o do quadro (#42)', () => {
+  const t = trip({ tz: 'Europe/Lisbon' });
+  const b = extra => ({ id: 'a', date: D1, start: H(20), len: 90, title: 'Voo', cat: 'transport', tz: 'Asia/Tokyo', ...extra });
+  assert.deepEqual(blockZoneTime(t, boardFrame(t), b()), { tz: 'Asia/Tokyo', start: H(4), len: 90, days: 1 });
+  assert.deepEqual(blockZoneTime(t, boardFrame(t), b({ tz: 'America/New_York', start: H(3) })), { tz: 'America/New_York', start: H(22), len: 90, days: -1 });
+  assert.deepEqual(blockZoneTime(t, boardFrame(t), b({ start: H(25), tz: 'America/New_York' })), { tz: 'America/New_York', start: H(20), len: 90, days: -1 }, 'conta a partir do relógio do quadro, não da coluna');
+  assert.equal(blockZoneTime(t, boardFrame(t), b({ tz: 'Europe/Lisbon' })), null, 'o fuso da viagem');
+  assert.equal(blockZoneTime(t, boardFrame(t), b({ tz: undefined })), null);
+  // quadro na hora do segundo fuso: Tóquio deixa de precisar da marca, Lisboa passa a precisar
+  store['ferias-home-tz'] = 'Asia/Tokyo';
+  store['ferias-view-home'] = '1';
+  assert.equal(blockZoneTime(t, boardFrame(t), b()), null);
+  assert.deepEqual(blockZoneTime(t, boardFrame(t), b({ tz: 'Europe/Lisbon' })), { tz: 'Europe/Lisbon', start: H(20), len: 90, days: -1 });
 });
 
 test('routeSummary e dateRangeLabel: sítios seguidos sem repetir; mesmo mês ou meses diferentes', () => {

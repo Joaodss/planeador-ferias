@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { cleanTrip, STATUSES, KINDS } from '../web/js/clean.js';
+import { cleanTrip, STATUSES, KINDS, MAX_DAY_PLACES } from '../web/js/clean.js';
 import { segments } from '../web/js/span.js';
 
 let n = 0;
@@ -27,7 +27,7 @@ test('uma viagem válida fica igual', () => {
   const ok = () => trip({
     dayStart: 8, dayEnd: 2, people: 3, currency: 'R$', budget: 1500, tz: 'Asia/Bangkok',
     places: [{ id: 'p1', name: 'Lisboa', c: 2 }], dayPlaces: { '2026-08-01': ['p1'] },
-    blocks: [{ id: 'a1', date: '2026-08-01', start: 600, len: 90, title: 'Museu', cat: 'tour', status: 'pago', locked: true, pp: 12, weekdays: [1, 2], place: 'p1', link: 'https://x.pt' }],
+    blocks: [{ id: 'a1', date: '2026-08-01', start: 600, len: 90, title: 'Museu', cat: 'tour', status: 'pago', locked: true, pp: 12, weekdays: [1, 2], place: 'p1', link: 'https://x.pt', tz: 'Asia/Tokyo' }],
     tray: [{ id: 'a2', len: 60, title: 'Jantar', cat: 'food' }],
     costs: [{ id: 'c1', label: 'Hotel', amount: 300, per: 'total', cat: 'alojamento', date: '2026-08-02', paid: true }],
     costCats: [{ id: 'alojamento', name: 'Casa' }],
@@ -103,4 +103,20 @@ test('os enums da limpeza são os mesmos que as traduções', () => {
   for (const k of keys('cats')) assert.deepEqual(k, KINDS);
   assert.equal(keys('status').length, 2);
   assert.equal(keys('cats').length, 2);
+});
+
+test('sítios do dia: as paragens ficam, até MAX_DAY_PLACES, e o que não é texto sai (#41)', () => {
+  const many = Array.from({ length: MAX_DAY_PLACES + 3 }, (_, i) => 'p' + i);
+  const t = cleanTrip(trip({ dayPlaces: { '2026-08-01': ['lx', 'co', 7, '', 'av', 'po'], '2026-08-02': many } }), newId);
+  assert.deepEqual(t.dayPlaces['2026-08-01'], ['lx', 'co', 'av', 'po']);
+  assert.deepEqual(t.dayPlaces['2026-08-02'], many.slice(0, MAX_DAY_PLACES));
+});
+
+test('fuso da atividade: fica um que o browser reconheça, sai o resto (#42)', () => {
+  const t = cleanTrip(trip({
+    blocks: [{ id: 'a1', date: '2026-08-01', start: 0, tz: 'Asia/Tokyo' }, { id: 'a2', date: '2026-08-01', start: 0, tz: 'Marte/Base' }, { id: 'a3', date: '2026-08-01', start: 0, tz: 9 }],
+    tray: [{ id: 'a4', tz: 'Europe/Lisbon' }, { id: 'a5', tz: '' }],
+  }), newId);
+  assert.deepEqual(t.blocks.map(b => b.tz), ['Asia/Tokyo', undefined, undefined]);
+  assert.deepEqual(t.tray.map(b => b.tz), ['Europe/Lisbon', undefined]);
 });

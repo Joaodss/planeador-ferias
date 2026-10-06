@@ -1,7 +1,7 @@
 /* Painel da viagem: criar/editar datas e horário, sítios, categorias de custo, duplicar e apagar. */
 import { tr } from '../i18n.js';
 import { esc, pad, newId, iso, addDays } from '../util.js';
-import { $, toast } from './dom.js';
+import { $, toast, fillTzSelect } from './dom.js';
 import { S, T, ensureActive, setActive, pushHistory } from '../state.js';
 import { addPlace, removePlace } from '../trip.js';
 import { validateTrip, tripFields, newTrip, applyTripEdit } from '../tripform.js';
@@ -16,9 +16,10 @@ export function openTripSheet(isNew){
   closeSheets(); tripMode=isNew?'new':'edit'; const t=T(); $('#tripsheet').hidden=false; $('#t-err').hidden=true; $('#t-del-confirm').hidden=true;
   $('#t-h').textContent=tr(isNew?'newTrip':'datesPlaces'); $('#t-submit').textContent=tr(isNew?'createTrip':'save');
   $('#t-places-wrap').hidden=isNew;
-  if(isNew||!t){ const n=new Date(); const s=iso(addDays(n,30)), e=iso(addDays(n,36)); $('#t-name').value=''; $('#t-start').value=s; $('#t-end').value=e; $('#t-ds').value='7'; $('#t-de').value='1'; $('#t-people').value='2'; $('#t-cur').value='€'; $('#t-budget').value=''; $('#t-tz').value=homeTz(); }
-  else { $('#t-name').value=t.name; $('#t-start').value=t.start; $('#t-end').value=t.end; $('#t-ds').value=String(t.dayStart); $('#t-de').value=String(t.dayEnd); $('#t-people').value=String(t.people||1); $('#t-cur').value=t.currency||'€'; $('#t-budget').value=t.budget||''; $('#t-tz').value=t.tz||''; renderPlaces(); renderCats(); }
-  $('#t-hometz').value=ownHomeTz(); $('#t-hometz').placeholder=tr('homeTzDefault',{tz:defaultHomeTz()||'—'});
+  if(isNew||!t){ const n=new Date(); const s=iso(addDays(n,30)), e=iso(addDays(n,36)); $('#t-name').value=''; $('#t-start').value=s; $('#t-end').value=e; $('#t-ds').value='7'; $('#t-de').value='1'; $('#t-people').value='2'; $('#t-cur').value='€'; $('#t-budget').value=''; fillTzSelect($('#t-tz'), tr('tzNone'), homeTz()); }
+  else { $('#t-name').value=t.name; $('#t-start').value=t.start; $('#t-end').value=t.end; $('#t-ds').value=String(t.dayStart); $('#t-de').value=String(t.dayEnd); $('#t-people').value=String(t.people||1); $('#t-cur').value=t.currency||'€'; $('#t-budget').value=t.budget||''; fillTzSelect($('#t-tz'), tr('tzNone'), t.tz||''); renderPlaces(); renderCats(); }
+  // a primeira opção do segundo fuso é o valor por omissão (PLANNER_HOME_TZ ou o do browser)
+  fillTzSelect($('#t-hometz'), tr('homeTzDefault',{tz:TZ.city(defaultHomeTz())||'—'}), ownHomeTz());
   $('#t-name').focus();
 }
 
@@ -47,7 +48,6 @@ function renderCats(){
 /* Opções fixas e botões do painel (main.js chama-a uma vez ao arrancar). */
 export function initTripsheet(){
   const h=Array.from({length:24},(_,i)=>`<option value="${i}">${pad(i)}:00</option>`).join(''); $('#t-ds').innerHTML=h; $('#t-de').innerHTML=h;
-  $('#tz-list').innerHTML=TZ.all.map(z=>`<option value="${z}">`).join('');
 
   $('#t-addplace').addEventListener('click',()=>{ const v=$('#t-newplace').value; if(!v.trim()) return; pushHistory(); addPlace(T(),v); $('#t-newplace').value=''; commit(); renderPlaces(); });
   $('#t-newplace').addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); $('#t-addplace').click(); } });

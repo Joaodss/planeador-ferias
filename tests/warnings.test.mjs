@@ -100,6 +100,20 @@ test('sem viagem → []; atividade fora das datas → só o aviso das datas', ()
   assert.equal(computeWarnings(t)[0].t, tr('wDates', { a: 'fora' }));
 });
 
+test('paragens do dia: uma atividade num sítio por onde passam não dá aviso; noutro sítio dá (#41)', () => {
+  const t = trip();
+  t.places.push({ id: 'co', name: 'Coimbra', c: 3 }, { id: 'av', name: 'Aveiro', c: 4 });
+  t.dayPlaces['2027-07-07'] = ['lx', 'co', 'av', 'po'];
+  t.blocks = [
+    { id: 'uni', date: '2027-07-07', start: H(11), len: H(1), title: 'Universidade', cat: 'tour', place: 'co' },
+    { id: 'ria', date: '2027-07-07', start: H(14), len: H(1), title: 'Ria', cat: 'tour', place: 'av' },
+    { id: 'dois', date: '2027-07-06', start: H(14), len: H(1), title: 'Dois', cat: 'tour', place: 'co' },
+  ];
+  assert.deepEqual(brief(computeWarnings(t)), [['bad', 'dois', '2027-07-06']]);
+  const w = computeWarnings(t)[0];
+  assert.equal(w.d, tr('wPlaceD', { day: dayLabel('2027-07-06', true), places: 'Lisboa' }));
+});
+
 test('sortWarnings: por data e, no mesmo dia, os graves primeiro, sem mudar a lista recebida', () => {
   const ws = [{ date: '2027-07-06', sev: 'warn', t: '1' }, { date: '2027-07-05', sev: 'warn', t: '2' }, { date: '2027-07-06', sev: 'bad', t: '3' }, { date: '2027-07-05', sev: 'bad', t: '4' }, { date: '2027-07-05', sev: 'warn', t: '5' }];
   assert.deepEqual(sortWarnings(ws).map(w => w.t), ['4', '2', '5', '3', '1']);

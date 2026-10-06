@@ -2,7 +2,7 @@
 import { store, storage, clearStore } from './env.mjs';
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveTz, TZ, setServerHomeTz, defaultHomeTz, ownHomeTz, homeTz, saveHomeTz, secondTz, viewingHome, setViewingHome, viewOffset } from '../web/js/tz.js';
+import { resolveTz, TZ, tzGroups, setServerHomeTz, defaultHomeTz, ownHomeTz, homeTz, saveHomeTz, secondTz, viewingHome, setViewingHome, viewOffset } from '../web/js/tz.js';
 
 process.env.TZ = 'Europe/Lisbon';   // o fuso do "browser" (TZ.local); o Node aplica-o logo
 const noon = date => Date.parse(date + 'T12:00:00Z');
@@ -149,4 +149,24 @@ test('a lista de sugestões mostra os nomes atuais, sem repetidos', () => {
   assert.ok(TZ.all.includes('Europe/Kyiv'));
   assert.ok(!TZ.all.includes('Asia/Calcutta'));
   assert.equal(new Set(TZ.all).size, TZ.all.length);
+});
+
+test('tzGroups: regiões por ordem, cidades por nome, sub-região entre parênteses e o fuso guardado que falta (#43)', () => {
+  const g = tzGroups('');
+  const regions = g.map(x => x.region);
+  assert.deepEqual(regions, [...regions].sort(), 'regiões por ordem');
+  assert.equal(g.reduce((n, x) => n + x.zones.length, 0), TZ.all.length, 'todos os fusos, uma vez');
+  const europe = g.find(x => x.region === 'Europe').zones;
+  assert.deepEqual(europe.find(z => z.tz === 'Europe/Lisbon'), { tz: 'Europe/Lisbon', label: 'Lisbon' });
+  const labels = europe.map(z => z.label);
+  assert.deepEqual(labels, [...labels].sort((a, b) => a.localeCompare(b)), 'cidades por nome');
+  const salta = g.find(x => x.region === 'America').zones.find(z => z.tz === 'America/Argentina/Salta');
+  assert.equal(salta.label, 'Salta (Argentina)');
+  // um nome antigo que o browser aceita mas não está na lista (o Node lista Asia/Calcutta, mas TZ.all troca-o por Asia/Kolkata)
+  assert.equal(TZ.all.includes('Asia/Calcutta'), false);
+  const asia = tzGroups('Asia/Calcutta').find(x => x.region === 'Asia').zones;
+  assert.deepEqual(asia.filter(z => /Calcutta|Kolkata/.test(z.tz)).map(z => z.label).sort(), ['Calcutta', 'Kolkata']);
+  assert.equal(tzGroups('Marte/Base').reduce((n, x) => n + x.zones.length, 0), TZ.all.length, 'um inválido não entra');
+  // fusos sem região (UTC, quando o motor não o lista) entram no grupo '', que fica à frente
+  if (!TZ.all.includes('UTC')) assert.deepEqual(tzGroups('UTC')[0], { region: '', zones: [{ tz: 'UTC', label: 'UTC' }] });
 });
