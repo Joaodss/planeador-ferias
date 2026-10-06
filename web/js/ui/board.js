@@ -1,9 +1,9 @@
 /* O quadro: cabeçalho da viagem, grelha de dias e horas, tabuleiro "por agendar" e totais. */
 import { tr } from '../i18n.js';
-import { esc, short, WD, MON, statusLabel, parseISO, mlabel, durLabel, dayLabel, newId } from '../util.js';
-import { $, isMobile, refreshSlot, PXM, announce } from './dom.js';
-import { S, T, ensureActive, pushHistory } from '../state.js';
-import { days, view, money, placeById, placeName, findBlock, boardLayout, rangeLabel, boardFrame, toBoard, fromBoard, blockZoneTime, newBlock, routeSummary, dateRangeLabel, dayEnds } from '../trip.js';
+import { esc, shortPlaceName, weekdayNames, monthNames, statusLabel, parseISO, clockLabel, durationLabel, dayLabel, newId } from '../util.js';
+import { $, isMobile, refreshSlot, pxPerMin, announce } from './dom.js';
+import { S, activeTrip, ensureActive, pushHistory } from '../state.js';
+import { tripDates, boardHours, money, placeById, placeName, findBlock, boardLayout, rangeLabel, boardFrame, toBoard, fromBoard, blockZoneTime, newBlock, routeSummary, dateRangeLabel, dayEnds } from '../trip.js';
 import { laneLayout } from '../span.js';
 import { keyMove } from '../moves.js';
 import { tripStats, dayTotalsPP } from '../costs.js';
@@ -15,31 +15,31 @@ import { openEditor, fillEditor } from './editor.js';
 import { openDay, fillDay } from './daysheet.js';
 import { openTripSheet } from './tripsheet.js';
 import { renderDash } from './costsheet.js';
-import { renderWarnings } from './review.js';
+import { renderWarnings } from './warnings.js';
 
 /* seg: o pedaço visível numa coluna (null no tabuleiro). Um pedaço cortado continua noutro dia ou nas horas escondidas.
-   vb: dia e hora da atividade no quadro (toBoard), que pode estar no segundo fuso.
+   boardPos: dia e hora da atividade no quadro (toBoard), que pode estar no segundo fuso.
    bz: a hora local no fuso da atividade, quando não é o do quadro (blockZoneTime). */
-function blockEl(t, b, warnMap, seg, vb, bz){
+function blockEl(t, b, warnMap, seg, boardPos, bz){
   const inTray=!seg; const el=document.createElement('div');
   el.className='blk cat-'+b.cat+(b.locked?' locked':'')+(b.status==='ideia'?' status-ideia':'')+(seg&&seg.cutTop?' cut-top':'')+(seg&&seg.cutBot?' cut-bot':'');
   el.dataset.id=b.id; el.tabIndex=0; el.setAttribute('role','button');
   const w=warnMap.get(b.id);
   const cost = b.pp ? `<span class="eur">${money(t,b.pp)} pp</span>` : (b.total ? `<span class="eur">${money(t,b.total)}</span>` : '');
   const statusText = statusLabel(b.status), statusBadge = statusText ? `<span class="st st-${b.status}">${(b.status==='reservado'||b.status==='pago')?'✓ ':''}${esc(statusText)}</span>` : '';
-  const time = inTray ? durLabel(b.len) : rangeLabel({start:vb.start, len:b.len});
-  const ltz = bz ? tr('secAt',{city:TZ.city(bz.tz), range:`${mlabel(bz.start)}–${mlabel(bz.start+bz.len)}`})+(bz.days<0?tr('prevDay'):bz.days>0?tr('nextDay'):'') : '';
-  el.innerHTML = `<div class="t">${esc(b.title)}</div><div class="m"><span>${time}</span>${bz?`<span class="ltz" title="${esc(ltz)}">${mlabel(bz.start)} ${esc(TZ.city(bz.tz))}</span>`:''}${cost}${statusBadge}</div>`
+  const time = inTray ? durationLabel(b.len) : rangeLabel({start:boardPos.start, len:b.len});
+  const ltz = bz ? tr('secAt',{city:TZ.city(bz.tz), range:`${clockLabel(bz.start)}–${clockLabel(bz.start+bz.len)}`})+(bz.days<0?tr('prevDay'):bz.days>0?tr('nextDay'):'') : '';
+  el.innerHTML = `<div class="t">${esc(b.title)}</div><div class="m"><span>${time}</span>${bz?`<span class="ltz" title="${esc(ltz)}">${clockLabel(bz.start)} ${esc(TZ.city(bz.tz))}</span>`:''}${cost}${statusBadge}</div>`
     + (w?`<span class="badge" title="${esc(w.map(x=>x.title).join('\n'))}">!</span>`:'')
     + (b.locked?`<svg class="lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>`:'')
     + (inTray||seg.cutBot?'':'<div class="grip" aria-hidden="true"></div>');
   if(w){ el.classList.add('has-badge'); if(w.some(x=>x.sev==='bad')) el.classList.add('bad'); }
-  el.setAttribute('aria-label', `${b.title}, ${inTray?tr('unscheduledLower'):dayLabel(vb.date,true)+' '+time}${ltz?', '+ltz:''}${statusText?', '+statusText:''}${w?', '+tr('nWarnings',{n:w.length}):''}`);
+  el.setAttribute('aria-label', `${b.title}, ${inTray?tr('unscheduledLower'):dayLabel(boardPos.date,true)+' '+time}${ltz?', '+ltz:''}${statusText?', '+statusText:''}${w?', '+tr('nWarnings',{n:w.length}):''}`);
   return el;
 }
 export function render(){
   refreshSlot(); ensureActive(); refreshUndo();
-  const t=T();
+  const t=activeTrip();
   // trip switcher
   const sel=$('#trip-sel'); sel.innerHTML = `<option value="">${S.store.trips.length>1?tr('switchTrip'):tr('trips')}</option>` + S.store.trips.map(x=>`<option value="${esc(x.id)}"${t&&x.id===t.id?' disabled':''}>${esc(x.name)}${t&&x.id===t.id?tr('openMark'):''}</option>`).join('') + `<option value="__new">${tr('newTripOpt')}</option>`;
   sel.value='';
@@ -56,22 +56,22 @@ export function render(){
   }
   document.title = t.name ? `${t.name} · ${tr('appName')}` : tr('appName');
   $('#trip-name').textContent=t.name;
-  // F: colunas do quadro e deslocamento quando o quadro está no segundo fuso (ver boardFrame)
-  const tds=days(t), v=view(t), colHeight=v.span*PXM(), F=boardFrame(t), ds=F.ds;
+  // frame: colunas do quadro e deslocamento quando o quadro está no segundo fuso (ver boardFrame)
+  const tds=tripDates(t), hours=boardHours(t), colHeight=hours.span*pxPerMin(), frame=boardFrame(t), ds=frame.dates;
   // sítios por onde passa e datas
   const seq=routeSummary(t), range=dateRangeLabel(t);
   // sec: segundo fuso. off≠0 quando o quadro está na hora do segundo fuso: aí as duas cidades trocam de papel.
-  const sec=secondTz(t), off=F.off;
+  const sec=secondTz(t), off=frame.offsetMin;
   const main = off ? sec.tz : t.tz, other = sec && (off ? {tz:t.tz, diff:-sec.diff} : sec);
-  $('#route').innerHTML = `<span>${range} · ${tr('nDays',{n:tds.length})}</span>` + (seq.length ? '<span class="arrow">·</span>'+seq.map(p=>`<b>${esc(short(placeName(t,p)))}</b>`).join('<span class="arrow">→</span>') : `<span class="arrow">·</span><span>${tr('clickDay')}</span>`)
+  $('#route').innerHTML = `<span>${range} · ${tr('nDays',{n:tds.length})}</span>` + (seq.length ? '<span class="arrow">·</span>'+seq.map(p=>`<b>${esc(shortPlaceName(placeName(t,p)))}</b>`).join('<span class="arrow">→</span>') : `<span class="arrow">·</span><span>${tr('clickDay')}</span>`)
     + (TZ.valid(t.tz) ? `<span class="arrow">·</span><span title="${esc(main)}">${tr('tzRoute',{city:esc(TZ.city(main))})}${other?` (${esc(TZ.city(other.tz))} ${TZ.diffLabel(other.diff)})`:''}</span>` : '')
     + (off ? `<span class="arrow">·</span><span>${tr('tzDatesNote',{city:esc(TZ.city(t.tz))})}</span>` : '');
   const narrow=isMobile();
   board.classList.toggle('two-tz', !!sec);
   board.style.gridTemplateColumns = `${sec?(narrow?84:98):(narrow?48:58)}px repeat(${ds.length}, minmax(${narrow?124:138}px,1fr))`;
   // layout: pedaços de cada atividade nas colunas do quadro. tripLayout: o mesmo em hora da viagem, para os avisos e o painel do dia;
-  // só é outro cálculo quando o quadro está no segundo fuso (na hora da viagem F.ds=tds e F.sh=0)
-  const layout=boardLayout(t,ds,F.sh), tripLayout=F.off ? boardLayout(t,tds) : layout, noSleep=x=>!(S.hideSleep && (x.b||x).cat==='sleep');
+  // só é outro cálculo quando o quadro está no segundo fuso (na hora da viagem frame.dates=tds e frame.shiftMin=0)
+  const layout=boardLayout(t,ds,frame.shiftMin), tripLayout=frame.offsetMin ? boardLayout(t,tds) : layout, noSleep=x=>!(S.hideSleep && (x.b||x).cat==='sleep');
   // warnings
   const warns=computeWarnings(t,tripLayout); const warnMap=new Map();
   for(const w of warns) for(const id of w.ids){ if(!warnMap.has(id)) warnMap.set(id,[]); warnMap.get(id).push(w); }
@@ -90,23 +90,23 @@ export function render(){
     const cost=costOf.get(date)||0;
     if(ends.length) head.style.setProperty('--loc-c', `linear-gradient(90deg, ${ends.map((l,k)=>`var(--p${((placeById(t,l)||{c:1}).c-1)%8+1}) ${k*100/ends.length}% ${(k+1)*100/ends.length}%`).join(',')})`);
     const showMonth = i===0 || d.getDate()===1;
-    head.innerHTML = `<div class="strip"></div><div class="date"><span class="num">${d.getDate()}</span><span class="wd">${WD()[wd]}${showMonth?' · '+MON()[d.getMonth()]:''}</span><span class="cost">${cost?money(t,cost)+' pp':''}</span></div>`
-      + (ends.length ? `<div class="loc" title="${esc(locs.map(l=>placeName(t,l)).join(' → '))}">${ends.map(l=>esc(short(placeName(t,l)))).join(` <span class="ferry">${locs.length>2?'⇢':'→'}</span> `)}</div>` : `<div class="loc none">${extra?tr('outsideTrip'):tr('whereClick')}</div>`);
+    head.innerHTML = `<div class="strip"></div><div class="date"><span class="num">${d.getDate()}</span><span class="wd">${weekdayNames()[wd]}${showMonth?' · '+monthNames()[d.getMonth()]:''}</span><span class="cost">${cost?money(t,cost)+' pp':''}</span></div>`
+      + (ends.length ? `<div class="loc" title="${esc(locs.map(l=>placeName(t,l)).join(' → '))}">${ends.map(l=>esc(shortPlaceName(placeName(t,l)))).join(` <span class="ferry">${locs.length>2?'⇢':'→'}</span> `)}</div>` : `<div class="loc none">${extra?tr('outsideTrip'):tr('whereClick')}</div>`);
     if(!extra) head.setAttribute('aria-label', `${dayLabel(date,true)}${locs.length?', '+locs.map(l=>placeName(t,l)).join(tr('placesJoin')):''}. ${tr('openDay')}`);
     board.appendChild(head);
   });
   const times=document.createElement('div'); times.className='times'; times.style.height=colHeight+'px'; times.style.position='sticky';
-  for(let m=Math.ceil((v.T0+1)/60)*60; m<v.T1; m+=60){ const sp=document.createElement('span'); sp.style.top=((m-v.T0)*PXM())+'px'; sp.textContent=mlabel(m); if(m%1440===0) sp.className='mid'; times.appendChild(sp);
-    if(other){ const m2=m+other.diff, s2=document.createElement('span'); s2.className='sec'+(((m2%1440)+1440)%1440===0?' mid':''); s2.style.top=sp.style.top; s2.textContent=mlabel(m2); times.appendChild(s2); } }
+  for(let m=Math.ceil((hours.from+1)/60)*60; m<hours.to; m+=60){ const sp=document.createElement('span'); sp.style.top=((m-hours.from)*pxPerMin())+'px'; sp.textContent=clockLabel(m); if(m%1440===0) sp.className='mid'; times.appendChild(sp);
+    if(other){ const m2=m+other.diff, s2=document.createElement('span'); s2.className='sec'+(((m2%1440)+1440)%1440===0?' mid':''); s2.style.top=sp.style.top; s2.textContent=clockLabel(m2); times.appendChild(s2); } }
   board.appendChild(times);
   ds.forEach((date,i)=>{
     const col=document.createElement('div'); col.className='day-col'; col.dataset.date=date; col.style.height=colHeight+'px';
-    if(v.T1>1440 && v.T0<1440){ col.style.setProperty('--night-top', ((1440-v.T0)*PXM())+'px'); col.insertAdjacentHTML('beforeend', `<div class="midnight" style="top:${(1440-v.T0)*PXM()}px" aria-hidden="true"></div>`); }
+    if(hours.to>1440 && hours.from<1440){ col.style.setProperty('--night-top', ((1440-hours.from)*pxPerMin())+'px'); col.insertAdjacentHTML('beforeend', `<div class="midnight" style="top:${(1440-hours.from)*pxPerMin()}px" aria-hidden="true"></div>`); }
     const list=layout.cols[i];
     const lanes=laneLayout(list.filter(noSleep));
     for(const s of list){
-      const el=blockEl(t,s.b,warnMap,s,toBoard(t,F,s.b),blockZoneTime(t,F,s.b)); const {lane, n}=lanes.get(s.b.id)||{lane:0,n:1}; const wp=100/n;
-      const top=s.top*PXM(), hp=(s.bot-s.top)*PXM()-2;
+      const el=blockEl(t,s.b,warnMap,s,toBoard(t,frame,s.b),blockZoneTime(t,frame,s.b)); const {lane, n}=lanes.get(s.b.id)||{lane:0,n:1}; const wp=100/n;
+      const top=s.top*pxPerMin(), hp=(s.bot-s.top)*pxPerMin()-2;
       el.style.top=(top+1)+'px'; el.style.height=hp+'px'; el.style.left=`calc(${lane*wp}% + 3px)`; el.style.width=`calc(${wp}% - 6px)`;
       if(hp<40) el.classList.add('short');
       el.style.setProperty('--lines', Math.max(1, Math.floor((hp-22-(s.cutTop?5:0)-(s.cutBot?5:0))/15)));
@@ -116,10 +116,10 @@ export function render(){
     for(const [edge,arr] of [['top',layout.top[i]],['bot',layout.bot[i]]]){
       const hid=arr.filter(noSleep); if(!hid.length) continue;
       const box=document.createElement('div'); box.className='hid '+edge;
-      for(const b of hid){ const w=warnMap.get(b.id)||[], vb={start:toBoard(t,F,b).start, len:b.len};
+      for(const b of hid){ const w=warnMap.get(b.id)||[], boardPos={start:toBoard(t,frame,b).start, len:b.len};
         const c=document.createElement('button'); c.type='button'; c.className='hid-chip cat-'+b.cat+(w.some(x=>x.sev==='bad')?' bad':''); c.dataset.id=b.id;
-        c.innerHTML=`<span class="ar" aria-hidden="true">${edge==='top'?'↑':'↓'}</span><span class="hm">${mlabel(vb.start)}</span><span class="nm">${esc(b.title)}</span>`;
-        c.title=tr('hiddenChip',{a:b.title, time:rangeLabel(vb)}); c.setAttribute('aria-label', c.title);
+        c.innerHTML=`<span class="ar" aria-hidden="true">${edge==='top'?'↑':'↓'}</span><span class="hm">${clockLabel(boardPos.start)}</span><span class="nm">${esc(b.title)}</span>`;
+        c.title=tr('hiddenChip',{a:b.title, time:rangeLabel(boardPos)}); c.setAttribute('aria-label', c.title);
         c.addEventListener('click',()=>openEditor(b.id)); box.appendChild(c); }
       col.appendChild(box);
     }
@@ -140,7 +140,7 @@ export function render(){
   S.lastWarnings=warns;
   // painéis abertos acompanham a alteração
   if(!$('#warnings').hidden) renderWarnings();
-  if(S.editingId && !$('#editor').hidden) fillEditor({refresh:true, frame:F});
+  if(S.editingId && !$('#editor').hidden) fillEditor({refresh:true, frame});
   if(S.dayOpen && !$('#daysheet').hidden) fillDay({refresh:true, tripLayout});
   if(!$('#costsheet').hidden) renderDash({refresh:true});
 }
@@ -158,8 +158,8 @@ export function refreshUndo(){ $('#undo').disabled=!S.history.length; }
 export function initBoard(){
   $('#board').addEventListener('dblclick', e=>{
     if(e.target.closest('.blk,.hid')) return; const col=e.target.closest('.day-col'); if(!col) return;
-    const t=T(), v=view(t), r=col.getBoundingClientRect();
-    const s=Math.max(v.T0, Math.min(v.T1-30, v.T0+Math.floor((e.clientY-r.top)/PXM()/30)*30));
+    const t=activeTrip(), hours=boardHours(t), r=col.getBoundingClientRect();
+    const s=Math.max(hours.from, Math.min(hours.to-30, hours.from+Math.floor((e.clientY-r.top)/pxPerMin()/30)*30));
     pushHistory(); const b=newBlock(fromBoard(t,boardFrame(t),col.dataset.date,s), newId);
     t.blocks.push(b); commit(); openEditor(b.id,{isNew:true});
   });
@@ -173,14 +173,14 @@ export function initBoard(){
     if((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==='z' && !e.target.closest('input,textarea,select')){ e.preventDefault(); if(!(S.drag&&S.drag.active)) undo(); return; }
     if(e.key==='Escape'){ closeSheets(); return; }
     const el=e.target.closest&&e.target.closest('.blk'); if(!el) return;
-    const f=findBlock(T(),el.dataset.id); if(!f) return; const b=f.b;
+    const f=findBlock(activeTrip(),el.dataset.id); if(!f) return; const b=f.b;
     if(e.key==='Enter'||e.key===' '){ e.preventDefault(); openEditor(b.id); return; }
     if(f.where==='tray'||b.locked) return;
     const k=e.key; if(!['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(k)) return;
     // as setas andam na hora do quadro (pode ser o segundo fuso); keyMove (moves.js) devolve o que se guarda
-    e.preventDefault(); const t=T(), m=keyMove(t, boardFrame(t), b, k, e.shiftKey); if(!m) return;
+    e.preventDefault(); const t=activeTrip(), m=keyMove(t, boardFrame(t), b, k, e.shiftKey); if(!m) return;
     pushHistory(); b.date=m.date; b.start=m.start; b.len=m.len;
-    commit(); announce(`${b.title}: ${dayLabel(m.bd,true)} ${rangeLabel({start:m.bs, len:b.len})}`);
+    commit(); announce(`${b.title}: ${dayLabel(m.boardDate,true)} ${rangeLabel({start:m.boardStart, len:b.len})}`);
     const again=document.querySelector(`.blk[data-id="${CSS.escape(b.id)}"]`); if(again) again.focus();
   });
 

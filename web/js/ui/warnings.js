@@ -18,6 +18,7 @@ export function renderWarnings(){
     box.appendChild(it);
   });
 }
-export function initReview(){
+/* Botão dos pontos a rever (main.js chama-a uma vez ao arrancar). */
+export function initWarnings(){
   $('#warn-btn').addEventListener('click',()=>{ const w=$('#warnings'); if(!w.hidden){ w.hidden=true; return; } closeSheets(); renderWarnings(); w.hidden=false; w.querySelector('[data-close]').focus(); });
 }

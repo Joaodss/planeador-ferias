@@ -2,7 +2,7 @@
 import { tr } from '../i18n.js';
 import { esc, pad, newId, iso, addDays } from '../util.js';
 import { $, toast, fillTzSelect } from './dom.js';
-import { S, T, ensureActive, setActive, pushHistory, pushStoreHistory } from '../state.js';
+import { S, activeTrip, ensureActive, setActive, pushHistory, pushStoreHistory } from '../state.js';
 import { addPlace, removePlace } from '../trip.js';
 import { validateTrip, tripFields, newTrip, applyTripEdit } from '../tripform.js';
 import { costCats, ownCats } from '../costs.js';
@@ -14,7 +14,7 @@ import { closeSheets } from './sheets.js';
 let tripMode='edit';
 /* isNew: formulário vazio para criar uma viagem; sem ele, edita a viagem aberta. */
 export function openTripSheet({isNew=false}={}){
-  closeSheets(); tripMode=isNew?'new':'edit'; const t=T(); $('#tripsheet').hidden=false; $('#t-err').hidden=true; $('#t-del-confirm').hidden=true;
+  closeSheets(); tripMode=isNew?'new':'edit'; const t=activeTrip(); $('#tripsheet').hidden=false; $('#t-err').hidden=true; $('#t-del-confirm').hidden=true;
   $('#t-h').textContent=tr(isNew?'newTrip':'datesPlaces'); $('#t-submit').textContent=tr(isNew?'createTrip':'save');
   $('#t-places-wrap').hidden=isNew;
   if(isNew||!t){ const n=new Date(); const s=iso(addDays(n,30)), e=iso(addDays(n,36)); $('#t-name').value=''; $('#t-start').value=s; $('#t-end').value=e; $('#t-ds').value='7'; $('#t-de').value='1'; $('#t-people').value='2'; $('#t-cur').value='€'; $('#t-budget').value=''; fillTzSelect($('#t-tz'), tr('tzNone'), homeTz()); }
@@ -26,7 +26,7 @@ export function openTripSheet({isNew=false}={}){
 
 /* sítios */
 function renderPlaces(){
-  const t=T(), box=$('#t-places'); box.innerHTML='';
+  const t=activeTrip(), box=$('#t-places'); box.innerHTML='';
   if(!t.places.length){ box.innerHTML=`<p class="hint">${tr('noPlaces')}</p>`; return; }
   t.places.forEach(p=>{ const row=document.createElement('div'); row.className='place-row'; row.style.setProperty('--pc',`var(--p${(p.c-1)%8+1})`);
     row.innerHTML=`<i aria-hidden="true"></i><input type="text" value="${esc(p.name)}" aria-label="${tr('placeNameAria')}" style="border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:6px 8px;min-width:0"><button class="btn danger" type="button">${tr('remove')}</button>`;
@@ -37,7 +37,7 @@ function renderPlaces(){
 }
 /* categorias de custo */
 function renderCats(){
-  const t=T(), box=$('#t-cats'); box.innerHTML='';
+  const t=activeTrip(), box=$('#t-cats'); box.innerHTML='';
   costCats(t).forEach(c=>{ const row=document.createElement('div'); row.className='place-row cat-edit';
     row.innerHTML=`<input type="text" id="cat-${esc(c.id)}" value="${esc(c.name)}" aria-label="${tr('catNameAria')}" style="border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:6px 8px;min-width:0"><button class="btn danger" type="button">${tr('remove')}</button>`;
     const inp=row.querySelector('input'); let undoTaken=false;
@@ -50,10 +50,10 @@ function renderCats(){
 export function initTripsheet(){
   const h=Array.from({length:24},(_,i)=>`<option value="${i}">${pad(i)}:00</option>`).join(''); $('#t-ds').innerHTML=h; $('#t-de').innerHTML=h;
 
-  $('#t-addplace').addEventListener('click',()=>{ const v=$('#t-newplace').value; if(!v.trim()) return; pushHistory(); addPlace(T(),v); $('#t-newplace').value=''; commit(); renderPlaces(); });
+  $('#t-addplace').addEventListener('click',()=>{ const v=$('#t-newplace').value; if(!v.trim()) return; pushHistory(); addPlace(activeTrip(),v); $('#t-newplace').value=''; commit(); renderPlaces(); });
   $('#t-newplace').addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); $('#t-addplace').click(); } });
 
-  $('#t-addcat').addEventListener('click',()=>{ const t=T(), v=$('#t-newcat').value.trim(); if(!v) return;
+  $('#t-addcat').addEventListener('click',()=>{ const t=activeTrip(), v=$('#t-newcat').value.trim(); if(!v) return;
     if(costCats(t).some(c=>c.name.toLowerCase()===v.toLowerCase())){ toast(tr('tCatExists')); return; }
     pushHistory(); ownCats(t).push({id:newId('k'), name:v}); $('#t-newcat').value=''; commit(); renderCats(); });
   $('#t-newcat').addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); $('#t-addcat').click(); } });
@@ -72,13 +72,13 @@ export function initTripsheet(){
       S.store.trips.push(t); setActive(t.id);
       $('#tripsheet').hidden=true; commit(); $('#scroller').scrollTo(0,0); toast(tr('tTripCreated'));
     } else {
-      const out=applyTripEdit(T(), tripFields(f));
+      const out=applyTripEdit(activeTrip(), tripFields(f));
       $('#tripsheet').hidden=true; commit(); if(out) toast(tr('tOutOfDates',{n:out}));
     }
   });
   $('#t-cancel').addEventListener('click',()=>{ $('#tripsheet').hidden=true; render(); });
-  $('#t-dup').addEventListener('click',()=>{ const t=T(); pushStoreHistory(); const c=structuredClone(t); c.id=newId('t'); c.name=t.name+tr('copySuffix'); S.store.trips.push(c); setActive(c.id); $('#tripsheet').hidden=true; commit(); toast(tr('tTripDup')); });
+  $('#t-dup').addEventListener('click',()=>{ const t=activeTrip(); pushStoreHistory(); const c=structuredClone(t); c.id=newId('t'); c.name=t.name+tr('copySuffix'); S.store.trips.push(c); setActive(c.id); $('#tripsheet').hidden=true; commit(); toast(tr('tTripDup')); });
   $('#t-del').addEventListener('click',()=>{ $('#t-del-confirm').hidden=false; $('#t-del-yes').focus(); });
   $('#t-del-no').addEventListener('click',()=>{ $('#t-del-confirm').hidden=true; });
-  $('#t-del-yes').addEventListener('click',()=>{ const t=T(); pushStoreHistory(); S.store.trips=S.store.trips.filter(x=>x!==t); S.activeId=null; ensureActive(); $('#tripsheet').hidden=true; commit(); toast(tr('tTripDel',{name:t.name})); });
+  $('#t-del-yes').addEventListener('click',()=>{ const t=activeTrip(); pushStoreHistory(); S.store.trips=S.store.trips.filter(x=>x!==t); S.activeId=null; ensureActive(); $('#tripsheet').hidden=true; commit(); toast(tr('tTripDel',{name:t.name})); });
 }

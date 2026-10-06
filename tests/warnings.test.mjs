@@ -3,7 +3,7 @@ import './env.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { tr } from '../web/js/i18n.js';
-import { normTrip, days, boardLayout } from '../web/js/trip.js';
+import { normTrip, tripDates, boardLayout } from '../web/js/trip.js';
 import { computeWarnings, sortWarnings } from '../web/js/warnings.js';
 import { dayLabel } from '../web/js/util.js';
 
@@ -48,7 +48,7 @@ test('cada regra dos pontos a rever aparece com as atividades e o dia certos', (
 
 test('com o layout de render() os avisos são os mesmos', () => {
   const t = trip();
-  assert.deepEqual(computeWarnings(t, boardLayout(t, days(t))), computeWarnings(t));
+  assert.deepEqual(computeWarnings(t, boardLayout(t, tripDates(t))), computeWarnings(t));
 });
 
 test('os dias possíveis dependem dos dias da semana e do sítio de cada atividade', () => {

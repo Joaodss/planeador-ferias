@@ -4,7 +4,7 @@
 import './env.mjs';
 import { test, mock } from 'node:test';
 import assert from 'node:assert/strict';
-import { S, T, pushHistory } from '../web/js/state.js';
+import { S, activeTrip, pushHistory } from '../web/js/state.js';
 import { tr } from '../web/js/i18n.js';
 import { connectUI, boot, commit, commitTyping, undo, signIn, signOut, computeDirty, onVisibilityChange, initSync, isAuthError,
   pendingOps, applyPutResponse, sameRevisions } from '../web/js/sync.js';
@@ -118,7 +118,7 @@ test('boot: carrega e ordena as viagens; sem ligação mostra o aviso e tenta de
   assert.deepEqual(S.store.trips.map(t => t.id), ['a', 'b'], 'por data de início');
   assert.equal(S.authed, true);
   assert.equal(ui.showApp.mock.callCount(), 1);
-  assert.equal(T().id, 'a');
+  assert.equal(activeTrip().id, 'a');
   assert.equal(lastSave(), 'saved');
 
   resetServer(); server.authed = false;
@@ -132,13 +132,13 @@ test('boot: carrega e ordena as viagens; sem ligação mostra o aviso e tenta de
 /* ---------- gravar ---------- */
 test('grava só as viagens que mudaram, com baseRev, 1,2 s depois da última alteração', async () => {
   await start([[trip('a'), 3], [trip('b'), 1]]);
-  T().name = 'Primeira';
+  activeTrip().name = 'Primeira';
   commit();
   assert.equal(S.dirty, true);
   assert.equal(lastSave(), 'dirty');
   assert.equal(ui.render.mock.callCount(), 1, 'commit redesenha logo');
   await tick(1000);
-  T().name = 'Segunda'; commit();          // a contagem recomeça
+  activeTrip().name = 'Segunda'; commit();          // a contagem recomeça
   await tick(1199);
   assert.equal(sent('PUT').length, 0);
   await tick(1);
@@ -148,11 +148,11 @@ test('grava só as viagens que mudaram, com baseRev, 1,2 s depois da última alt
   assert.equal(put.headers['X-Requested-With'], 'planner');
   assert.equal(JSON.parse(put.body).baseRev, 3);
   assert.equal(JSON.parse(put.body).trip.name, 'Segunda');
-  assert.equal(put.body, `{"baseRev":3,"trip":${JSON.stringify(T())}}`, 'leva o JSON da viagem tal e qual');
+  assert.equal(put.body, `{"baseRev":3,"trip":${JSON.stringify(activeTrip())}}`, 'leva o JSON da viagem tal e qual');
   assert.deepEqual([S.dirty, S.saving, lastSave()], [false, false, 'saved']);
   assert.equal(server.trips.get('a').rev, 4);
 
-  T().name = 'Terceira'; commit();
+  activeTrip().name = 'Terceira'; commit();
   await tick(1200);
   assert.equal(JSON.parse(sent('PUT')[1].body).baseRev, 4, 'parte da revisão que o servidor devolveu');
 });
@@ -198,7 +198,7 @@ test('409: fica a versão do servidor, o Desfazer é limpo e aparece o aviso; 40
   assert.deepEqual(toasts(), [tr('tConflict')]);
   assert.equal(S.dirty, false);
   // a próxima gravação parte da revisão do servidor
-  T().name = 'Depois'; commit();
+  activeTrip().name = 'Depois'; commit();
   await tick(1200);
   assert.equal(JSON.parse(sent('PUT').at(-1).body).baseRev, 2);
   assert.equal(server.trips.get('a').trip.name, 'Depois');
@@ -207,7 +207,7 @@ test('409: fica a versão do servidor, o Desfazer é limpo e aparece o aviso; 40
 test('413: fica marcada como gravada e o aviso aparece uma vez', async () => {
   await start([[trip('a'), 1]]);
   server.hook = (path, o, next) => o.method === 'PUT' ? reply(413, { error: 'viagem demasiado grande' }) : next();
-  T().name = 'Enorme'; commit();
+  activeTrip().name = 'Enorme'; commit();
   await tick(1200);
   assert.deepEqual(toasts(), [tr('tTooBig')]);
   assert.equal(S.dirty, false);
@@ -218,7 +218,7 @@ test('413: fica marcada como gravada e o aviso aparece uma vez', async () => {
 test('sem rede: online=false e nova tentativa 8 s depois; um erro do servidor também', async () => {
   await start([[trip('a'), 1]]);
   server.down = true;
-  T().name = 'Sem rede'; commit();
+  activeTrip().name = 'Sem rede'; commit();
   await tick(1200);
   assert.deepEqual([S.online, S.dirty, lastSave()], [false, true, 'error']);
   await tick(7999);
@@ -236,7 +236,7 @@ test('sem rede: online=false e nova tentativa 8 s depois; um erro do servidor ta
 test('401 ao gravar: a sessão termina, aparece o login e não volta a tentar', async () => {
   await start([[trip('a'), 1]]);
   server.authed = false;
-  T().name = 'Sessão acabada'; commit();
+  activeTrip().name = 'Sessão acabada'; commit();
   await tick(1200);
   assert.equal(S.authed, false);
   assert.equal(ui.showLogin.mock.callCount(), 1);
@@ -250,11 +250,11 @@ test('uma alteração durante a gravação fica por gravar e agenda outra', asyn
   await start([[trip('a'), 1]]);
   let open; const gate = new Promise(r => { open = r; });
   server.hook = async (path, o, next) => { if (o.method === 'PUT') await gate; return next(); };
-  T().name = 'Durante 1'; commit();
+  activeTrip().name = 'Durante 1'; commit();
   await tick(1200);
   assert.equal(S.saving, true);
   assert.equal(lastSave(), 'saving');
-  T().name = 'Durante 2'; commit();
+  activeTrip().name = 'Durante 2'; commit();
   await tick(1200);                       // o temporizador desta alteração encontra a gravação a meio
   assert.equal(sent('PUT').length, 1);
   server.hook = null; open();
@@ -271,9 +271,9 @@ test('undo repõe a viagem, fecha os painéis, anuncia e grava', async () => {
   await start([[trip('a'), 1]]);
   undo();
   assert.equal(ui.announce.mock.callCount(), 0, 'sem pontos não faz nada');
-  pushHistory(); T().name = 'Alterada'; commit();
+  pushHistory(); activeTrip().name = 'Alterada'; commit();
   undo();
-  assert.equal(T().name, 'Viagem a');
+  assert.equal(activeTrip().name, 'Viagem a');
   assert.equal(ui.closeSheets.mock.callCount(), 1);
   assert.deepEqual(ui.announce.mock.calls.map(c => c.arguments[0]), [tr('undone')]);
   await tick(1200);
@@ -297,10 +297,10 @@ test('refresh: 304 não faz nada; mesmas revisões só guardam o ETag; outras re
 
   // com alterações por gravar: a lista fica por aplicar e o ETag por guardar
   server.trips.set('b', { rev: 1, trip: trip('b') }); server.version++;
-  T().name = 'Local'; S.dirty = true;
+  activeTrip().name = 'Local'; S.dirty = true;
   await onVisibilityChange(false);
   assert.equal(calls.length, 3, 'nem pergunta ao servidor');
-  T().name = 'Viagem a';                  // volta ao que o servidor tem
+  activeTrip().name = 'Viagem a';                  // volta ao que o servidor tem
   await onVisibilityChange(false);
   assert.deepEqual(S.store.trips.map(t => t.id), ['a', 'b']);
   assert.deepEqual(toasts(), [tr('tRefreshed')]);
@@ -321,14 +321,14 @@ test('separador escondido: grava logo o que falta, sem esperar 1,2 s', async () 
   onVisibilityChange(true);
   await settle();
   assert.equal(calls.length, 0, 'sem alterações não faz nada');
-  T().name = 'Escondida'; commit();
+  activeTrip().name = 'Escondida'; commit();
   onVisibilityChange(true);
   await settle();
   assert.equal(sent('PUT').length, 1);
   await tick(1200);
   assert.equal(sent('PUT').length, 1, 'a gravação agendada já não tem nada a fazer');
   S.authed = false;
-  T().name = 'Sem sessão'; commit();
+  activeTrip().name = 'Sem sessão'; commit();
   onVisibilityChange(true);
   await settle();
   assert.equal(sent('PUT').length, 1, 'sem sessão não grava');
@@ -346,14 +346,14 @@ test('signIn: 200 com alterações por gravar grava em vez de recarregar; devolv
 
   // a sessão acabou com uma alteração por gravar
   server.authed = false;
-  T().name = 'Por gravar'; commit();
+  activeTrip().name = 'Por gravar'; commit();
   await tick(1200);
   assert.equal(S.authed, false);
   server.loginStatus = 200; calls = [];
   assert.equal(await signIn('eu', 'certa-certa'), 200);
   await settle();
   assert.deepEqual(calls.map(c => c.method + ' ' + c.path), ['POST /api/login', 'PUT /api/trips/a'], 'grava sem ir buscar a lista');
-  assert.equal(T().name, 'Por gravar');
+  assert.equal(activeTrip().name, 'Por gravar');
   assert.equal(server.trips.get('a').trip.name, 'Por gravar');
 
   // sem nada por gravar: vai buscar a lista
@@ -365,11 +365,11 @@ test('signIn: 200 com alterações por gravar grava em vez de recarregar; devolv
 
 test('signOut: grava primeiro; se não conseguir, devolve false e a sessão continua', async () => {
   await start([[trip('a'), 1]]);
-  T().name = 'Antes de sair'; commit();
+  activeTrip().name = 'Antes de sair'; commit();
   server.down = true;
   assert.equal(await signOut(), false);
   assert.equal(S.authed, true);
-  assert.equal(T().name, 'Antes de sair');
+  assert.equal(activeTrip().name, 'Antes de sair');
 
   server.down = false; calls = [];
   assert.equal(await signOut(), true);
@@ -395,7 +395,7 @@ test('initSync liga o separador escondido e o aviso ao fechar com alterações p
     const ev = () => ({ prevented: false, preventDefault() { this.prevented = true; } });
     let e = ev(); on.beforeunload(e);
     assert.equal(e.prevented, false, 'sem alterações fecha sem perguntar');
-    T().name = 'Por gravar'; commit();
+    activeTrip().name = 'Por gravar'; commit();
     e = ev(); on.beforeunload(e);
     assert.deepEqual([e.prevented, e.returnValue], [true, '']);
     on.visibilitychange();

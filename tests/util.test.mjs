@@ -3,8 +3,8 @@ import './env.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { I18N } from '../web/js/i18n.js';
-import { pad, esc, newId, short, SNAP, WD, MON, kindLabels, STATUS, statusLabel, artDay, daysPhrase,
-  parseISO, iso, addDays, mlabel, durLabel, dayLabel } from '../web/js/util.js';
+import { pad, esc, newId, shortPlaceName, SNAP, weekdayNames, monthNames, kindLabels, statusLabels, statusLabel, onWeekday, daysPhrase,
+  parseISO, iso, addDays, clockLabel, durationLabel, dayLabel } from '../web/js/util.js';
 
 // as datas locais têm de atravessar a mudança de hora; o Node aplica o TZ novo logo, e as datas só se leem dentro dos testes
 process.env.TZ = 'Europe/Lisbon';
@@ -44,17 +44,17 @@ test('parseISO, iso e addDays atravessam a mudança de hora (process.env.TZ = Eu
   assert.equal(iso(d), '2027-03-27', 'addDays não mexe na data que recebe');
 });
 
-test('mlabel: negativos e ≥ 1440 dão a hora do relógio; durLabel: 15 min, 1h, 1h30', () => {
-  assert.equal(mlabel(0), '00:00');
-  assert.equal(mlabel(9 * 60 + 5), '09:05');
-  assert.equal(mlabel(-30), '23:30');
-  assert.equal(mlabel(1440), '00:00');
-  assert.equal(mlabel(1500), '01:00');
-  assert.equal(mlabel(3000), '02:00');
-  assert.equal(durLabel(15), '15 min');
-  assert.equal(durLabel(60), '1h');
-  assert.equal(durLabel(90), '1h30');
-  assert.equal(durLabel(125), '2h05');
+test('clockLabel: negativos e ≥ 1440 dão a hora do relógio; durationLabel: 15 min, 1h, 1h30', () => {
+  assert.equal(clockLabel(0), '00:00');
+  assert.equal(clockLabel(9 * 60 + 5), '09:05');
+  assert.equal(clockLabel(-30), '23:30');
+  assert.equal(clockLabel(1440), '00:00');
+  assert.equal(clockLabel(1500), '01:00');
+  assert.equal(clockLabel(3000), '02:00');
+  assert.equal(durationLabel(15), '15 min');
+  assert.equal(durationLabel(60), '1h');
+  assert.equal(durationLabel(90), '1h30');
+  assert.equal(durationLabel(125), '2h05');
   assert.equal(pad(7), '07');
   assert.equal(pad(12), '12');
 });
@@ -66,8 +66,8 @@ test('dayLabel com e sem mês, em PT e EN', () => {
   inLang('en', () => {
     assert.equal(dayLabel('2027-07-05'), 'Mon 5');
     assert.equal(dayLabel('2027-07-05', true), 'Mon 5 Jul');
-    assert.equal(WD()[6], 'Sat');
-    assert.equal(MON()[0], 'Jan');
+    assert.equal(weekdayNames()[6], 'Sat');
+    assert.equal(monthNames()[0], 'Jan');
     assert.equal(kindLabels().food, 'Meal');
   });
 });
@@ -78,11 +78,11 @@ test('statusLabel: estados conhecidos; desconhecidos e chaves do protótipo dão
   inLang('en', () => assert.equal(statusLabel('reservado'), 'booked'));
   for (const s of ['xpto', '', 'toString', '__proto__', 'constructor', 1, null, undefined, {}])
     assert.equal(statusLabel(s), '', String(s));
-  assert.deepEqual(Object.keys(STATUS()), ['ideia', 'reservar', 'reservado', 'pago']);
+  assert.deepEqual(Object.keys(statusLabels()), ['ideia', 'reservar', 'reservado', 'pago']);
 });
 
 test('daysPhrase: domingo no fim, e "e"/"and" antes do último', () => {
-  assert.equal(artDay(0), 'ao domingo');
+  assert.equal(onWeekday(0), 'ao domingo');
   assert.equal(daysPhrase([3]), 'à quarta');
   assert.equal(daysPhrase([0, 3, 1]), 'à segunda, à quarta e ao domingo');
   assert.equal(daysPhrase([6, 0]), 'ao sábado e ao domingo');
@@ -94,6 +94,6 @@ test('daysPhrase: domingo no fim, e "e"/"and" antes do último', () => {
 
 test('short corta o que vem depois de " ·"; SNAP é 15 min', () => {
   assert.equal(SNAP, 15);
-  assert.equal(short('Lisboa · centro'), 'Lisboa');
-  assert.equal(short('Porto'), 'Porto');
+  assert.equal(shortPlaceName('Lisboa · centro'), 'Lisboa');
+  assert.equal(shortPlaceName('Porto'), 'Porto');
 });

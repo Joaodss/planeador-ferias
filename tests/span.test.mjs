@@ -2,16 +2,16 @@
 // para o outro ou ficam nas horas que o quadro não mostra.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { view, absStart, segments, hiddenEdge, slotAt, dateAt, dayShift, frameShift, toFrame, fromFrame, boardLayout, laneLayout } from '../web/js/span.js';
+import { boardHours, absStart, segments, hiddenEdge, slotAt, dateAt, dayShift, frameShift, toFrame, fromFrame, boardLayout, laneLayout } from '../web/js/span.js';
 
 const trip = (dayStart, dayEnd) => ({ start: '2027-07-01', end: '2027-07-03', dayStart, dayEnd });
 const N = 3;   // três colunas: 1, 2 e 3 de julho
 const H = h => h * 60;
 
-test('o horário do quadro continua a dar T0, span e T1', () => {
-  assert.deepEqual(view(trip(8, 2)), { T0: H(8), span: H(18), T1: H(26) });
-  assert.deepEqual(view(trip(8, 0)), { T0: H(8), span: H(16), T1: H(24) });
-  assert.deepEqual(view(trip(7, 7)), { T0: H(7), span: H(24), T1: H(31) });
+test('o horário do quadro continua a dar from, span e to', () => {
+  assert.deepEqual(boardHours(trip(8, 2)), { from: H(8), span: H(18), to: H(26) });
+  assert.deepEqual(boardHours(trip(8, 0)), { from: H(8), span: H(16), to: H(24) });
+  assert.deepEqual(boardHours(trip(7, 7)), { from: H(7), span: H(24), to: H(31) });
 });
 
 test('saída à noite continua a existir quando o quadro deixa de a mostrar', () => {
