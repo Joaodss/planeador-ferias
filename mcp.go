@@ -57,14 +57,19 @@ type rpcResponse struct {
 
 // mcpState descreve no log de arranque se o MCP está ligado e em que modo.
 func mcpState(cfg config) string {
+	var st string
 	switch {
-	case cfg.mcpToken == "":
+	case !cfg.mcpOn():
 		return "desligado"
 	case cfg.mcpReadOnly:
-		return "só leitura"
+		st = "só leitura"
 	default:
-		return "leitura e escrita"
+		st = "leitura e escrita"
 	}
+	if cfg.publicURL != "" {
+		st += ", com OAuth em " + cfg.publicURL
+	}
+	return st
 }
 
 // sameOrigin diz se o cabeçalho Origin (quando existe) é o próprio servidor. O protocolo pede esta verificação
@@ -78,8 +83,12 @@ func sameOrigin(r *http.Request) bool {
 	return err == nil && strings.EqualFold(u.Host, r.Host)
 }
 
-// mcpAuthorized confirma o token em Authorization: Bearer, com o mesmo limite de tentativas do login.
-// Responde ele próprio quando recusa.
+// mcpAuthorized confirma o token em Authorization: Bearer (o fixo, PLANNER_MCP_TOKEN, ou um token de acesso do
+// OAuth), com o mesmo limite de tentativas do login. Responde ele próprio quando recusa.
+//
+// Com o OAuth, os pedidos do claude.ai vêm todos dos endereços da Anthropic: um pedido sem token ou com um token
+// expirado (mas bem assinado) é o fluxo normal e não conta como falha, senão bloqueava o próprio login.
+// Só um token que não é o fixo nem assinado por este servidor conta.
 func (s *server) mcpAuthorized(w http.ResponseWriter, r *http.Request) bool {
 	ip := clientIP(r)
 	if s.tooManyFailures(ip) {
@@ -87,18 +96,37 @@ func (s *server) mcpAuthorized(w http.ResponseWriter, r *http.Request) bool {
 		return false
 	}
 	tok, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-	if !ok || !constantTimeEqual(strings.TrimSpace(tok), s.cfg.mcpToken) {
-		s.noteFailure(ip)
-		w.Header().Set("WWW-Authenticate", `Bearer realm="planeador-ferias"`)
-		writeError(w, http.StatusUnauthorized, "token em falta ou errado")
-		return false
+	tok = strings.TrimSpace(tok)
+	if ok && s.cfg.mcpToken != "" && constantTimeEqual(tok, s.cfg.mcpToken) {
+		return true
 	}
-	return true
+	oauth := s.cfg.publicURL != ""
+	signed := false
+	if ok && oauth {
+		var valid bool
+		signed, valid = s.checkOAuthToken(tok, "at", "")
+		if valid {
+			return true
+		}
+	}
+	if !oauth || (ok && !signed) {
+		s.noteFailure(ip)
+	}
+	h := `Bearer realm="planeador-ferias"`
+	if oauth {
+		h = `Bearer resource_metadata="` + s.cfg.publicURL + `/.well-known/oauth-protected-resource"`
+		if ok {
+			h += `, error="invalid_token"`
+		}
+	}
+	w.Header().Set("WWW-Authenticate", h)
+	writeError(w, http.StatusUnauthorized, "token em falta ou errado")
+	return false
 }
 
 // mcpGet responde ao GET /mcp: este servidor não abre um canal SSE (o protocolo aceita um 405).
 func (s *server) mcpGet(w http.ResponseWriter, r *http.Request) {
-	if s.cfg.mcpToken == "" {
+	if !s.cfg.mcpOn() {
 		http.NotFound(w, r)
 		return
 	}
@@ -107,9 +135,9 @@ func (s *server) mcpGet(w http.ResponseWriter, r *http.Request) {
 }
 
 // mcp trata um POST /mcp: autentica, lê uma mensagem JSON-RPC e responde-lhe.
-// Sem PLANNER_MCP_TOKEN responde 404, como se o caminho não existisse.
+// Sem PLANNER_MCP_TOKEN nem PLANNER_PUBLIC_URL responde 404, como se o caminho não existisse.
 func (s *server) mcp(w http.ResponseWriter, r *http.Request) {
-	if s.cfg.mcpToken == "" {
+	if !s.cfg.mcpOn() {
 		http.NotFound(w, r)
 		return
 	}

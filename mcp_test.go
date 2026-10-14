@@ -158,6 +158,7 @@ func TestMCPState(t *testing.T) {
 		"desligado":         {},
 		"só leitura":        {mcpToken: "x", mcpReadOnly: true},
 		"leitura e escrita": {mcpToken: "x"},
+		"só leitura, com OAuth em https://f.example": {publicURL: "https://f.example", mcpReadOnly: true},
 	} {
 		if got := mcpState(cfg); got != want {
 			t.Errorf("mcpState(%+v) = %q, esperava %q", cfg, got, want)

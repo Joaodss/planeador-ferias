@@ -91,11 +91,27 @@ func TestLoadConfig(t *testing.T) {
 		}
 	}
 	for name, extra := range map[string]map[string]string{
-		"token curto":       {"PLANNER_MCP_TOKEN": strings.Repeat("t", minMCPTokenLen-1)},
-		"modo desconhecido": {"PLANNER_MCP_TOKEN": tok, "PLANNER_MCP_MODE": "admin"},
+		"token curto":              {"PLANNER_MCP_TOKEN": strings.Repeat("t", minMCPTokenLen-1)},
+		"modo desconhecido":        {"PLANNER_MCP_TOKEN": tok, "PLANNER_MCP_MODE": "admin"},
+		"URL pública com caminho":  {"PLANNER_PUBLIC_URL": "https://f.example/x"},
+		"URL pública com / no fim": {"PLANNER_PUBLIC_URL": "https://f.example/"},
+		"URL pública em http":      {"PLANNER_PUBLIC_URL": "http://f.example"},
 	} {
 		if _, err := loadConfig(env(with(extra))); err == nil {
 			t.Errorf("%s: devia dar erro", name)
+		}
+	}
+}
+
+// OAuth: PLANNER_PUBLIC_URL liga o /mcp mesmo sem token
+func TestLoadConfigPublicURL(t *testing.T) {
+	t.Parallel()
+	for _, u := range []string{"https://f.example", "http://localhost:8080", " https://f.example:8443 "} {
+		cfg, err := loadConfig(func(k string) string {
+			return map[string]string{"PLANNER_USER": "eu", "PLANNER_PASSWORD": testPass, "PLANNER_PUBLIC_URL": u}[k]
+		})
+		if err != nil || cfg.publicURL != strings.TrimSpace(u) || !cfg.mcpOn() || cfg.mcpToken != "" {
+			t.Errorf("%q: %+v, %v", u, cfg, err)
 		}
 	}
 }
