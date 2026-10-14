@@ -5,7 +5,7 @@ import { tr } from '../i18n.js';
 import { clockLabel, durationLabel, dayLabel } from '../util.js';
 import { $, pxPerMin, toast, announce } from './dom.js';
 import { S, activeTrip, pushHistory, dropHistory } from '../state.js';
-import { findBlock, moveTo, toTray, rangeLabel, boardFrame, toBoard } from '../trip.js';
+import { findBlock, moveTo, toTray, rangeLabel, boardFrame, toBoard, tripLock } from '../trip.js';
 import { absStart, segments } from '../span.js';
 import { boardTime, dropSlot, resizeEnd, clashesOn } from '../moves.js';
 import { commit } from '../sync.js';
@@ -26,7 +26,7 @@ function onPointerDown(e){
   const el=e.target.closest('.blk'); if(!el || e.button>0 || !activeTrip()) return;
   const f=findBlock(activeTrip(),el.dataset.id); if(!f) return;
   const isGrip=!!e.target.closest('.grip'); const r=el.getBoundingClientRect();
-  S.drag={id:el.dataset.id, el, pointerId:e.pointerId, type:e.pointerType, x0:e.clientX, y0:e.clientY, x:e.clientX, y:e.clientY, mode:isGrip?'resize':'move', active:false, offY:e.clientY-r.top, offX:e.clientX-r.left, w:r.width, h:r.height, locked:!!f.b.locked, timer:null};
+  S.drag={id:el.dataset.id, el, pointerId:e.pointerId, type:e.pointerType, x0:e.clientX, y0:e.clientY, x:e.clientX, y:e.clientY, mode:isGrip?'resize':'move', active:false, offY:e.clientY-r.top, offX:e.clientX-r.left, w:r.width, h:r.height, locked:!!f.b.locked, tripLocked:!!tripLock(activeTrip()), timer:null};
   if(isGrip && e.pointerType!=='mouse'){ e.preventDefault(); startDrag(); }
   else if(e.pointerType!=='mouse' && !isGrip){ S.drag.timer=setTimeout(()=>{ const drag=S.drag; if(drag && !drag.active && !drag.cancelled) startDrag(); },LONG_PRESS_MS); }
 }
@@ -34,6 +34,8 @@ function onPointerDown(e){
    As posições do rato passam a minutos com /pxPerMin() antes de lá chegarem. */
 function startDrag(){
   const drag=S.drag; if(!drag) return;
+  // uma viagem só de leitura não se arrasta; um toque continua a abrir o editor (só para ver)
+  if(drag.tripLocked){ toast(tr('tRo')); drag.cancelled=true; return; }
   if(drag.locked){ toast(tr('tLocked')); drag.cancelled=true; return; }
   drag.active=true; pushHistory(); drag.undoPoint=S.history[S.history.length-1]; document.body.classList.add('is-dragging');
   const t=activeTrip(), f=findBlock(activeTrip(),drag.id), col=drag.el.closest('.day-col'); drag.frame=boardFrame(t);

@@ -5,6 +5,7 @@ import { $, toast, fillTzSelect, linkTzSearch } from './dom.js';
 import { S, activeTrip, pushHistory } from '../state.js';
 import { boardHours, placeName, findBlock, moveTo, toTray, boardFrame, toBoard, editorTime, fromEditor, blockZoneTime, duplicateBlock, dayEnds, FROM_TRAY_START } from '../trip.js';
 import { catName, hasCat, autoCat, catOptions } from '../costs.js';
+import { clearAiMark, aiStampLabel } from '../ai.js';
 import { TZ, secondTz } from '../tz.js';
 import { commit, commitTyping } from '../sync.js';
 import { closeSheets } from './sheets.js';
@@ -55,6 +56,7 @@ export function fillEditor({refresh=false, frame}={}){
   const cur=t.currency||'€'; $('#f-pp-l').textContent=tr('costPPCur',{cur}); $('#f-total-l').textContent=tr('costTotalCur',{cur});
   const lo=$('#f-link-open'); if(/^https?:\/\//i.test(b.link||'')){ lo.hidden=false; lo.href=b.link; lo.textContent=tr('openLink'); } else lo.hidden=true;
   $('#f-tray').hidden=f.where==='tray'; $('#ed-h').textContent=kindLabels()[b.cat]||tr('activity');
+  $('#f-ai').hidden=!b.ai; if(b.ai) $('#f-ai-txt').textContent=tr('aiChangedAt',{when:aiStampLabel(b.ai)});
   // a outra hora: a do quadro quando os campos estão no fuso da atividade; senão o segundo fuso,
   // ou a hora da viagem quando o quadro está no segundo fuso
   const sec=secondTz(t), other=sec && (frame.offsetMin ? {tz:t.tz, diff:-sec.diff} : sec), fs=$('#f-sec'), bz=boardPos&&blockZoneTime(t,frame,b);
@@ -64,8 +66,9 @@ export function fillEditor({refresh=false, frame}={}){
   else fs.hidden=true;
 }
 /* Aplica uma alteração à atividade aberta (um só ponto de Desfazer por abertura do editor) e grava com done:
-   commit, ou commitTyping nos campos de texto, onde o quadro só é redesenhado numa pausa da escrita. */
-function edit(fn, done=commit){ const f=findBlock(activeTrip(),S.editingId); if(!f) return; if(!undoTaken){ pushHistory(); undoTaken=true; } fn(f.b,f); done(); }
+   commit, ou commitTyping nos campos de texto, onde o quadro só é redesenhado numa pausa da escrita.
+   Mudar uma atividade no editor também dá como vista a alteração da IA que ela tinha. */
+function edit(fn, done=commit){ const f=findBlock(activeTrip(),S.editingId); if(!f) return; if(!undoTaken){ pushHistory(); undoTaken=true; } fn(f.b,f); clearAiMark(activeTrip(),'block',f.b.id); done(); }
 const optStr=(k)=>e=>edit(b=>{ const v=e.target.value.trim(); if(v) b[k]=e.target.value; else delete b[k]; }, commitTyping);
 /* Campos do editor (main.js chama-a uma vez ao arrancar). */
 export function initEditor(){
@@ -90,6 +93,7 @@ export function initEditor(){
   // a cópia fica logo a seguir ao original (duplicateBlock em trip.js)
   $('#f-dup').addEventListener('click',()=>{ if(!findBlock(activeTrip(),S.editingId)) return; pushHistory(); const c=duplicateBlock(activeTrip(), S.editingId, newId); commit(); openEditor(c.id); toast(tr('tDupActivity')); });
   $('#f-tray').addEventListener('click',()=>{ edit(b=>toTray(activeTrip(),b.id)); $('#editor').hidden=true; S.editingId=null; });
+  $('#f-ai-seen').addEventListener('click',()=>edit(()=>{}));
   $('#f-del').addEventListener('click',()=>{ $('#f-del-confirm').hidden=false; $('#f-del-yes').focus(); });
   $('#f-del-no').addEventListener('click',()=>{ $('#f-del-confirm').hidden=true; });
   $('#f-del-yes').addEventListener('click',()=>{ const id=S.editingId, t=activeTrip(); pushHistory(); t.blocks=t.blocks.filter(b=>b.id!==id); t.tray=t.tray.filter(b=>b.id!==id); $('#editor').hidden=true; S.editingId=null; commit(); toast(tr('tDelActivity')); });

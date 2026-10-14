@@ -7,7 +7,7 @@ A imagem Docker tem cerca de 7 MB e não precisa de base de dados: cada viagem �
 
 | Ficheiro | Para que serve |
 | --- | --- |
-| `*.go` | Servidor, só com a biblioteca padrão do Go: `main.go` (arranque), `routes.go` (API), `auth.go` (login e sessões), `trips.go` (ficheiros das viagens e cópias), `static.go` (página embutida). |
+| `*.go` | Servidor, só com a biblioteca padrão do Go: `main.go` (arranque), `routes.go` (API), `auth.go` (login e sessões), `trips.go` (ficheiros das viagens e cópias), `static.go` (página embutida), `mcp.go`, `mcptools.go` e `tripedit.go` (servidor MCP para um assistente de IA). |
 | `web/` | A página: `index.html`, `css/app.css` e `js/` em módulos ES sem build (`js/main.js` é a entrada, liga as partes e lista o que cada módulo faz; `js/` tem a lógica, sem DOM, e `js/ui/` a interface; `js/i18n.js` tem os textos em português e inglês e `js/tz.js` as contas dos fusos horários). Fica embutida no binário. |
 | `Dockerfile` | Compila e produz a imagem final (`FROM scratch`). |
 | `docker-compose.yml` | Arranque no servidor, com volume para os dados. |
@@ -58,10 +58,42 @@ A imagem Docker tem cerca de 7 MB e não precisa de base de dados: cada viagem �
 | `PLANNER_USER` | sim | — | Nome de utilizador do login. |
 | `PLANNER_PASSWORD` | sim | — | Palavra-passe (mínimo 10 caracteres). |
 | `PLANNER_HOME_TZ` | não | fuso do browser | Segundo fuso mostrado na grelha, ao lado da hora da viagem (ex.: `Europe/Lisbon`). Cada dispositivo pode escolher outro. |
+| `PLANNER_MCP_TOKEN` | não | — (MCP desligado) | Liga o servidor MCP em `/mcp` para um assistente de IA (mínimo 32 caracteres; ver [Assistente de IA (MCP)](#assistente-de-ia-mcp)). |
+| `PLANNER_MCP_MODE` | não | `write` | `read` deixa a IA só ler as viagens. |
 | `DATA_DIR` | não | `/data` na imagem | Pasta dos dados. |
 | `PORT` | não | `8080` | Porta onde o servidor ouve. |
 
 Mudar a palavra-passe termina todas as sessões abertas.
+
+## Assistente de IA (MCP)
+
+Com `PLANNER_MCP_TOKEN` definido, o servidor responde em `/mcp` ao [Model Context Protocol](https://modelcontextprotocol.io)
+(transporte HTTP, sem estado). Um assistente de IA pode então ver as viagens, montar um itinerário, mover atividades
+e juntar custos e sítios. Para ligar o Claude Code:
+
+```sh
+claude mcp add --transport http ferias https://ferias.example.com/mcp --header "Authorization: Bearer $PLANNER_MCP_TOKEN"
+```
+
+Ferramentas: `list_trips`, `get_trip`, `get_day`, `create_trip`, `update_trip`, `add_activities`, `update_activity`,
+`move_activity`, `add_place`, `set_day_places`, `add_cost`, `update_cost` e `undo_last_ai_change`.
+
+Para um engano da IA não estragar o plano:
+
+- **A IA não apaga nada.** Não há ferramentas para apagar: tirar uma atividade do plano é mandá-la para "por agendar".
+- **O que já está decidido não muda:** atividades fixas, reservadas ou pagas, custos pagos e viagens
+  só de leitura ou arquivadas (em **Datas e sítios → Outras ações**) ficam como estão.
+- **Tudo o que a IA muda fica marcado** com ✨ na página. O botão **✨ n da IA** abre a lista das alterações por ver;
+  marca-as como vistas quando estiverem bem.
+- **Desfazer:** antes de cada alteração, o servidor guarda uma cópia da viagem (`backups/<id>/ia-….json`, as
+  últimas 20). **Desfazer a última alteração da IA** (no painel ou pela ferramenta `undo_last_ai_change`) volta a ela,
+  desde que a viagem não tenha mudado depois (dar as alterações como vistas não conta).
+- O assistente também pede autorização antes de cada ferramenta que escreve, a não ser que a aproves de vez.
+- O token dá acesso às viagens sem login: guarda-o como a palavra-passe. As falhas contam para o mesmo
+  limite de tentativas do login. Para o revogar, muda-o (ou apaga-o) e reinicia o contentor.
+
+Com a página aberta, as alterações da IA aparecem ao voltar ao separador. Se tiveres alterações por gravar
+nessa viagem, fica a versão do servidor (como entre dois dispositivos).
 
 ## Publicar alterações
 
@@ -88,12 +120,14 @@ palavras-passe), ou fazes `docker login ghcr.io` no servidor com um token com pe
 ├── trips/<id>.json          uma viagem por ficheiro: {"rev", "updatedAt", "trip"}
 ├── backups/<id>/AAAA-MM-DD.json   versão anterior à primeira alteração de cada dia (últimas 30)
 ├── backups/<id>/apagada-….json    viagens apagadas (nunca são eliminadas do disco)
+├── backups/<id>/ia-….json         a viagem antes de cada alteração da IA (últimas 20; ver "Assistente de IA")
 └── .session-secret          segredo que assina as sessões
 ```
 
 - Dentro de cada viagem: `tz` (fuso da viagem, opcional: as horas da grelha são a hora local desse fuso), `dayPlaces` (os sítios de cada dia: onde começam, as paragens pelo caminho e onde acabam),
   `blocks` (atividades, com `pp`/`total`, `ccat` para a categoria de custo e `tz`, um fuso próprio opcional em que o editor mostra o dia e a hora), `costs`
-  (custos do dia ou gerais), `costCats` (categorias) e `budget` (orçamento).
+  (custos do dia ou gerais), `costCats` (categorias) e `budget` (orçamento). `readOnly` e `archived` bloqueiam a viagem
+  (na página e para a IA) e `ai` marca, numa atividade, num custo ou na viagem, a última alteração da IA ainda por ver.
 - As escritas são atómicas (ficheiro temporário + troca), por isso uma falha de energia não corrompe uma viagem.
 - Cada viagem tem um número de revisão. Se dois dispositivos editarem a mesma viagem, o segundo a gravar
   recebe a versão mais recente em vez de a sobrepor.
@@ -146,8 +180,8 @@ node --test --experimental-test-coverage --test-coverage-include='web/js/*.js' -
 ```
 
 Há ainda um teste de fumo num Chromium a sério (`e2e/`), o único que precisa de `npm`. Compila o
-servidor, entra, cria uma viagem e uma atividade, arrasta-a, desfaz, recarrega, sai e volta a entrar em
-inglês, e falha com qualquer erro na consola (uma violação da CSP, por exemplo). No fim mostra a
+servidor, entra, cria uma viagem e uma atividade, arrasta-a, desfaz, recarrega, junta atividades pelo MCP
+(marca, desfazer e visto), torna a viagem só de leitura e arquiva-a, sai e volta a entrar em inglês, e falha com qualquer erro na consola (uma violação da CSP, por exemplo). No fim mostra a
 cobertura de funções de `web/js/ui/`, sem mínimo:
 
 ```sh

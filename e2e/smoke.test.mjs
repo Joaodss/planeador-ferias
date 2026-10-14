@@ -18,6 +18,7 @@ const tmp = mkdtempSync(join(tmpdir(), 'planner-e2e-'));
 const dataDir = join(tmp, 'data');
 const USER = 'e2e';
 const PASS = randomBytes(16).toString('hex');   // descartável, gerada em cada execução
+const MCP_TOKEN = randomBytes(24).toString('hex');   // idem, para o /mcp (PLANNER_MCP_TOKEN)
 // Datas fixas, longe de hoje: o teste não depende do dia em que corre.
 const D1 = '2027-06-01', D2 = '2027-06-02', D3 = '2027-06-03';
 
@@ -46,7 +47,7 @@ before(async ()=>{
   const port = await freePort();
   base = `http://127.0.0.1:${port}`;
   server = spawn(bin, [], {
-    env: { ...process.env, PLANNER_USER: USER, PLANNER_PASSWORD: PASS, DATA_DIR: dataDir, PORT: String(port) },
+    env: { ...process.env, PLANNER_USER: USER, PLANNER_PASSWORD: PASS, PLANNER_MCP_TOKEN: MCP_TOKEN, DATA_DIR: dataDir, PORT: String(port) },
     stdio: ['ignore', 'inherit', 'inherit'],
   });
   await waitHealthy(base);
@@ -216,6 +217,87 @@ test('recarregar: a sessão continua e tudo foi gravado no servidor', async ()=>
   const rec = JSON.parse(readFileSync(join(dataDir, 'trips', tripsOnDisk()[0]), 'utf8'));
   assert.equal(rec.trip.blocks[0].date, D1);
   assert.equal(rec.trip.costs[0].amount, 120);
+});
+
+/* Uma ferramenta do MCP, como um assistente de IA a chamaria. Devolve o structuredContent, ou {error} com o texto. */
+let rpcId = 0;
+async function mcpTool(name, args){
+  const r = await fetch(base + '/mcp', { method: 'POST', headers: { Authorization: 'Bearer ' + MCP_TOKEN, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: ++rpcId, method: 'tools/call', params: { name, arguments: args } }) });
+  const { result } = await r.json();
+  return result.isError ? { error: result.content[0].text } : result.structuredContent;
+}
+const tripId = ()=>tripsOnDisk()[0].replace(/\.json$/, '');
+async function reloadPage(){ await keepCoverage(); await page.reload(); await page.waitForSelector('.app:not([hidden])'); }
+
+test('IA pelo MCP: ✨ no bloco e no painel, desfazer a última alteração e marcar como visto', async ()=>{
+  const add = await mcpTool('add_activities', { trip_id: tripId(), activities: [{ title: 'Baleias', date: D2, start: '09:00', duration: 180 }] });
+  assert.equal(add.added.length, 1, JSON.stringify(add));
+  await reloadPage();
+  assert.equal(await block(D2).count(), 1);
+  assert.equal(await page.locator('.blk.ai-mark .ai-badge').count(), 1);
+  assert.match(await page.textContent('#ai-btn'), /1 da IA/);
+  await page.click('#ai-btn');
+  await page.waitForSelector('#aisheet:not([hidden])');
+  assert.equal(await page.locator('#ai-list .ai-item').count(), 1);
+  assert.match(await page.textContent('#ai-list'), /Baleias/);
+
+  // desfazer no servidor: a atividade sai e o botão da IA desaparece
+  await page.click('#ai-undo');
+  await page.waitForFunction(()=>!document.querySelector('.day-col[data-date="2027-06-02"] .blk'));
+  await page.waitForSelector('#ai-btn', { state: 'hidden' });
+  assert.match(await page.textContent('#toast'), /desfeita/);
+
+  // outra vez, agora vista no editor
+  await mcpTool('add_activities', { trip_id: tripId(), activities: [{ title: 'Termas', date: D2, start: '15:00' }] });
+  await reloadPage();
+  await block(D2).click();
+  await page.waitForSelector('#editor:not([hidden])');
+  assert.match(await page.textContent('#f-ai'), /Alterada pela IA/);
+  await page.click('#f-ai-seen');
+  await page.waitForSelector('#f-ai', { state: 'hidden' });
+  await page.click('#editor [data-close]');
+  assert.equal(await page.locator('.blk.ai-mark').count(), 0);
+  assert.equal(await page.isHidden('#ai-btn'), true);
+  await saved();
+});
+
+test('só de leitura e arquivada: nem a página nem a IA mudam a viagem até a desbloquear', async ()=>{
+  await page.click('#trip-settings');
+  await page.waitForSelector('#tripsheet:not([hidden])');
+  await page.click('#t-ro');
+  assert.equal(await page.isDisabled('#t-name'), true);
+  assert.equal(await page.isDisabled('#t-del'), true);
+  await page.click('#t-x');
+  await page.waitForSelector('#lock-chip:not([hidden])');
+  assert.match(await page.textContent('#lock-chip'), /Só de leitura/);
+  assert.equal(await page.isDisabled('#add'), true);
+  await saved();
+  const r = await mcpTool('add_activities', { trip_id: tripId(), activities: [{ title: 'Não pode' }] });
+  assert.match(r.error, /só de leitura/);
+
+  // o editor abre, mas só para ver
+  await block(D1).click();
+  await page.waitForSelector('#editor:not([hidden])');
+  assert.equal(await page.isDisabled('#f-title'), true);
+  await page.click('#editor [data-close]');
+
+  await page.click('#lock-chip');
+  await page.waitForSelector('#lock-chip', { state: 'hidden' });
+  assert.equal(await page.isEnabled('#add'), true);
+
+  // arquivar: só de leitura e num grupo à parte no seletor de viagens
+  await page.click('#trip-settings');
+  await page.click('#t-archive');
+  await page.click('#t-x');
+  assert.match(await page.textContent('#lock-chip'), /Arquivada/);
+  assert.equal(await page.locator('#trip-sel optgroup').count(), 1);
+  await saved();
+  assert.match((await mcpTool('update_trip', { trip_id: tripId(), name: 'x' })).error, /arquivada/);
+  await page.click('#lock-chip');
+  await page.waitForSelector('#lock-chip', { state: 'hidden' });
+  assert.equal(await page.locator('#trip-sel optgroup').count(), 0);
+  await saved();
 });
 
 test('Sair, mudar para inglês e voltar a entrar', async ()=>{

@@ -5,7 +5,7 @@
    Aqui ficam os pedidos, a gravação e a sessão. Este módulo não importa nada de ui/ e não toca no DOM:
    main.js liga a interface com connectUI() e os eventos do browser com initSync(); os testes passam espiões. */
 import { tr } from './i18n.js';
-import { S, ensureActive, clearHistory, restoreLast } from './state.js';
+import { S, activeTrip, ensureActive, clearHistory, restoreLast } from './state.js';
 import { normTrip } from './trip.js';
 import { setServerHomeTz } from './tz.js';
 
@@ -156,9 +156,13 @@ function applyServer(d, tag){
    O que ficou por gravar continua na página e é gravado depois de voltar a entrar. */
 function startSession(){ S.authed=true; ui.showApp(); }
 function endSession(){ S.authed=false; clearTimeout(saveTimer); ui.showLogin(); }
-async function loadAll(){
+/* Vai buscar a lista toda e fica com ela: o que estava na página é substituído e o Desfazer esquecido. */
+async function fetchAll(){
   const r=await api('GET','/api/trips'); if(!r.ok) throw new ApiError('http');
   applyServer(await r.json(), r.headers.get('ETag')); clearHistory(); S.dirty=false; S.online=true;
+}
+async function loadAll(){
+  await fetchAll();
   startSession(); ensureActive(); ui.render(); refreshSaveLabel();
 }
 /** Arranque: vai buscar as viagens; sem ligação mostra o aviso e tenta de novo (BOOT_RETRY). */
@@ -197,6 +201,22 @@ async function refresh(){
     applyServer(d, tag); clearHistory(); ui.closeSheets(); ensureActive(); ui.render();
     ui.toast(tr('tRefreshed'));
   }catch{}
+}
+/** "Desfazer a última alteração da IA" na viagem aberta: o servidor repõe a cópia de antes dessa alteração
+   (POST /api/trips/{id}/undo-ai) e a página volta a carregar as viagens. Antes grava o que falta.
+   Devolve 'ok', 'conflict' (não há nada da IA para desfazer, ou a viagem mudou depois) ou 'error'.
+   @returns {Promise<'ok'|'conflict'|'error'>} */
+export async function undoLastAi(){
+  const t=activeTrip(); if(!t || !S.authed) return 'error';
+  if(computeDirty()){ clearTimeout(saveTimer); await doSave(); if(computeDirty()){ ui.toast(tr('tAiUndoUnsaved')); return 'error'; } }
+  try{
+    const r=await api('POST','/api/trips/'+encodeURIComponent(t.id)+'/undo-ai');
+    if(r.status===409){ ui.toast(tr('tAiUndoNo')); return 'conflict'; }
+    if(!r.ok) throw new ApiError('http');
+    await fetchAll();
+  }catch(e){ if(!isAuthError(e)) ui.toast(tr('tAiUndoErr')); return 'error'; }
+  ui.closeSheets(); ensureActive(); ui.render(); refreshSaveLabel(); ui.toast(tr('tAiUndone'));
+  return 'ok';
 }
 /** O separador ficou escondido (grava o que falta) ou voltou a estar visível (vai buscar o que mudou).
    @param {boolean} hidden  document.hidden */

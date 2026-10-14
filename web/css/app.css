@@ -310,3 +310,28 @@ body.is-dragging,body.is-dragging *{cursor:grabbing!important}
 .login-card .btn{justify-content:center;padding:9px 12px}
 
 .login-card .lang-btn{align-self:center;border:0;background:none;color:var(--muted);font-size:12px;padding:4px 8px}
+
+/* Só de leitura e arquivadas: os painéis ficam dentro de <fieldset class="ro-zone">, que desativa todos os campos
+   de uma vez (também as linhas criadas depois); display:contents deixa o layout como estava. */
+.ro-zone{display:contents;border:0;margin:0;padding:0;min-width:0}
+.ro-zone:disabled input,.ro-zone:disabled select,.ro-zone:disabled textarea,.ro-zone:disabled .btn{opacity:.6;cursor:not-allowed}
+.lock-chip{flex:none;border:1px solid var(--line);border-radius:999px;padding:3px 9px;background:var(--surface-2);color:var(--muted);font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap}
+.lock-chip::before{content:"🔒 "}
+.lock-chip:hover{border-color:var(--muted);color:var(--ink)}
+body.ro .blk{cursor:default}
+body.ro .blk .grip{display:none}
+
+/* Alterações da IA (ai.js): ✨ nos blocos, o botão no topo e o painel */
+.blk.ai-mark{box-shadow:0 0 0 2px var(--accent)}
+.blk .ai-badge{position:absolute;top:2px;right:3px;font-size:11px;line-height:16px}
+.blk.has-badge .ai-badge{right:24px}
+.blk.cut-top .ai-badge{top:7px}
+.pill.ai-pill{border-color:var(--accent);color:var(--accent)}
+.ai-note{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 10px;border-radius:8px;border:1px dashed var(--accent);color:var(--ink)}
+.ai-note span{flex:1;min-width:0}
+.ai-list{display:flex;flex-direction:column;gap:8px}
+.ai-item{display:flex;gap:8px;align-items:stretch}
+.ai-item .ai-open{flex:1;min-width:0;padding:9px 12px;border-radius:9px;border:1px solid var(--line);border-left:3px solid var(--accent);background:var(--surface-2);cursor:pointer;text-align:left;color:inherit;font:inherit}
+.ai-item .ai-open:hover{border-color:var(--muted);border-left-color:var(--accent)}
+.ai-item .wt{font-weight:600;font-size:13px;line-height:1.35}
+.ai-item .wd{font-size:12px;color:var(--muted);margin-top:2px}

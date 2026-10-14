@@ -297,9 +297,23 @@ func TestMCPUndo(t *testing.T) {
 		t.Errorf("depois de desfazer A: %v", bs)
 	}
 
-	// se o utilizador gravou depois da IA, o undo recusa (e a página usa o seu Desfazer)
+	// a página deu as alterações como vistas (tirou as marcas ai) e gravou: o undo continua a funcionar
 	mustTool(t, s, "update_trip", fmt.Sprintf(`{"trip_id":%q,"name":"Japão 2026"}`, id))
+	addOne(t, s, id, `{"title":"D"}`)
 	trip, rev := storedTrip(t, s, id)
+	delete(trip, "ai")
+	for _, b := range trip["tray"].([]any) {
+		delete(b.(map[string]any), "ai")
+	}
+	putStored(t, s, id, rev, trip)
+	mustTool(t, s, "undo_last_ai_change", undo)
+	if bs := blocksByTitle(must(storedTrip(t, s, id))); len(bs) != 0 {
+		t.Errorf("undo depois de a página tirar as marcas: %v", bs)
+	}
+
+	// se o utilizador mudou a viagem depois da IA, o undo recusa (e a página usa o seu Desfazer)
+	trip, rev = storedTrip(t, s, id)
+	trip["people"] = float64(5)
 	putStored(t, s, id, rev, trip)
 	if r := tool(t, s, "undo_last_ai_change", undo); !strings.Contains(r.errMsg, "mudou depois") {
 		t.Errorf("com a viagem mudada pela página: %q", r.errMsg)

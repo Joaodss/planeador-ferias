@@ -4,6 +4,7 @@
 import { parseISO } from './util.js';
 import { resolveTz } from './tz.js';
 import { tripDates, toTray } from './trip.js';
+import { clearAiMarks } from './ai.js';
 
 /** Máximo de dias de uma viagem criada ou editada no formulário "Datas e sítios" (o erro errTripLong).
    MAX_TRIP_DATES (span.js) é maior e não é o mesmo limite: protege das viagens que não passam por aqui (importadas ou editadas à mão). */
@@ -93,4 +94,20 @@ export function applyTripEdit(t, fields){
   for(const c of t.costs||[]) if(c.date && !inTrip.has(c.date)) delete c.date;
   for(const d of Object.keys(t.dayPlaces)) if(!inTrip.has(d)) delete t.dayPlaces[d];
   return out.length;
+}
+
+/** Cópia da viagem t para "Duplicar viagem": id novo, o nome com suffix e sem nada que a bloqueie
+   (só de leitura, arquivada) nem marcas da IA, que eram da original.
+   @param {Trip} t
+   @param {(prefix: string) => string} newId
+   @param {string} suffix  " (cópia)", já traduzido
+   @returns {Trip} */
+export function copyTrip(t, newId, suffix){
+  const c=structuredClone(t);
+  c.id=newId('t');
+  c.name=t.name+suffix;
+  delete c.readOnly;
+  delete c.archived;
+  clearAiMarks(c);
+  return c;
 }

@@ -97,9 +97,9 @@ func (s *server) mcpAuthorized(w http.ResponseWriter, r *http.Request) bool {
 }
 
 // mcpGet responde ao GET /mcp: este servidor não abre um canal SSE (o protocolo aceita um 405).
-func (s *server) mcpGet(w http.ResponseWriter, _ *http.Request) {
+func (s *server) mcpGet(w http.ResponseWriter, r *http.Request) {
 	if s.cfg.mcpToken == "" {
-		http.NotFound(w, nil)
+		http.NotFound(w, r)
 		return
 	}
 	w.Header().Set("Allow", http.MethodPost)

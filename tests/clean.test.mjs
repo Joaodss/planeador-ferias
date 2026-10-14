@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { cleanTrip, STATUSES, KINDS, MAX_DAY_PLACES } from '../web/js/clean.js';
+import { cleanTrip, STATUSES, KINDS, MAX_DAY_PLACES, AI_STAMP } from '../web/js/clean.js';
 import { segments } from '../web/js/span.js';
 
 let n = 0;
@@ -119,4 +119,26 @@ test('fuso da atividade: fica um que o browser reconheça, sai o resto (#42)', (
   }), newId);
   assert.deepEqual(t.blocks.map(b => b.tz), ['Asia/Tokyo', undefined, undefined]);
   assert.deepEqual(t.tray.map(b => b.tz), ['Europe/Lisbon', undefined]);
+});
+
+test('só de leitura e arquivada: só true conta, qualquer outro valor sai', () => {
+  assert.deepEqual([cleanTrip(trip({ readOnly: true, archived: true }), newId)].map(t => [t.readOnly, t.archived]), [[true, true]]);
+  const t = cleanTrip(trip({ readOnly: 'sim', archived: 1 }), newId);
+  assert.equal('readOnly' in t, false);
+  assert.equal('archived' in t, false);
+});
+
+test('marca da IA (ai): fica uma data UTC, sai o resto (entra no texto da página)', () => {
+  const ok = '2026-10-13T09:00:00Z';
+  const t = cleanTrip(trip({
+    ai: ok,
+    blocks: [{ id: 'a1', date: '2026-08-01', start: 0, ai: '2026-10-13T09:00:00.123Z' }, { id: 'a2', date: '2026-08-01', start: 0, ai: '<b>ontem</b>' }],
+    tray: [{ id: 'a3', ai: 5 }],
+    costs: [{ id: 'c1', label: 'x', amount: 1, ai: ok }, { id: 'c2', label: 'y', amount: 1, ai: '2026-10-13' }],
+  }), newId);
+  assert.equal(t.ai, ok);
+  assert.deepEqual(t.blocks.map(b => b.ai), ['2026-10-13T09:00:00.123Z', undefined]);
+  assert.equal(t.tray[0].ai, undefined);
+  assert.deepEqual(t.costs.map(c => c.ai), [ok, undefined]);
+  assert.match(ok, AI_STAMP);
 });

@@ -39,6 +39,7 @@ import { TZ } from './tz.js';
  * @property {string} [link]
  * @property {string} [ref]     referência da reserva
  * @property {string} [note]
+ * @property {string} [ai]      data da última alteração feita pela IA (AI_STAMP), até o utilizador a dar como vista
  */
 /**
  * Sítio por onde a viagem passa.
@@ -57,6 +58,7 @@ import { TZ } from './tz.js';
  * @property {string} [cat]         categoria de custo (CostCat.id)
  * @property {ISODate} [date]
  * @property {true} [paid]
+ * @property {string} [ai]          data da última alteração feita pela IA (AI_STAMP)
  */
 /**
  * Categoria de custo. Os ids por omissão estão em português (alojamento, transporte, …): são dados guardados.
@@ -83,6 +85,9 @@ import { TZ } from './tz.js';
  * @property {Block[]} tray       atividades por agendar (sem date nem start)
  * @property {Cost[]} costs
  * @property {CostCat[]} [costCats]  sem elas usam-se as categorias por omissão, traduzidas (costs.js)
+ * @property {true} [readOnly]    só de leitura: nem a página nem a IA a mudam até o utilizador a desbloquear
+ * @property {true} [archived]    arquivada: só de leitura e fora da lista principal de viagens
+ * @property {string} [ai]        data da última alteração da IA aos dados da viagem, sítios ou sítios dos dias (AI_STAMP)
  */
 
 /** Estados (Status). IDs guardados (em português de propósito): nunca mudar o nome, só a tradução. */
@@ -94,6 +99,10 @@ export const KINDS = ['tour', 'party', 'transport', 'food', 'rest', 'sleep'];
 export const MAX_DAY_PLACES = 12;
 /** Data AAAA-MM-DD e identificador (o mesmo que o servidor aceita no caminho). backup.js também os usa. */
 export const ISO = /^\d{4}-\d{2}-\d{2}$/, ID = /^[A-Za-z0-9_-]{1,64}$/;
+/** Marca de uma alteração da IA (o campo ai): data e hora em UTC, como o servidor a escreve (aiStamp em tripedit.go). */
+export const AI_STAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
+/* Tira o campo ai de o se não for uma marca válida: só entra no texto da página através de uma data. */
+function cleanStamp(o){ if(typeof o.ai!=='string' || !AI_STAMP.test(o.ai)) delete o.ai; }
 /* Número finito a partir de um número ou de texto ("600"); qualquer outra coisa dá d. */
 function num(v, d){ const n = typeof v==='number' ? v : (typeof v==='string' && v.trim()) ? +v : NaN; return Number.isFinite(n) ? n : d; }
 const int = (v, lo, hi, d) => { const n = num(v, NaN); return Number.isInteger(n) && n>=lo && n<=hi ? n : d; };
@@ -119,6 +128,7 @@ function cleanBlock(b, placed, used, newId){
   // fuso próprio da atividade (ex.: um voo): só um que o browser reconheça
   if(typeof b.tz!=='string' || !TZ.valid(b.tz)) delete b.tz;
   for(const k of ['address', 'link', 'ref', 'note']) if(b[k]!=null) b[k] = text(b[k]);
+  cleanStamp(b);
   return b;
 }
 
@@ -137,6 +147,9 @@ function cleanActivities(t, newId){
  * @returns {Trip} o mesmo objeto t, já com a forma de Trip
  */
 export function cleanTrip(t, newId){
+  // bloquear e arquivar é só com o utilizador (painel da viagem); o MCP recusa escrever nestas viagens
+  for(const k of ['readOnly', 'archived']) if(t[k]!==true) delete t[k];
+  cleanStamp(t);
   t.dayStart = int(t.dayStart, 0, 23, 7); t.dayEnd = int(t.dayEnd, 0, 23, 1);
   t.people = Math.max(1, Math.round(num(t.people, 1)));
   const budget = num(t.budget, 0); if(budget>0) t.budget = budget; else delete t.budget;
@@ -153,6 +166,7 @@ export function cleanTrip(t, newId){
     if(typeof c.cat!=='string' || !c.cat) delete c.cat;
     if(typeof c.date!=='string' || !ISO.test(c.date)) delete c.date;
     if(c.paid!==true) delete c.paid;
+    cleanStamp(c);
     return c; });
   if(t.costCats!=null){ const kids = new Set(); t.costCats = list(t.costCats).filter(c => typeof c.id==='string' && c.id && !kids.has(c.id) && kids.add(c.id)).map(c => { c.name = text(c.name); return c; }); }
   return cleanActivities(t, newId);
