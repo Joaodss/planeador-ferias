@@ -186,7 +186,7 @@ export const NEW_IN_DAY_START = 9*60, FROM_TRAY_START = 10*60;
    @param {NewId} newId
    @returns {Block} 1 hora, passeio, ideia */
 export function newBlock(where, newId){ return {id:newId('a'), ...where, len:60, title:tr('newActivity'), cat:'tour', status:'ideia'}; }
-/** Cópia da atividade id, logo a seguir à original (ou em "por agendar", se a original lá estiver). Não fica bloqueada.
+/** Cópia da atividade id, logo a seguir à original (ou em "por agendar", se a original lá estiver). Não fica bloqueada nem com a marca da IA.
    Pode cair fora das datas da viagem: aí aparece o aviso próprio. Devolve a cópia, ou null se id não existir.
    @param {Trip} t
    @param {string} id
@@ -198,6 +198,7 @@ export function duplicateBlock(t, id, newId){
   const c=structuredClone(f.b);
   c.id=newId('a');
   delete c.locked;
+  delete c.ai;   // a cópia é do utilizador, não da IA
   if(f.where==='tray') t.tray.push(c);
   else { Object.assign(c, dateAt(t, absStart(t,f.b)+f.b.len)); t.blocks.push(c); }
   return c;
@@ -267,4 +268,30 @@ export function dateRangeLabel(t){
   const s0=parseISO(t.start), s1=parseISO(t.end), M=monthNames();
   if(s0.getMonth()===s1.getMonth() && s0.getFullYear()===s1.getFullYear()) return `${s0.getDate()}–${s1.getDate()} ${M[s1.getMonth()]} ${s1.getFullYear()}`;
   return `${s0.getDate()} ${M[s0.getMonth()]} – ${s1.getDate()} ${M[s1.getMonth()]} ${s1.getFullYear()}`;
+}
+
+/* ---------- só de leitura e arquivadas ---------- */
+/** Porque é que a viagem t não se pode mudar: 'archived' (arquivada, que também é só de leitura), 'readOnly', ou ''
+   (pode mudar). Nem a página nem a IA (o MCP do servidor) mudam uma viagem bloqueada.
+   @param {Trip | null} t
+   @returns {'archived'|'readOnly'|''} */
+export function tripLock(t){
+  if(!t) return '';
+  if(t.archived) return 'archived';
+  if(t.readOnly) return 'readOnly';
+  return '';
+}
+/** Liga ou desliga só de leitura ('readOnly') ou arquivada ('archived') na viagem t.
+   @param {Trip} t  mudada no próprio objeto
+   @param {'readOnly'|'archived'} flag
+   @param {boolean} on */
+export function setTripFlag(t, flag, on){
+  if(on) t[flag]=true;
+  else delete t[flag];
+}
+/** As viagens para o seletor: as abertas e, à parte, as arquivadas, cada grupo pela ordem recebida.
+   @param {Trip[]} trips
+   @returns {{open: Trip[], archived: Trip[]}} */
+export function tripGroups(trips){
+  return {open:trips.filter(t=>!t.archived), archived:trips.filter(t=>t.archived)};
 }

@@ -11,6 +11,7 @@
      clean.js     limpeza dos dados do servidor e das importações
      costs.js     categorias e totais de custos
      warnings.js  regras dos pontos a rever
+     ai.js        marcas das alterações feitas pela IA (o MCP do servidor)
      moves.js     para onde vai uma atividade movida com as setas ou a arrastar
      tripform.js  validar e aplicar o formulário da viagem
      backup.js    cópia de segurança e importar
@@ -28,6 +29,7 @@
      tripsheet.js painel da viagem (sítios, categorias)
      costsheet.js painel de custos
      warnings.js  painel dos pontos a rever
+     aisheet.js   painel das alterações da IA
      toolbar.js   barra de ferramentas e indicador de gravação
      files.js     Excel, cópia de segurança e importar */
 import { I18N } from './i18n.js';
@@ -42,11 +44,12 @@ import { initDaysheet } from './ui/daysheet.js';
 import { initTripsheet } from './ui/tripsheet.js';
 import { initCostsheet } from './ui/costsheet.js';
 import { initWarnings } from './ui/warnings.js';
+import { initAisheet } from './ui/aisheet.js';
 import { initToolbar, showSaveState } from './ui/toolbar.js';
 import { initFiles } from './ui/files.js';
 
 initLogin(); initBoard(); initDrag(); initSheets(); initEditor(); initDaysheet();
-initTripsheet(); initCostsheet(); initWarnings(); initToolbar(); initFiles();
+initTripsheet(); initCostsheet(); initWarnings(); initAisheet(); initToolbar(); initFiles();
 connectUI({render, closeSheets, toast, announce, saveState:showSaveState, showLogin, showApp, showOffline});
 initSync();
 I18N.apply();

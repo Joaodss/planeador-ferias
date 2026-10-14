@@ -3,7 +3,7 @@ import './env.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { normTrip } from '../web/js/trip.js';
-import { validateTrip, tripFields, newTrip, applyTripEdit, MAX_DAYS } from '../web/js/tripform.js';
+import { validateTrip, tripFields, newTrip, applyTripEdit, copyTrip, MAX_DAYS } from '../web/js/tripform.js';
 
 let n = 0;
 const newId = p => `${p}novo${++n}`;
@@ -66,4 +66,17 @@ test('applyTripEdit: o que fica fora das novas datas vai para "por agendar", pas
   assert.deepEqual(t.dayPlaces, {});
   assert.equal(applyTripEdit(t, tripFields(form({ start: '2027-07-03', end: '2027-07-05', budget: '20', tz: 'Asia/Tokyo' }))), 0);
   assert.deepEqual([t.budget, t.tz], [20, 'Asia/Tokyo']);
+});
+
+test('copyTrip: id e nome novos, sem bloqueio nem marcas da IA, e a original fica igual', () => {
+  const ai = '2026-10-13T09:00:00Z';
+  const t = normTrip({ id: 't1', name: 'Açores', start: '2027-07-01', end: '2027-07-02', readOnly: true, archived: true, ai,
+    blocks: [{ id: 'a1', title: 'Baleias', date: '2027-07-01', start: 600, ai }], costs: [{ id: 'c1', label: 'Hotel', amount: 1, ai }] });
+  const before = JSON.stringify(t);
+  const c = copyTrip(t, newId, ' (cópia)');
+  assert.equal(c.name, 'Açores (cópia)');
+  assert.notEqual(c.id, t.id);
+  assert.deepEqual([c.readOnly, c.archived, c.ai, c.blocks[0].ai, c.costs[0].ai], [undefined, undefined, undefined, undefined, undefined]);
+  assert.equal(c.blocks[0].title, 'Baleias');
+  assert.equal(JSON.stringify(t), before);
 });

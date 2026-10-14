@@ -8,6 +8,7 @@ import { normTrip, tripDates, rangeLabel, money, placeById, placeName, addPlace,
   newBlock, duplicateBlock, removePlace, setDayPlaces, splitDayPlaces, dayEnds, routeSummary, dateRangeLabel,
   toZone, fromZone, editorTime, fromEditor, blockZoneTime } from '../web/js/trip.js';
 import { tr } from '../web/js/i18n.js';
+import { tripLock, setTripFlag, tripGroups } from '../web/js/trip.js';
 
 process.env.TZ = 'Europe/Lisbon';   // TZ.local(): o segundo fuso quando não há outro escolhido
 const H = h => h * 60;
@@ -161,12 +162,13 @@ test('newBlock: os mesmos valores por omissão no quadro, no painel do dia e em 
 
 test('duplicateBlock: na grelha fica logo a seguir, em "por agendar" fica lá, fora das datas também, e nunca bloqueada', () => {
   const t = trip({
-    blocks: [{ id: 'a', date: D1, start: H(22), len: H(3), title: 'A', cat: 'tour', locked: true, pp: 5 }, { id: 'z', date: D3, start: H(10), len: H(24), title: 'Z', cat: 'tour' }],
+    blocks: [{ id: 'a', date: D1, start: H(22), len: H(3), title: 'A', cat: 'tour', locked: true, pp: 5, ai: '2026-10-13T09:00:00Z' }, { id: 'z', date: D3, start: H(10), len: H(24), title: 'Z', cat: 'tour' }],
     tray: [{ id: 'b', len: 30, title: 'B', cat: 'tour' }],
   });
   const c = duplicateBlock(t, 'a', newId);
   assert.deepEqual([c.date, c.start, c.len, c.pp, c.title], [D1, H(25), H(3), 5, 'A'], 'a A acaba à 01:00 dessa noite, que no quadro ainda é o dia 5');
   assert.equal('locked' in c, false);
+  assert.equal('ai' in c, false, 'a cópia não é uma alteração da IA');
   assert.equal(t.blocks[0].locked, true, 'a original continua bloqueada');
   assert.equal(t.blocks.at(-1), c);
   const d = duplicateBlock(t, 'b', newId);
@@ -296,4 +298,19 @@ test('routeSummary e dateRangeLabel: sítios seguidos sem repetir; mesmo mês ou
   assert.equal(dateRangeLabel(t), '5–7 jul 2027');
   assert.equal(dateRangeLabel(trip({ start: '2027-06-29', end: '2027-07-02' })), '29 jun – 2 jul 2027');
   assert.equal(dateRangeLabel(trip({ start: '2026-12-20', end: '2027-12-02' })), '20 dez – 2 dez 2027', 'mesmo mês noutro ano');
+});
+
+test('tripLock, setTripFlag e tripGroups: só de leitura, arquivadas e o seletor de viagens', () => {
+  const t = normTrip({ id: 't1', name: 'A', start: '2027-07-01', end: '2027-07-02' });
+  assert.equal(tripLock(t), '');
+  assert.equal(tripLock(null), '');
+  setTripFlag(t, 'readOnly', true);
+  assert.equal(tripLock(t), 'readOnly');
+  setTripFlag(t, 'archived', true);
+  assert.equal(tripLock(t), 'archived', 'arquivada ganha a só de leitura');
+  setTripFlag(t, 'archived', false);
+  setTripFlag(t, 'readOnly', false);
+  assert.equal('readOnly' in t || 'archived' in t, false, 'desligar tira o campo');
+  const a = { id: 'a' }, b = { id: 'b', archived: true }, c = { id: 'c' };
+  assert.deepEqual(tripGroups([a, b, c]), { open: [a, c], archived: [b] });
 });

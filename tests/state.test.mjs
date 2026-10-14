@@ -29,6 +29,16 @@ test('T, ensureActive e setActive: escolhe a primeira, guarda no localStorage, a
   ensureActive();
   assert.equal(activeTrip().id, 'a', 'se a viagem guardada já não existe, abre a primeira');
 
+  S.store.trips = [{ ...trip('a'), archived: true }, trip('b')];
+  S.activeId = 'apagada';
+  ensureActive();
+  assert.equal(activeTrip().id, 'b', 'a primeira que não está arquivada');
+  S.store.trips = [{ ...trip('a'), archived: true }];
+  S.activeId = null;
+  ensureActive();
+  assert.equal(activeTrip().id, 'a', 'com todas arquivadas, abre a primeira');
+  S.store.trips = [trip('a'), trip('b')];
+
   setActive('b');
   assert.equal(activeTrip().id, 'b');
   assert.equal(store['ferias-active-trip'], 'b');

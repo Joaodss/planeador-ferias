@@ -4,7 +4,7 @@ import { newId } from '../util.js';
 import { $ } from './dom.js';
 import { S, activeTrip, SLEEP_KEY, setActive, pushHistory } from '../state.js';
 import { commit, undo, refreshSaveLabel } from '../sync.js';
-import { render } from './board.js';
+import { render, blockedByLock } from './board.js';
 import { closeSheets } from './sheets.js';
 import { openEditor, buildWdays } from './editor.js';
 import { newBlock } from '../trip.js';
@@ -16,7 +16,7 @@ export function showSaveState(s, txt){ $('#save').dataset.s=s; $('#save-txt').te
 export function initToolbar(){
   $('#trip-sel').addEventListener('change',e=>{ if(!e.target.value) return; if(e.target.value==='__new'){ e.target.value=''; openTripSheet({isNew:true}); return; } setActive(e.target.value); closeSheets(); render(); $('#scroller').scrollTo(0,0); });
   $('#undo').addEventListener('click',undo);
-  $('#add').addEventListener('click',()=>{ const t=activeTrip(); if(!t){ openTripSheet({isNew:true}); return; } pushHistory(); const b=newBlock({}, newId); t.tray.push(b); commit(); openEditor(b.id,{isNew:true}); });
+  $('#add').addEventListener('click',()=>{ const t=activeTrip(); if(!t){ openTripSheet({isNew:true}); return; } if(blockedByLock()) return; pushHistory(); const b=newBlock({}, newId); t.tray.push(b); commit(); openEditor(b.id,{isNew:true}); });
   $('#trip-settings').addEventListener('click',()=>openTripSheet({isNew:!activeTrip()}));
   $('#show-sleep').addEventListener('change',e=>{ S.hideSleep=!e.target.checked; document.body.classList.toggle('hide-sleep',S.hideSleep); try{ localStorage.setItem(SLEEP_KEY,S.hideSleep?'1':'0'); }catch{} render(); });
   try{ if(localStorage.getItem(SLEEP_KEY)==='1'){ S.hideSleep=true; $('#show-sleep').checked=false; document.body.classList.add('hide-sleep'); } }catch{}

@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -158,4 +159,99 @@ func decode[T any](t *testing.T, w *httptest.ResponseRecorder) T {
 type tripName struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
+}
+
+/* ---------- MCP ---------- */
+
+// testMCPToken vem de strings.Repeat, como as palavras-passe: nada parecido com um segredo escrito no código.
+var testMCPToken = strings.Repeat("t", minMCPTokenLen)
+
+// newMCPServer é um servidor de teste com o /mcp ligado, num relógio parado e com ids previsíveis.
+func newMCPServer(t testing.TB) (*server, *clock) {
+	t.Helper()
+	s := newTestServer(t)
+	s.cfg.mcpToken = testMCPToken
+	s.idRand = func() int64 { return 0 }
+	return s, withClock(s, time.Date(2026, 10, 13, 9, 0, 0, 0, time.UTC))
+}
+
+// mcpPost manda body para o /mcp com o token certo.
+func mcpPost(s *server, body string, opts ...reqOpt) *httptest.ResponseRecorder {
+	return call(s, "POST", "/mcp", body, append([]reqOpt{withoutCSRF, withHeader("Authorization", "Bearer "+testMCPToken)}, opts...)...)
+}
+
+// rpcReply é uma resposta JSON-RPC já interpretada.
+type rpcReply struct {
+	ID     json.RawMessage `json:"id"`
+	Result map[string]any  `json:"result"`
+	Error  *rpcError       `json:"error"`
+}
+
+// rpc chama method com params (JSON) e devolve a resposta, que tem de ser um 200.
+func rpc(t *testing.T, s *server, method, params string) rpcReply {
+	t.Helper()
+	if params == "" {
+		params = "{}"
+	}
+	w := mcpPost(s, fmt.Sprintf(`{"jsonrpc":"2.0","id":7,"method":%q,"params":%s}`, method, params))
+	if w.Code != 200 {
+		t.Fatalf("%s: código %d: %s", method, w.Code, w.Body.String())
+	}
+	return decode[rpcReply](t, w)
+}
+
+// toolResult é o que uma ferramenta devolveu: o structuredContent, ou o texto do erro.
+type toolResult struct {
+	out    map[string]any
+	errMsg string // vazio quando correu bem
+}
+
+// tool corre a ferramenta name com args (JSON). Confirma que o texto traz o mesmo JSON do structuredContent.
+func tool(t *testing.T, s *server, name, args string) toolResult {
+	t.Helper()
+	r := rpc(t, s, "tools/call", fmt.Sprintf(`{"name":%q,"arguments":%s}`, name, args))
+	if r.Error != nil {
+		t.Fatalf("%s: erro do protocolo %+v", name, r.Error)
+	}
+	content, _ := r.Result["content"].([]any)
+	if len(content) != 1 {
+		t.Fatalf("%s: content devia ter um bloco: %v", name, r.Result)
+	}
+	txt, _ := content[0].(map[string]any)["text"].(string)
+	if r.Result["isError"] == true {
+		return toolResult{errMsg: txt}
+	}
+	out, _ := r.Result["structuredContent"].(map[string]any)
+	var again map[string]any
+	if err := json.Unmarshal([]byte(txt), &again); err != nil || fmt.Sprint(again) != fmt.Sprint(out) {
+		t.Errorf("%s: o texto não é o JSON do structuredContent: %s", name, txt)
+	}
+	return toolResult{out: out}
+}
+
+// mustTool corre a ferramenta e falha o teste se ela devolver um erro.
+func mustTool(t *testing.T, s *server, name, args string) map[string]any {
+	t.Helper()
+	r := tool(t, s, name, args)
+	if r.errMsg != "" {
+		t.Fatalf("%s %s: %s", name, args, r.errMsg)
+	}
+	return r.out
+}
+
+// storedTrip lê do disco a viagem id, tal como a página a recebe.
+func storedTrip(t *testing.T, s *server, id string) (map[string]any, int64) {
+	t.Helper()
+	b, err := os.ReadFile(s.tripPath(id))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rec struct {
+		Rev  int64          `json:"rev"`
+		Trip map[string]any `json:"trip"`
+	}
+	if err := json.Unmarshal(b, &rec); err != nil {
+		t.Fatal(err)
+	}
+	return rec.Trip, rec.Rev
 }

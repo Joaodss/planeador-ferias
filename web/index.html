@@ -17,13 +17,14 @@
 <div class="app" hidden>
   <header class="top">
     <div class="brand">
-      <div class="trip-line"><h1 id="trip-name" data-i18n="appName">Planeador de Férias</h1><label class="sr" for="trip-sel" data-i18n="chooseTrip">Escolher viagem</label><select class="trip-sel" id="trip-sel"></select></div>
+      <div class="trip-line"><h1 id="trip-name" data-i18n="appName">Planeador de Férias</h1><label class="sr" for="trip-sel" data-i18n="chooseTrip">Escolher viagem</label><select class="trip-sel" id="trip-sel"></select><button class="lock-chip" id="lock-chip" type="button" hidden></button></div>
       <div class="route" id="route"></div>
     </div>
     <div class="stats">
       <div class="stat"><span class="k" data-i18n="perPerson">Por pessoa</span><span class="v" id="tot-pp">—</span></div>
       <div class="stat"><span class="k" id="tot-n-k" data-i18n="total">Total</span><span class="v" id="tot-n">—</span></div>
       <div class="stat"><span class="k" data-i18n="toBook">Por reservar</span><span class="v" id="tot-res">—</span></div>
+      <button class="pill ai-pill" id="ai-btn" type="button" hidden aria-haspopup="dialog" data-i18n-title="aiBtnTitle" title="Alterações feitas pela IA, por ver"><span id="ai-txt"></span></button>
       <button class="pill" id="warn-btn" type="button" aria-haspopup="dialog"><span class="dot"></span><span id="warn-txt" data-i18n="checking">A verificar…</span></button>
       <div class="save" id="save" data-s="idle" role="status" aria-live="polite"><span class="led"></span><span id="save-txt" data-i18n="loading">A carregar…</span></div>
     </div>
@@ -57,7 +58,8 @@
 <!-- activity editor -->
 <aside class="sheet" id="editor" hidden role="dialog" aria-labelledby="ed-h">
   <header><h2 id="ed-h" data-i18n="activity">Atividade</h2><button class="x" type="button" data-close="editor" data-i18n-aria="close" aria-label="Fechar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button></header>
-  <div class="body">
+  <div class="body"><fieldset class="ro-zone" id="f-zone">
+    <p class="hint ai-note" id="f-ai" hidden><span id="f-ai-txt"></span><button class="btn" type="button" id="f-ai-seen" data-i18n="aiSeen">Visto</button></p>
     <div class="field"><label for="f-title" data-i18n="fName">Nome</label><input type="text" id="f-title"></div>
     <div class="row2">
       <div class="field"><label for="f-day" data-i18n="fDay">Dia</label><select id="f-day"></select></div>
@@ -93,13 +95,14 @@
     </div>
     <div class="inline-confirm" id="f-del-confirm" hidden><span data-i18n="delActivityQ">Apagar esta atividade?</span><button class="btn danger" type="button" id="f-del-yes" data-i18n="del">Apagar</button><button class="btn" type="button" id="f-del-no" data-i18n="cancel">Cancelar</button></div>
     <p class="hint" data-i18n="editorHint">No quadro: arrasta para mudar de dia ou hora (no telemóvel, carrega uns instantes antes de arrastar). Puxa a borda de baixo para mudar a duração. Com o teclado: setas movem 15 min ou um dia, Shift+setas mudam a duração.</p>
+  </fieldset>
   </div>
 </aside>
 
 <!-- day sheet -->
 <aside class="sheet" id="daysheet" hidden role="dialog" aria-labelledby="d-h">
   <header><h2 id="d-h" data-i18n="day">Dia</h2><button class="x" type="button" data-close="daysheet" data-i18n-aria="close" aria-label="Fechar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button></header>
-  <div class="body">
+  <div class="body"><fieldset class="ro-zone" id="d-zone">
     <div class="field"><label for="d-place" data-i18n="dPlace">Onde estão</label><select id="d-place"></select></div>
     <div class="field"><span class="lbl" id="d-stops-l" data-i18n="dStops">Passam por</span><div class="stops" id="d-stops" role="group" aria-labelledby="d-stops-l"></div><button class="btn add-stop" type="button" id="d-addstop" data-i18n="addStop">Adicionar paragem</button></div>
     <div class="field"><label for="d-place2" data-i18n="dPlace2">Acabam o dia em</label><select id="d-place2"></select></div>
@@ -113,6 +116,7 @@
     <h3 class="section-h" id="d-list-h" data-i18n="dayActivities">Atividades deste dia</h3>
     <div class="day-list" id="d-list"></div>
     <div class="actions"><button class="btn" type="button" id="d-add" data-i18n="newActivityDay">Nova atividade neste dia</button></div>
+  </fieldset>
   </div>
 </aside>
 
@@ -121,6 +125,7 @@
   <header><h2 id="t-h" data-i18n="trip">Viagem</h2><button class="x" type="button" data-close="tripsheet" data-i18n-aria="close" aria-label="Fechar" id="t-x"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button></header>
   <div class="body">
     <form id="t-form" class="body" style="padding:0;overflow:visible" novalidate>
+      <fieldset class="ro-zone" id="t-zone">
       <div class="field"><label for="t-name" data-i18n="tName">Nome da viagem</label><input type="text" id="t-name" data-i18n-ph="tNamePh" placeholder="Ex.: Açores 2027" required></div>
       <div class="row2">
         <div class="field"><label for="t-start" data-i18n="fStart">Começa</label><input type="date" id="t-start" required></div>
@@ -140,10 +145,12 @@
         <div class="field"><label for="t-cur" data-i18n="currency">Moeda</label><select id="t-cur"><option>€</option><option>$</option><option>£</option><option>R$</option><option>฿</option><option>¥</option></select></div>
       </div>
       <div class="field"><label for="t-budget" id="t-budget-l" data-i18n="budgetOpt">Orçamento total da viagem (opcional)</label><input type="number" id="t-budget" min="0" step="1" inputmode="decimal" data-i18n-ph="budgetPh" placeholder="Ex.: 4000"></div>
+      </fieldset>
       <p class="err" id="t-err" hidden></p>
       <div class="actions"><button class="btn primary" type="submit" id="t-submit" data-i18n="save">Guardar</button><button class="btn" type="button" id="t-cancel" data-i18n="cancel">Cancelar</button></div>
     </form>
     <div id="t-places-wrap">
+      <fieldset class="ro-zone" id="t-zone2">
       <h3 class="section-h" data-i18n="places">Sítios</h3>
       <p class="hint" data-i18n="placesHint">Os sítios onde vão estar (cidades, ilhas, hotéis). Atribui-os aos dias clicando no cabeçalho de cada dia.</p>
       <div class="day-list" id="t-places"></div>
@@ -152,7 +159,10 @@
       <p class="hint" data-i18n="costCatsHint">As categorias em que os custos são somados no resumo. Podes mudar os nomes, remover ou criar novas.</p>
       <div class="day-list" id="t-cats"></div>
       <div style="display:flex;gap:8px;margin-top:8px"><label class="sr" for="t-newcat" data-i18n="newCat">Nova categoria</label><input type="text" id="t-newcat" data-i18n-ph="newCat" placeholder="Nova categoria" style="flex:1;min-width:0;border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:7px 9px"><button class="btn" type="button" id="t-addcat" data-i18n="add">Adicionar</button></div>
+      </fieldset>
       <h3 class="section-h" data-i18n="otherActions">Outras ações</h3>
+      <div class="actions"><button class="btn" type="button" id="t-ro" data-i18n="makeRo">Tornar só de leitura</button><button class="btn" type="button" id="t-archive" data-i18n="archiveTrip">Arquivar viagem</button></div>
+      <p class="hint" data-i18n="lockHint">Uma viagem só de leitura ou arquivada não muda, nem aqui nem pela IA. As arquivadas ficam no fim da lista de viagens.</p>
       <div class="actions"><button class="btn" type="button" id="t-dup" data-i18n="dupTrip">Duplicar viagem</button><button class="btn danger" type="button" id="t-del" data-i18n="delTrip">Apagar viagem</button></div>
       <div class="inline-confirm" id="t-del-confirm" hidden><span data-i18n="delTripQ">Apagar esta viagem e todas as atividades?</span><button class="btn danger" type="button" id="t-del-yes" data-i18n="del">Apagar</button><button class="btn" type="button" id="t-del-no" data-i18n="cancel">Cancelar</button></div>
     </div>
@@ -161,7 +171,7 @@
 
 <aside class="sheet wide" id="costsheet" hidden role="dialog" aria-labelledby="c-h">
   <header><h2 id="c-h" data-i18n="costs">Custos</h2><button class="x" type="button" data-close="costsheet" data-i18n-aria="close" aria-label="Fechar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button></header>
-  <div class="body">
+  <div class="body"><fieldset class="ro-zone" id="c-zone">
     <div id="c-summary" style="display:flex;flex-direction:column;gap:12px"></div>
     <h3 class="section-h" data-i18n="byCat">Por categoria</h3>
     <div id="c-bycat"></div>
@@ -171,12 +181,23 @@
     <div class="cost-list" id="c-general"></div>
     <div class="actions"><button class="btn" type="button" id="c-add-general" data-i18n="addGeneralCost">Adicionar custo geral</button></div>
     <p class="hint" data-i18n="costsHint">Os valores do resumo são totais para o grupo. As atividades em "Por agendar" não entram nas contas. Sem categoria escolhida, uma atividade usa a do seu tipo (um passeio conta como Atividades, uma refeição como Alimentação).</p>
+  </fieldset>
   </div>
 </aside>
 
 <aside class="sheet" id="warnings" hidden role="dialog" aria-labelledby="w-h">
   <header><h2 id="w-h" data-i18n="review">Pontos a rever</h2><button class="x" type="button" data-close="warnings" data-i18n-aria="close" aria-label="Fechar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button></header>
   <div class="body" id="w-list"></div>
+</aside>
+
+<aside class="sheet" id="aisheet" hidden role="dialog" aria-labelledby="ai-h">
+  <header><h2 id="ai-h" data-i18n="aiH">Alterações da IA</h2><button class="x" type="button" data-close="aisheet" data-i18n-aria="close" aria-label="Fechar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button></header>
+  <div class="body">
+    <p class="hint" data-i18n="aiHint">O assistente de IA mudou isto. Abre cada uma para ver; quando estiver bem, marca como visto. Uma atividade que mudes no editor também fica vista.</p>
+    <div class="ai-list" id="ai-list"></div>
+    <div class="actions"><button class="btn" type="button" id="ai-all-seen" data-i18n="aiAllSeen">Marcar tudo como visto</button><button class="btn danger" type="button" id="ai-undo" data-i18n="aiUndo">Desfazer a última alteração da IA</button></div>
+    <p class="hint" data-i18n="aiUndoHint">Volta a pôr a viagem como estava antes da última alteração da IA. Só funciona se não a mudaste depois.</p>
+  </div>
 </aside>
 
 <div class="sr" aria-live="polite" id="announce"></div>

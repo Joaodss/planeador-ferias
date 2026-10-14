@@ -6,6 +6,7 @@ import { test, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { S, activeTrip, pushHistory } from '../web/js/state.js';
 import { tr } from '../web/js/i18n.js';
+import { undoLastAi } from '../web/js/sync.js';
 import { connectUI, boot, commit, commitTyping, undo, signIn, signOut, computeDirty, onVisibilityChange, initSync, isAuthError,
   pendingOps, applyPutResponse, sameRevisions } from '../web/js/sync.js';
 
@@ -332,6 +333,46 @@ test('separador escondido: grava logo o que falta, sem esperar 1,2 s', async () 
   onVisibilityChange(true);
   await settle();
   assert.equal(sent('PUT').length, 1, 'sem sessão não grava');
+  S.authed = true;
+});
+
+/* ---------- desfazer a IA ---------- */
+test('undoLastAi: grava o que falta, pede ao servidor e volta a carregar; 409, erro e sem ligação', async () => {
+  await start([[trip('a'), 3], [trip('b'), 1]]);
+  // o servidor falso faz o que undoAI faz: repõe a versão de antes da IA numa revisão nova
+  let status = 200;
+  server.hook = (path, o, next) => {
+    if (!path.endsWith('/undo-ai')) return next();
+    if (status !== 200) return reply(status, { error: 'não' });
+    server.trips.set('a', { rev: 5, trip: trip('a', { name: 'Antes da IA' }) }); server.version++;
+    return reply(200, { rev: 5 });
+  };
+  activeTrip().name = 'Por gravar'; commit();
+  assert.equal(await undoLastAi(), 'ok');
+  assert.deepEqual(calls.map(c => c.method + ' ' + c.path), ['PUT /api/trips/a', 'POST /api/trips/a/undo-ai', 'GET /api/trips']);
+  assert.equal(activeTrip().name, 'Antes da IA');
+  assert.equal(computeDirty(), false);
+  assert.deepEqual(toasts(), [tr('tAiUndone')]);
+  assert.equal(S.history.length, 0, 'o Desfazer da página já não se aplica à versão nova');
+
+  status = 409;
+  assert.equal(await undoLastAi(), 'conflict');
+  assert.equal(toasts().at(-1), tr('tAiUndoNo'));
+  status = 500;
+  assert.equal(await undoLastAi(), 'error');
+  assert.equal(toasts().at(-1), tr('tAiUndoErr'));
+
+  // sem conseguir gravar primeiro, não pede para desfazer
+  status = 200; calls = [];
+  activeTrip().name = 'Outra'; commit();
+  server.down = true;
+  assert.equal(await undoLastAi(), 'error');
+  assert.equal(toasts().at(-1), tr('tAiUndoUnsaved'));
+  assert.equal(calls.filter(c => c.path.endsWith('/undo-ai')).length, 0);
+  server.down = false; server.hook = null;
+  await tick(8000);
+  S.authed = false;
+  assert.equal(await undoLastAi(), 'error', 'sem sessão não faz nada');
   S.authed = true;
 });
 

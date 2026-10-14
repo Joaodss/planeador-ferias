@@ -1,9 +1,10 @@
 /* O quadro: cabeçalho da viagem, grelha de dias e horas, tabuleiro "por agendar" e totais. */
 import { tr } from '../i18n.js';
 import { esc, shortPlaceName, weekdayNames, monthNames, statusLabel, parseISO, clockLabel, durationLabel, dayLabel, newId } from '../util.js';
-import { $, isMobile, refreshSlot, pxPerMin, announce } from './dom.js';
+import { $, isMobile, refreshSlot, pxPerMin, announce, toast } from './dom.js';
 import { S, activeTrip, ensureActive, pushHistory } from '../state.js';
-import { tripDates, boardHours, money, placeById, placeName, findBlock, boardLayout, rangeLabel, boardFrame, toBoard, fromBoard, blockZoneTime, newBlock, routeSummary, dateRangeLabel, dayEnds } from '../trip.js';
+import { tripDates, boardHours, money, placeById, placeName, findBlock, boardLayout, rangeLabel, boardFrame, toBoard, fromBoard, blockZoneTime, newBlock, routeSummary, dateRangeLabel, dayEnds, tripLock, tripGroups, setTripFlag } from '../trip.js';
+import { aiChanges } from '../ai.js';
 import { laneLayout } from '../span.js';
 import { keyMove } from '../moves.js';
 import { tripStats, dayTotalsPP } from '../costs.js';
@@ -13,16 +14,17 @@ import { commit, undo } from '../sync.js';
 import { closeSheets } from './sheets.js';
 import { openEditor, fillEditor } from './editor.js';
 import { openDay, fillDay } from './daysheet.js';
-import { openTripSheet } from './tripsheet.js';
+import { openTripSheet, refreshTripLock } from './tripsheet.js';
 import { renderDash } from './costsheet.js';
 import { renderWarnings } from './warnings.js';
+import { renderAiSheet } from './aisheet.js';
 
 /* seg: o pedaço visível numa coluna (null no tabuleiro). Um pedaço cortado continua noutro dia ou nas horas escondidas.
    boardPos: dia e hora da atividade no quadro (toBoard), que pode estar no segundo fuso.
    bz: a hora local no fuso da atividade, quando não é o do quadro (blockZoneTime). */
 function blockEl(t, b, warnMap, seg, boardPos, bz){
   const inTray=!seg; const el=document.createElement('div');
-  el.className='blk cat-'+b.cat+(b.locked?' locked':'')+(b.status==='ideia'?' status-ideia':'')+(seg&&seg.cutTop?' cut-top':'')+(seg&&seg.cutBot?' cut-bot':'');
+  el.className='blk cat-'+b.cat+(b.locked?' locked':'')+(b.ai?' ai-mark':'')+(b.status==='ideia'?' status-ideia':'')+(seg&&seg.cutTop?' cut-top':'')+(seg&&seg.cutBot?' cut-bot':'');
   el.dataset.id=b.id; el.tabIndex=0; el.setAttribute('role','button');
   const w=warnMap.get(b.id);
   const cost = b.pp ? `<span class="eur">${money(t,b.pp)} pp</span>` : (b.total ? `<span class="eur">${money(t,b.total)}</span>` : '');
@@ -31,10 +33,11 @@ function blockEl(t, b, warnMap, seg, boardPos, bz){
   const ltz = bz ? tr('secAt',{city:TZ.city(bz.tz), range:`${clockLabel(bz.start)}–${clockLabel(bz.start+bz.len)}`})+(bz.days<0?tr('prevDay'):bz.days>0?tr('nextDay'):'') : '';
   el.innerHTML = `<div class="t">${esc(b.title)}</div><div class="m"><span>${time}</span>${bz?`<span class="ltz" title="${esc(ltz)}">${clockLabel(bz.start)} ${esc(TZ.city(bz.tz))}</span>`:''}${cost}${statusBadge}</div>`
     + (w?`<span class="badge" title="${esc(w.map(x=>x.title).join('\n'))}">!</span>`:'')
+    + (b.ai?`<span class="ai-badge" title="${esc(tr('aiBadge'))}" aria-hidden="true">✨</span>`:'')
     + (b.locked?`<svg class="lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>`:'')
     + (inTray||seg.cutBot?'':'<div class="grip" aria-hidden="true"></div>');
   if(w){ el.classList.add('has-badge'); if(w.some(x=>x.sev==='bad')) el.classList.add('bad'); }
-  el.setAttribute('aria-label', `${b.title}, ${inTray?tr('unscheduledLower'):dayLabel(boardPos.date,true)+' '+time}${ltz?', '+ltz:''}${statusText?', '+statusText:''}${w?', '+tr('nWarnings',{n:w.length}):''}`);
+  el.setAttribute('aria-label', `${b.title}, ${inTray?tr('unscheduledLower'):dayLabel(boardPos.date,true)+' '+time}${ltz?', '+ltz:''}${statusText?', '+statusText:''}${w?', '+tr('nWarnings',{n:w.length}):''}${b.ai?', '+tr('aiBadge'):''}`);
   return el;
 }
 /* Redesenha tudo a partir do estado (S e a viagem ativa); é o gancho render de sync.js, chamado por commit()
@@ -54,7 +57,11 @@ export function render(){
   refreshSlot(); ensureActive(); refreshUndo();
   const t=activeTrip();
   // trip switcher
-  const sel=$('#trip-sel'); sel.innerHTML = `<option value="">${S.store.trips.length>1?tr('switchTrip'):tr('trips')}</option>` + S.store.trips.map(x=>`<option value="${esc(x.id)}"${t&&x.id===t.id?' disabled':''}>${esc(x.name)}${t&&x.id===t.id?tr('openMark'):''}</option>`).join('') + `<option value="__new">${tr('newTripOpt')}</option>`;
+  // as arquivadas ficam no fim, num grupo à parte
+  const sel=$('#trip-sel'), groups=tripGroups(S.store.trips), opt=x=>`<option value="${esc(x.id)}"${t&&x.id===t.id?' disabled':''}>${esc(x.name)}${t&&x.id===t.id?tr('openMark'):''}</option>`;
+  sel.innerHTML = `<option value="">${S.store.trips.length>1?tr('switchTrip'):tr('trips')}</option>` + groups.open.map(opt).join('')
+    + (groups.archived.length ? `<optgroup label="${esc(tr('archivedGroup'))}">${groups.archived.map(opt).join('')}</optgroup>` : '') + `<option value="__new">${tr('newTripOpt')}</option>`;
+  refreshLock(t);
   sel.value='';
   const board=$('#board'); const sc=$('#scroller'); const scrollX=sc.scrollLeft, scrollY=sc.scrollTop;
   board.innerHTML='';
@@ -156,6 +163,31 @@ export function render(){
   if(S.editingId && !$('#editor').hidden) fillEditor({refresh:true, frame});
   if(S.dayOpen && !$('#daysheet').hidden) fillDay({refresh:true, tripLayout});
   if(!$('#costsheet').hidden) renderDash({refresh:true});
+  if(!$('#aisheet').hidden) renderAiSheet();
+}
+
+/* Viagem só de leitura ou arquivada (tripLock): desativa os campos de todos os painéis (os <fieldset class="ro-zone">),
+   o botão Nova atividade e o arrastar (body.ro, ver drag.js), e mostra o aviso ao lado do nome. Mostra também o
+   botão das alterações da IA por ver. render() chama-a; sem viagem fica tudo como numa viagem livre. */
+function refreshLock(t){
+  const lock=tripLock(t), chip=$('#lock-chip');
+  document.body.classList.toggle('ro', !!lock);
+  for(const z of ['#f-zone','#d-zone','#c-zone']) $(z).disabled=!!lock;
+  $('#add').disabled=!!lock;
+  refreshTripLock();
+  chip.hidden=!lock;
+  const archived=lock==='archived';
+  if(lock){ chip.textContent=tr(archived?'archivedChip':'roChip'); chip.title=tr(archived?'archivedChipTitle':'roChipTitle'); }
+  const n=aiChanges(t).length, ai=$('#ai-btn');
+  ai.hidden=!n;
+  if(n) $('#ai-txt').textContent=tr('aiBtn',{n});
+}
+/** A viagem aberta está bloqueada? Se estiver, avisa (toast) e devolve true: quem chama não muda nada.
+    @returns {boolean} */
+export function blockedByLock(){
+  if(!tripLock(activeTrip())) return false;
+  toast(tr('tRo'));
+  return true;
 }
 export function focusBlock(id){
   const q=CSS.escape(id), el=document.querySelector(`.blk[data-id="${q}"], .hid-chip[data-id="${q}"]`); if(!el){ openEditor(id); return; }
@@ -170,7 +202,7 @@ export function refreshUndo(){ $('#undo').disabled=!S.history.length; }
    Duplo clique numa coluna cria uma atividade nessa hora; clique no cabeçalho abre o dia. */
 export function initBoard(){
   $('#board').addEventListener('dblclick', e=>{
-    if(e.target.closest('.blk,.hid')) return; const col=e.target.closest('.day-col'); if(!col) return;
+    if(e.target.closest('.blk,.hid')) return; const col=e.target.closest('.day-col'); if(!col || blockedByLock()) return;
     const t=activeTrip(), hours=boardHours(t), r=col.getBoundingClientRect();
     const s=Math.max(hours.from, Math.min(hours.to-30, hours.from+Math.floor((e.clientY-r.top)/pxPerMin()/30)*30));
     pushHistory(); const b=newBlock(fromBoard(t,boardFrame(t),col.dataset.date,s), newId);
@@ -190,12 +222,18 @@ export function initBoard(){
     if(e.key==='Enter'||e.key===' '){ e.preventDefault(); openEditor(b.id); return; }
     if(f.where==='tray'||b.locked) return;
     const k=e.key; if(!['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(k)) return;
+    if(blockedByLock()){ e.preventDefault(); return; }
     // as setas andam na hora do quadro (pode ser o segundo fuso); keyMove (moves.js) devolve o que se guarda
     e.preventDefault(); const t=activeTrip(), m=keyMove(t, boardFrame(t), b, k, e.shiftKey); if(!m) return;
     pushHistory(); b.date=m.date; b.start=m.start; b.len=m.len;
     commit(); announce(`${b.title}: ${dayLabel(m.boardDate,true)} ${rangeLabel({start:m.boardStart, len:b.len})}`);
     const again=document.querySelector(`.blk[data-id="${CSS.escape(b.id)}"]`); if(again) again.focus();
   });
+
+  // o aviso "só de leitura" ao lado do nome desbloqueia (ou desarquiva) a viagem
+  $('#lock-chip').addEventListener('click',()=>{ const t=activeTrip(), lock=tripLock(t); if(!lock) return;
+    const archived=lock==='archived';
+    pushHistory(); setTripFlag(t, lock, false); commit(); toast(tr(archived?'tUnarchived':'tRoOff')); });
 
   let rz=null; window.addEventListener('resize',()=>{ clearTimeout(rz); rz=setTimeout(render,120); });
 }

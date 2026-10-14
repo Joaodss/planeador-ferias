@@ -29,8 +29,13 @@ try{ S.activeId = localStorage.getItem(ACTIVE_KEY); }catch{}
 
 /** @returns {Trip | null} a viagem aberta */
 export function activeTrip(){ return S.store.trips.find(t=>t.id===S.activeId) || null; }
-/** Se a viagem ativa já não existe (apagada, ou a store mudou), abre a primeira. */
-export function ensureActive(){ if(!activeTrip()) S.activeId = S.store.trips.length ? S.store.trips[0].id : null; }
+/** Se a viagem ativa já não existe (apagada, ou a store mudou), abre a primeira que não está arquivada
+    (ou a primeira de todas, se estão todas arquivadas). */
+export function ensureActive(){
+  if(activeTrip()) return;
+  const t=S.store.trips.find(x=>!x.archived) || S.store.trips[0];
+  S.activeId = t ? t.id : null;
+}
 /** Abre a viagem id e lembra-a neste dispositivo.
     @param {string} id */
 export function setActive(id){ S.activeId=id; try{ localStorage.setItem(ACTIVE_KEY,id); }catch{} }

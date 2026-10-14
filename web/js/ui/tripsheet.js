@@ -3,8 +3,8 @@ import { tr } from '../i18n.js';
 import { esc, pad, newId, iso, addDays } from '../util.js';
 import { $, toast, fillTzSelect, linkTzSearch } from './dom.js';
 import { S, activeTrip, ensureActive, setActive, pushHistory, pushStoreHistory } from '../state.js';
-import { addPlace, removePlace } from '../trip.js';
-import { validateTrip, tripFields, newTrip, applyTripEdit } from '../tripform.js';
+import { addPlace, removePlace, tripLock, setTripFlag } from '../trip.js';
+import { validateTrip, tripFields, newTrip, applyTripEdit, copyTrip } from '../tripform.js';
 import { costCats, ownCats } from '../costs.js';
 import { TZ, defaultHomeTz, ownHomeTz, homeTz, saveHomeTz, resolveTz } from '../tz.js';
 import { commit, commitTyping } from '../sync.js';
@@ -20,7 +20,17 @@ export function openTripSheet({isNew=false}={}){
   if(isNew||!t){ const n=new Date(); const s=iso(addDays(n,30)), e=iso(addDays(n,36)); $('#t-name').value=''; $('#t-start').value=s; $('#t-end').value=e; $('#t-ds').value='7'; $('#t-de').value='1'; $('#t-people').value='2'; $('#t-cur').value='€'; $('#t-budget').value=''; fillTzSelect($('#t-tz'), tr('tzNone'), homeTz(), s); }
   else { $('#t-name').value=t.name; $('#t-start').value=t.start; $('#t-end').value=t.end; $('#t-ds').value=String(t.dayStart); $('#t-de').value=String(t.dayEnd); $('#t-people').value=String(t.people||1); $('#t-cur').value=t.currency||'€'; $('#t-budget').value=t.budget||''; fillTzSelect($('#t-tz'), tr('tzNone'), t.tz||'', t.start); renderPlaces(); renderCats(); }
   fillHomeTz(ownHomeTz());
-  $('#t-name').focus();
+  refreshTripLock();
+  if(!$('#t-name').disabled) $('#t-name').focus(); else $('#t-x').focus();
+}
+/** Numa viagem só de leitura ou arquivada, o painel só serve para ver: os campos, Guardar e Apagar ficam desativados,
+   e os botões Tornar só de leitura / Arquivar passam a desbloquear. Uma viagem nova nunca está bloqueada.
+   render() (ui/board.js) chama-a depois de cada alteração. */
+export function refreshTripLock(){
+  const t=activeTrip(), lock=tripMode==='new' ? '' : tripLock(t);
+  $('#t-zone').disabled=!!lock; $('#t-zone2').disabled=!!lock; $('#t-submit').disabled=!!lock; $('#t-del').disabled=!!lock;
+  $('#t-ro').textContent=tr(t&&t.readOnly ? 'roUnlock' : 'makeRo'); $('#t-ro').disabled=!!(t&&t.archived);
+  $('#t-archive').textContent=tr(t&&t.archived ? 'unarchive' : 'archiveTrip');
 }
 /* A primeira opção do segundo fuso é o valor por omissão (PLANNER_HOME_TZ ou o do browser).
    A diferença para GMT de cada opção é a da data em que a viagem começa. */
@@ -82,7 +92,10 @@ export function initTripsheet(){
     }
   });
   $('#t-cancel').addEventListener('click',()=>{ $('#tripsheet').hidden=true; render(); });
-  $('#t-dup').addEventListener('click',()=>{ const t=activeTrip(); pushStoreHistory(); const c=structuredClone(t); c.id=newId('t'); c.name=t.name+tr('copySuffix'); S.store.trips.push(c); setActive(c.id); $('#tripsheet').hidden=true; commit(); toast(tr('tTripDup')); });
+  // só de leitura e arquivar: mudam logo, como as outras ações (Desfazer volta atrás)
+  $('#t-ro').addEventListener('click',()=>{ const t=activeTrip(); if(!t) return; const on=!t.readOnly; pushHistory(); setTripFlag(t,'readOnly',on); commit(); toast(tr(on?'tRoOn':'tRoOff')); });
+  $('#t-archive').addEventListener('click',()=>{ const t=activeTrip(); if(!t) return; const on=!t.archived; pushHistory(); setTripFlag(t,'archived',on); commit(); toast(tr(on?'tArchived':'tUnarchived')); });
+  $('#t-dup').addEventListener('click',()=>{ const t=activeTrip(); pushStoreHistory(); const c=copyTrip(t, newId, tr('copySuffix')); S.store.trips.push(c); setActive(c.id); $('#tripsheet').hidden=true; commit(); toast(tr('tTripDup')); });
   $('#t-del').addEventListener('click',()=>{ $('#t-del-confirm').hidden=false; $('#t-del-yes').focus(); });
   $('#t-del-no').addEventListener('click',()=>{ $('#t-del-confirm').hidden=true; });
   $('#t-del-yes').addEventListener('click',()=>{ const t=activeTrip(); pushStoreHistory(); S.store.trips=S.store.trips.filter(x=>x!==t); S.activeId=null; ensureActive(); $('#tripsheet').hidden=true; commit(); toast(tr('tTripDel',{name:t.name})); });

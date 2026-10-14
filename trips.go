@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -248,7 +249,6 @@ func (s *server) putTrip(w http.ResponseWriter, r *http.Request, id string) {
 
 	s.tripsMu.Lock()
 	defer s.tripsMu.Unlock()
-	p := s.tripPath(id)
 	var rev int64
 	cur, err := s.loadRecord(id) // com a cache, quase sempre só um Stat
 	switch {
@@ -271,27 +271,40 @@ func (s *server) putTrip(w http.ResponseWriter, r *http.Request, id string) {
 			return
 		}
 		rev = cur.rev
-		s.backup(id, p)
+		s.backup(id, s.tripPath(id))
 	}
 
-	// O registo monta-se à mão: a viagem já foi interpretada acima e aqui só é compactada.
+	newRev, now, err := s.storeTrip(id, rev, in.Trip)
+	if err != nil {
+		writeError(w, 500, "não consegui gravar")
+		return
+	}
+	writeJSON(w, 200, map[string]any{"rev": newRev, "updatedAt": now})
+}
+
+// storeTrip grava trip (JSON já validado) como a revisão rev+1 da viagem id e atualiza a cache.
+// Devolve a revisão nova e o updatedAt. Chamar com s.tripsMu trancado e depois da cópia do dia (backup).
+func (s *server) storeTrip(id string, rev int64, trip []byte) (int64, string, error) {
+	p := s.tripPath(id)
+	// O registo monta-se à mão: a viagem já foi interpretada por quem chama e aqui só é compactada.
 	var out bytes.Buffer
-	out.Grow(len(in.Trip) + 64)
+	out.Grow(len(trip) + 64)
 	now := s.now().UTC().Format(time.RFC3339)
 	fmt.Fprintf(&out, `{"rev":%d,"updatedAt":%q,"trip":`, rev+1, now)
-	json.Compact(&out, in.Trip) // não falha: o json.Unmarshal acima já validou in.Trip
+	if err := json.Compact(&out, trip); err != nil {
+		return 0, "", err
+	}
 	out.WriteByte('}')
 	if err := s.writeFile(p, out.Bytes()); err != nil {
 		s.log.Printf("erro a gravar %s: %v", id, err)
-		writeError(w, 500, "não consegui gravar")
-		return
+		return 0, "", err
 	}
 	if fi, err := os.Stat(p); err == nil {
 		s.remember(id, &cachedRec{rev: rev + 1, raw: out.Bytes(), mod: fi.ModTime(), size: fi.Size()})
 	} else {
 		s.forget(id)
 	}
-	writeJSON(w, 200, map[string]any{"rev": rev + 1, "updatedAt": now})
+	return rev + 1, now, nil
 }
 
 // deleteTrip não apaga nada: move o ficheiro para a pasta de cópias.
@@ -340,11 +353,229 @@ func (s *server) backup(id, src string) {
 	entries, _ := os.ReadDir(dir) // já vêm por ordem do nome, ou seja, da data
 	var daily []string
 	for _, e := range entries {
-		if !strings.HasPrefix(e.Name(), "apagada-") {
+		// as viagens apagadas e as cópias de antes de cada alteração da IA (aiSnapshotPrefix) não são diárias
+		if !strings.HasPrefix(e.Name(), "apagada-") && !strings.HasPrefix(e.Name(), aiSnapshotPrefix) {
 			daily = append(daily, e.Name())
 		}
 	}
 	for _, name := range daily[:max(len(daily)-backupsKept, 0)] {
 		os.Remove(filepath.Join(dir, name))
+	}
+}
+
+/* ---------- alterações da IA (mcptools.go) ---------- */
+
+const (
+	// aiSnapshotPrefix: cópia da viagem antes de cada alteração da IA, em backups/<id>/ia-<data>-r<rev>-<marca>.json,
+	// onde rev é a revisão que a IA gravou e marca o aiFingerprint do que gravou. undoAI só repõe a cópia
+	// enquanto a viagem estiver nessa revisão, ou com o mesmo conteúdo (a página só tirou marcas da IA).
+	aiSnapshotPrefix = "ia-"
+	aiSnapshotsKept  = 20 // cópias de antes da IA guardadas por viagem: chega para desfazer uma conversa inteira
+)
+
+// loadTrip lê a viagem id do disco (pela cache) como um mapa. Chamar com s.tripsMu trancado.
+func (s *server) loadTrip(id string) (*cachedRec, []byte, jsonObj, error) {
+	cur, err := s.loadRecord(id)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil, nil, &toolError{fmt.Sprintf("a viagem %s não existe", id)}
+	}
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	raw, err := s.recordBytes(id, cur)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	var rec struct {
+		Trip jsonObj `json:"trip"`
+	}
+	if err := json.Unmarshal(raw, &rec); err != nil {
+		return nil, nil, nil, err
+	}
+	return cur, raw, rec.Trip, nil
+}
+
+// readTrip devolve a viagem id e a sua revisão, sem a mudar.
+func (s *server) readTrip(id string) (jsonObj, int64, error) {
+	if !tripIDRe.MatchString(id) {
+		return nil, 0, &toolError{fmt.Sprintf("identificador de viagem inválido: %q", id)}
+	}
+	s.tripsMu.Lock()
+	defer s.tripsMu.Unlock()
+	cur, _, t, err := s.loadTrip(id)
+	if err != nil {
+		return nil, 0, err
+	}
+	return t, cur.rev, nil
+}
+
+// editTrip aplica fn à viagem id e grava, tudo com s.tripsMu trancado: duas ferramentas ao mesmo tempo
+// não perdem as alterações uma da outra. Antes de gravar guarda a versão anterior (aiSnapshot), para o
+// undo_last_ai_change. Recusa as viagens só de leitura e arquivadas.
+func (s *server) editTrip(id string, fn func(t jsonObj) (any, error)) (any, int64, error) {
+	if !tripIDRe.MatchString(id) {
+		return nil, 0, &toolError{fmt.Sprintf("identificador de viagem inválido: %q", id)}
+	}
+	s.tripsMu.Lock()
+	defer s.tripsMu.Unlock()
+	cur, raw, t, err := s.loadTrip(id)
+	if err != nil {
+		return nil, 0, err
+	}
+	if err := checkWritable(t); err != nil {
+		return nil, 0, err
+	}
+	out, err := fn(t)
+	if err != nil {
+		return nil, 0, err
+	}
+	b, err := json.Marshal(t)
+	if err != nil {
+		return nil, 0, err
+	}
+	if len(b) > maxTripBytes {
+		return nil, 0, &toolError{"a viagem ficava demasiado grande (mais de 2 MB)"}
+	}
+	s.backup(id, s.tripPath(id))
+	if err := s.aiSnapshot(id, raw, cur.rev+1, aiFingerprint(t)); err != nil {
+		return nil, 0, err
+	}
+	rev, _, err := s.storeTrip(id, cur.rev, b)
+	return out, rev, err
+}
+
+// createTrip grava a viagem nova t (com o id que newTripFrom lhe deu).
+func (s *server) createTrip(t jsonObj) (int64, error) {
+	id := str(t, "id")
+	b, err := json.Marshal(t)
+	if err != nil {
+		return 0, err
+	}
+	s.tripsMu.Lock()
+	defer s.tripsMu.Unlock()
+	if _, err := os.Stat(s.tripPath(id)); err == nil {
+		return 0, &toolError{"já existe uma viagem com este id"}
+	}
+	rev, _, err := s.storeTrip(id, 0, b)
+	return rev, err
+}
+
+func (s *server) aiDir(id string) string { return filepath.Join(s.cfg.dataDir, "backups", id) }
+
+// aiFingerprint resume o conteúdo da viagem t sem as marcas da IA (o campo ai da viagem, das atividades e dos
+// custos): dar uma alteração como vista na página não muda o resumo. json.Marshal ordena as chaves dos mapas,
+// por isso não depende da ordem em que a página as escreveu.
+func aiFingerprint(t jsonObj) string {
+	strip := func(o jsonObj) jsonObj {
+		c := make(jsonObj, len(o))
+		for k, v := range o {
+			if k != "ai" {
+				c[k] = v
+			}
+		}
+		return c
+	}
+	c := strip(t)
+	for _, k := range []string{"blocks", "tray", "costs"} {
+		list := objs(t, k)
+		a := make([]any, len(list))
+		for i, o := range list {
+			a[i] = strip(o)
+		}
+		c[k] = a
+	}
+	b, _ := json.Marshal(c)
+	h := sha256.Sum256(b)
+	return hex.EncodeToString(h[:8])
+}
+
+// aiSnapshot guarda raw (o registo antes da alteração) como a cópia que desfaz a revisão rev, cujo conteúdo
+// tem o resumo fp (aiFingerprint), e mantém as últimas aiSnapshotsKept. Chamar com s.tripsMu trancado.
+func (s *server) aiSnapshot(id string, raw []byte, rev int64, fp string) error {
+	dir := s.aiDir(id)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	// a revisão com 12 algarismos: no mesmo milissegundo, a ordem dos nomes continua a ser a das gravações
+	name := fmt.Sprintf("%s%s-r%012d-%s.json", aiSnapshotPrefix, s.now().UTC().Format("20060102T150405.000Z"), rev, fp)
+	if err := s.writeFile(filepath.Join(dir, name), raw); err != nil {
+		return err
+	}
+	snaps := s.aiSnapshots(id)
+	for _, n := range snaps[:max(len(snaps)-aiSnapshotsKept, 0)] {
+		os.Remove(filepath.Join(dir, n))
+	}
+	return nil
+}
+
+// aiSnapshots: os nomes das cópias de antes da IA da viagem id, da mais antiga para a mais recente
+// (o nome começa pela data).
+func (s *server) aiSnapshots(id string) []string {
+	entries, _ := os.ReadDir(s.aiDir(id))
+	var out []string
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), aiSnapshotPrefix) && strings.HasSuffix(e.Name(), ".json") {
+			out = append(out, e.Name())
+		}
+	}
+	return out
+}
+
+// undoAI repõe a viagem id como estava antes da última alteração da IA, se ninguém a mudou depois: a revisão
+// atual é a que a IA gravou, ou o conteúdo é o mesmo tirando as marcas da IA (a página só as deu como vistas).
+// A cópia usada sai da pasta e o próximo undoAI vai à anterior: a viagem reposta é o que essa alteração gravou.
+// Devolve a revisão nova.
+func (s *server) undoAI(id string) (int64, error) {
+	s.tripsMu.Lock()
+	defer s.tripsMu.Unlock()
+	cur, _, t, err := s.loadTrip(id)
+	if err != nil {
+		return 0, err
+	}
+	if err := checkWritable(t); err != nil {
+		return 0, err
+	}
+	snaps := s.aiSnapshots(id)
+	if len(snaps) == 0 {
+		return 0, &toolError{"não há nenhuma alteração da IA para desfazer nesta viagem"}
+	}
+	last := snaps[len(snaps)-1]
+	// ia-<data>-r<rev>-<resumo>.json
+	parts := strings.Split(strings.TrimSuffix(last, ".json"), "-")
+	rev, _ := strconv.ParseInt(strings.TrimPrefix(parts[len(parts)-2], "r"), 10, 64)
+	if rev != cur.rev && parts[len(parts)-1] != aiFingerprint(t) {
+		return 0, &toolError{"a viagem mudou depois da última alteração da IA: usa o Desfazer da página ou uma cópia de segurança"}
+	}
+	p := filepath.Join(s.aiDir(id), last)
+	raw, err := os.ReadFile(p)
+	if err != nil {
+		return 0, err
+	}
+	var rec record
+	if err := json.Unmarshal(raw, &rec); err != nil {
+		return 0, err
+	}
+	s.backup(id, s.tripPath(id))
+	newRev, _, err := s.storeTrip(id, cur.rev, rec.Trip)
+	if err != nil {
+		return 0, err
+	}
+	os.Remove(p)
+	return newRev, nil
+}
+
+// undoAITrip é POST /api/trips/{id}/undo-ai, o botão "Desfazer a IA" da página: {rev}, ou 409 com a razão
+// (nada para desfazer, a viagem mudou depois, está só de leitura ou já não existe).
+func (s *server) undoAITrip(w http.ResponseWriter, _ *http.Request, id string) {
+	rev, err := s.undoAI(id)
+	var te *toolError
+	switch {
+	case errors.As(err, &te):
+		writeError(w, http.StatusConflict, err.Error())
+	case err != nil:
+		s.log.Printf("erro a desfazer a IA em %s: %v", id, err)
+		writeError(w, 500, "não consegui desfazer")
+	default:
+		writeJSON(w, 200, map[string]any{"rev": rev})
 	}
 }
