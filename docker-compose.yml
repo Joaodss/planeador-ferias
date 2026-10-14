@@ -12,6 +12,7 @@ services:
       PLANNER_HOME_TZ: ${PLANNER_HOME_TZ:-}
       PLANNER_MCP_TOKEN: ${PLANNER_MCP_TOKEN:-}
       PLANNER_MCP_MODE: ${PLANNER_MCP_MODE:-}
+      PLANNER_PUBLIC_URL: ${PLANNER_PUBLIC_URL:-}
     volumes:
       - planner_data:/data
     networks:
