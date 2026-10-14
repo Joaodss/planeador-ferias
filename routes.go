@@ -29,6 +29,13 @@ func (s *server) routes() http.Handler {
 	mux.Handle("POST /api/trips/{id}/undo-ai", s.requireSession(tripHandler(s.undoAITrip)))
 	mux.HandleFunc("POST /mcp", s.mcp)
 	mux.HandleFunc("GET /mcp", s.mcpGet)
+	mux.HandleFunc("GET /.well-known/oauth-protected-resource", s.oauthResource)
+	mux.HandleFunc("GET /.well-known/oauth-protected-resource/mcp", s.oauthResource)
+	mux.HandleFunc("GET /.well-known/oauth-authorization-server", s.oauthMetadata)
+	mux.HandleFunc("POST /oauth/register", s.oauthRegister)
+	mux.HandleFunc("GET /oauth/authorize", s.oauthAuthorize)
+	mux.HandleFunc("POST /oauth/authorize", s.oauthAuthorize)
+	mux.HandleFunc("POST /oauth/token", s.oauthToken)
 	mux.HandleFunc("GET /", s.serveStatic)
 	return secHeaders(csrfGuard(mux))
 }
@@ -53,15 +60,20 @@ func secHeaders(next http.Handler) http.Handler {
 // csrfGuard recusa os pedidos que alteram dados sem o cabeçalho X-Requested-With da própria página
 // (defesa extra contra CSRF, além do cookie SameSite=Strict): um formulário noutro site não o consegue enviar.
 // O /mcp fica de fora: autentica-se com um token em Authorization, que um browser não envia sozinho.
+// Os caminhos do OAuth também (csrfExempt): /oauth/token e /oauth/register são chamados de servidor para
+// servidor e o consentimento é um formulário simples que pede a palavra-passe, por isso não é atacável por CSRF.
 func csrfGuard(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet && r.Method != http.MethodHead && r.URL.Path != "/mcp" && r.Header.Get("X-Requested-With") != "planner" {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead && !csrfExempt[r.URL.Path] && r.Header.Get("X-Requested-With") != "planner" {
 			writeError(w, http.StatusForbidden, "pedido recusado")
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
 }
+
+// csrfExempt: os caminhos que não precisam do X-Requested-With (ver csrfGuard).
+var csrfExempt = map[string]bool{"/mcp": true, "/oauth/token": true, "/oauth/register": true, "/oauth/authorize": true}
 
 // requireSession só deixa passar pedidos com sessão válida. A sessão é deslizante: enquanto a página
 // for usada, a validade volta a sessionTTL (no máximo uma renovação por sessionRenewEvery). Só pede login

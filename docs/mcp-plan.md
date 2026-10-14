@@ -45,9 +45,12 @@ Instead of a pull-request style review queue, the AI is limited in what it can d
 - AI writes go through the same `storeTrip` as the page's `PUT` (daily backup, `rev + 1`, atomic write, cache).
 - An open page sees AI changes when the tab regains focus (the existing ETag refresh). If it has unsaved edits to that trip, its next `PUT` gets a 409 and the server version wins, as between two devices.
 
+## OAuth (done)
+
+`PLANNER_PUBLIC_URL` turns on a small OAuth 2.1 authorization server in the binary (`oauth.go`), so the planner can be added as a claude.ai custom connector (which also shows up in the Claude phone apps). PKCE S256, stateless dynamic client registration (the `client_id` is the signed client), protected resource metadata, and stateless HMAC tokens signed with the session key, so changing the password revokes every connection. The static `PLANNER_MCP_TOKEN` keeps working for Claude Code.
+
 ## Possible next steps
 
 - `get_costs` (totals per category and per day, as in the costs sheet) and `find_overlaps` (the most useful warning for an AI planner).
 - A light refresh in the page while it's visible and has nothing to save, so AI changes show up without switching tabs.
-- OAuth, so it can be added as a claude.ai web connector (Claude Code and Claude Desktop work with the bearer token).
 - An MCP check in the Docker smoke test in CI.

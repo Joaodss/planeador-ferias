@@ -60,6 +60,7 @@ A imagem Docker tem cerca de 7 MB e não precisa de base de dados: cada viagem �
 | `PLANNER_HOME_TZ` | não | fuso do browser | Segundo fuso mostrado na grelha, ao lado da hora da viagem (ex.: `Europe/Lisbon`). Cada dispositivo pode escolher outro. |
 | `PLANNER_MCP_TOKEN` | não | — (MCP desligado) | Liga o servidor MCP em `/mcp` para um assistente de IA (mínimo 32 caracteres; ver [Assistente de IA (MCP)](#assistente-de-ia-mcp)). |
 | `PLANNER_MCP_MODE` | não | `write` | `read` deixa a IA só ler as viagens. |
+| `PLANNER_PUBLIC_URL` | não | — (OAuth desligado) | Endereço público do planeador (ex.: `https://ferias.example.com`, sem `/` no fim). Liga o `/mcp` com OAuth, para o adicionar no claude.ai (ver [Assistente de IA (MCP)](#assistente-de-ia-mcp)). |
 | `DATA_DIR` | não | `/data` na imagem | Pasta dos dados. |
 | `PORT` | não | `8080` | Porta onde o servidor ouve. |
 
@@ -67,13 +68,30 @@ Mudar a palavra-passe termina todas as sessões abertas.
 
 ## Assistente de IA (MCP)
 
-Com `PLANNER_MCP_TOKEN` definido, o servidor responde em `/mcp` ao [Model Context Protocol](https://modelcontextprotocol.io)
+Com `PLANNER_MCP_TOKEN` ou `PLANNER_PUBLIC_URL` definido, o servidor responde em `/mcp` ao [Model Context Protocol](https://modelcontextprotocol.io)
 (transporte HTTP, sem estado). Um assistente de IA pode então ver as viagens, montar um itinerário, mover atividades
 e juntar custos e sítios. Para ligar o Claude Code:
 
 ```sh
 claude mcp add --transport http ferias https://ferias.example.com/mcp --header "Authorization: Bearer $PLANNER_MCP_TOKEN"
 ```
+
+### No claude.ai e no telemóvel
+
+Os conectores do claude.ai não aceitam um token fixo: usam OAuth. Define `PLANNER_PUBLIC_URL` com o endereço
+público do planeador (por exemplo `https://ferias.example.com`, o mesmo que o Caddy serve) e reinicia o contentor.
+Depois, no claude.ai:
+
+1. **Definições → Conectores → Adicionar conector personalizado**, com o URL `https://ferias.example.com/mcp`.
+2. Ao ligar, abre-se a página **Ligar ao Planeador de Férias**: escreve o utilizador e a palavra-passe e carrega em **Permitir**.
+
+O conector aparece também na app do Claude no telemóvel (iOS e Android), com a mesma conta.
+
+- O servidor não guarda nada sobre as ligações: os tokens são assinados com a mesma chave das sessões.
+  **Mudar a palavra-passe revoga todas as ligações** (e todas as sessões); depois é preciso ligar outra vez.
+- O token de acesso dura uma hora e o claude.ai renova-o sozinho; quem não usar o conector durante 30 dias tem de o voltar a ligar.
+- `PLANNER_MCP_MODE=read` e todas as regras abaixo valem também para estas ligações.
+- O token fixo (`PLANNER_MCP_TOKEN`) continua a funcionar para o Claude Code ao mesmo tempo.
 
 Ferramentas: `list_trips`, `get_trip`, `get_day`, `create_trip`, `update_trip`, `add_activities`, `update_activity`,
 `move_activity`, `add_place`, `set_day_places`, `add_cost`, `update_cost` e `undo_last_ai_change`.

@@ -12,6 +12,7 @@
 //	static.go  ficheiros da página (embutidos no binário)
 //	mcp.go     servidor MCP em /mcp (JSON-RPC), para um assistente de IA ler e editar as viagens
 //	mcptools.go as ferramentas MCP: o que a IA pode ler e mudar
+//	oauth.go   autorização OAuth 2.1 do /mcp, para ligar o planeador no claude.ai
 //	tripedit.go regras das alterações feitas pela IA (o espelho de clean.js e trip.js de que precisam)
 package main
 
@@ -35,7 +36,11 @@ type config struct {
 	homeTz                        string // segundo fuso mostrado na grelha (opcional)
 	mcpToken                      string // PLANNER_MCP_TOKEN: sem ele o /mcp fica desligado
 	mcpReadOnly                   bool   // PLANNER_MCP_MODE=read: a IA só pode ler
+	publicURL                     string // PLANNER_PUBLIC_URL: liga o OAuth do /mcp (ver oauth.go)
 }
+
+// mcpOn diz se o /mcp está ligado: com o token fixo, com o OAuth, ou com os dois.
+func (c config) mcpOn() bool { return c.mcpToken != "" || c.publicURL != "" }
 
 // server guarda o estado do servidor. Os ficheiros, a cache e as falhas de login são partilhados por todos os
 // pedidos, por isso têm o seu mutex; o resto é preenchido por newServer e depois só é lido.
@@ -55,6 +60,10 @@ type server struct {
 	// failuresMu protege as horas dos logins falhados de cada endereço (ver tooManyFailures).
 	failuresMu sync.Mutex
 	failures   map[string][]time.Time
+
+	// codesMu protege os códigos de autorização do OAuth ainda por trocar (ver oauthCode).
+	codesMu sync.Mutex
+	codes   map[string]oauthCode
 
 	idSeq atomic.Uint64 // contador dos ids criados pela IA (ver newID)
 
@@ -78,6 +87,7 @@ func newServer(cfg config) (*server, error) {
 	s := &server{
 		cfg:       cfg,
 		failures:  map[string][]time.Time{},
+		codes:     map[string]oauthCode{},
 		now:       time.Now,
 		failDelay: loginFailDelay,
 		maxCache:  16 << 20, // o contentor tem 64 MB
@@ -113,12 +123,13 @@ func loadConfig(getenv func(string) string) (config, error) {
 		return def
 	}
 	cfg := config{
-		user:     getenv("PLANNER_USER"),
-		password: getenv("PLANNER_PASSWORD"),
-		dataDir:  env("DATA_DIR", "./data"),
-		addr:     ":" + env("PORT", "8080"),
-		homeTz:   strings.TrimSpace(getenv("PLANNER_HOME_TZ")),
-		mcpToken: strings.TrimSpace(getenv("PLANNER_MCP_TOKEN")),
+		user:      getenv("PLANNER_USER"),
+		password:  getenv("PLANNER_PASSWORD"),
+		dataDir:   env("DATA_DIR", "./data"),
+		addr:      ":" + env("PORT", "8080"),
+		homeTz:    strings.TrimSpace(getenv("PLANNER_HOME_TZ")),
+		mcpToken:  strings.TrimSpace(getenv("PLANNER_MCP_TOKEN")),
+		publicURL: strings.TrimSpace(getenv("PLANNER_PUBLIC_URL")),
 	}
 	if cfg.user == "" || cfg.password == "" {
 		return cfg, errors.New("define PLANNER_USER e PLANNER_PASSWORD antes de arrancar (ver .env.example)")
@@ -128,6 +139,9 @@ func loadConfig(getenv func(string) string) (config, error) {
 	}
 	if cfg.mcpToken != "" && len(cfg.mcpToken) < minMCPTokenLen {
 		return cfg, fmt.Errorf("PLANNER_MCP_TOKEN tem de ter pelo menos %d caracteres", minMCPTokenLen)
+	}
+	if cfg.publicURL != "" && !validPublicURL(cfg.publicURL) {
+		return cfg, errors.New("PLANNER_PUBLIC_URL tem de ser https://servidor (ou http:// só para localhost), sem caminho nem / no fim")
 	}
 	switch getenv("PLANNER_MCP_MODE") {
 	case "", "write":

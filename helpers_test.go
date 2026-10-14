@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -254,4 +255,90 @@ func storedTrip(t *testing.T, s *server, id string) (map[string]any, int64) {
 		t.Fatal(err)
 	}
 	return rec.Trip, rec.Rev
+}
+
+/* ---------- OAuth ---------- */
+
+// testPublicURL é o PLANNER_PUBLIC_URL dos testes do OAuth.
+const testPublicURL = "https://ferias.example.com"
+
+// testRedirect é o endereço de volta do cliente dos testes.
+const testRedirect = "https://claude.ai/api/mcp/auth_callback"
+
+// testVerifier é o code_verifier do PKCE dos testes (43 caracteres, o mínimo).
+var testVerifier = strings.Repeat("v", minVerifierLen)
+
+// newOAuthServer é um servidor de teste com o OAuth ligado (sem token fixo), num relógio parado.
+func newOAuthServer(t testing.TB) (*server, *clock) {
+	t.Helper()
+	s := newTestServer(t)
+	s.cfg.publicURL = testPublicURL
+	return s, withClock(s, time.Date(2026, 10, 13, 9, 0, 0, 0, time.UTC))
+}
+
+// registerClient regista um cliente com os redirects dados e devolve o client_id.
+func registerClient(t *testing.T, s *server, redirects ...string) string {
+	t.Helper()
+	b, _ := json.Marshal(map[string]any{"client_name": "Claude", "redirect_uris": redirects})
+	w := call(s, "POST", "/oauth/register", string(b), withoutCSRF)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("registo: código %d: %s", w.Code, w.Body.String())
+	}
+	return decode[map[string]any](t, w)["client_id"].(string)
+}
+
+// authParams são os parâmetros de um pedido de autorização válido para clientID.
+func authParams(clientID string) url.Values {
+	return url.Values{
+		"client_id": {clientID}, "redirect_uri": {testRedirect}, "response_type": {"code"}, "state": {"xyz"},
+		"code_challenge": {pkceChallenge(testVerifier)}, "code_challenge_method": {"S256"}, "resource": {testPublicURL + "/mcp"},
+	}
+}
+
+// formCall manda um formulário (application/x-www-form-urlencoded), sem o X-Requested-With.
+func formCall(s *server, path string, v url.Values, opts ...reqOpt) *httptest.ResponseRecorder {
+	return call(s, "POST", path, v.Encode(), append([]reqOpt{withoutCSRF, withHeader("Content-Type", "application/x-www-form-urlencoded")}, opts...)...)
+}
+
+// consent responde à página de consentimento com user, password e action (allow ou deny).
+func consent(s *server, v url.Values, user, password, action string, opts ...reqOpt) *httptest.ResponseRecorder {
+	f := url.Values{}
+	for k, vs := range v {
+		f[k] = vs
+	}
+	f.Set("user", user)
+	f.Set("password", password)
+	f.Set("action", action)
+	return formCall(s, "/oauth/authorize", f, opts...)
+}
+
+// authCode autoriza clientID com as credenciais certas e devolve o código do redirect.
+func authCode(t *testing.T, s *server, clientID string) string {
+	t.Helper()
+	w := consent(s, authParams(clientID), testUser, testPass, "allow")
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("autorizar: código %d: %s", w.Code, w.Body.String())
+	}
+	u, _ := url.Parse(w.Header().Get("Location"))
+	return u.Query().Get("code")
+}
+
+// exchangeCode troca code por tokens com o verifier certo.
+func exchangeCode(s *server, clientID, code string) *httptest.ResponseRecorder {
+	return formCall(s, "/oauth/token", url.Values{
+		"grant_type": {"authorization_code"}, "code": {code}, "redirect_uri": {testRedirect},
+		"client_id": {clientID}, "code_verifier": {testVerifier},
+	})
+}
+
+// oauthTokens faz o fluxo todo (registo, consentimento e troca) e devolve o client_id e os tokens.
+func oauthTokens(t *testing.T, s *server) (clientID, access, refresh string) {
+	t.Helper()
+	clientID = registerClient(t, s, testRedirect)
+	w := exchangeCode(s, clientID, authCode(t, s, clientID))
+	if w.Code != 200 {
+		t.Fatalf("troca do código: código %d: %s", w.Code, w.Body.String())
+	}
+	r := decode[map[string]any](t, w)
+	return clientID, r["access_token"].(string), r["refresh_token"].(string)
 }

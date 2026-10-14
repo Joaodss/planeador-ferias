@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createServer } from 'node:net';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, createHash } from 'node:crypto';
 import { chromium } from 'playwright';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -47,7 +47,7 @@ before(async ()=>{
   const port = await freePort();
   base = `http://127.0.0.1:${port}`;
   server = spawn(bin, [], {
-    env: { ...process.env, PLANNER_USER: USER, PLANNER_PASSWORD: PASS, PLANNER_MCP_TOKEN: MCP_TOKEN, DATA_DIR: dataDir, PORT: String(port) },
+    env: { ...process.env, PLANNER_USER: USER, PLANNER_PASSWORD: PASS, PLANNER_MCP_TOKEN: MCP_TOKEN, PLANNER_PUBLIC_URL: base, DATA_DIR: dataDir, PORT: String(port) },
     stdio: ['ignore', 'inherit', 'inherit'],
   });
   await waitHealthy(base);
@@ -313,6 +313,44 @@ test('Sair, mudar para inglês e voltar a entrar', async ()=>{
   assert.equal(await page.textContent('#add span'), 'New activity');
   assert.match(await page.textContent('#route'), /3 days/);
   assert.equal(await block(D1).count(), 1);
+});
+
+/* OAuth, como o claude.ai o faz: registo, consentimento no browser, troca do código e /mcp com o token.
+   O redirect vai para localhost (outra origem que 127.0.0.1): só passa se a CSP da página de consentimento
+   tiver essa origem no form-action (senão o Chrome recusa e mostra a violação na consola). O page.route não
+   apanha um pedido que vem de um redirect, por isso ele chega ao servidor, que responde 404 a /cb-test. */
+test('OAuth: registar, permitir no browser e usar o /mcp com o token de acesso', async ()=>{
+  const redirect = base.replace('127.0.0.1', 'localhost') + '/cb-test';
+  const reg = await fetch(base + '/oauth/register', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ client_name: 'Claude', redirect_uris: [redirect] }) });
+  assert.equal(reg.status, 201);
+  const { client_id } = await reg.json();
+  const verifier = randomBytes(32).toString('base64url');
+  const challenge = createHash('sha256').update(verifier).digest('base64url');
+  const q = new URLSearchParams({ client_id, redirect_uri: redirect, response_type: 'code', state: 'st-1',
+    code_challenge: challenge, code_challenge_method: 'S256', resource: base + '/mcp' });
+
+  const p = await context.newPage();
+  p.on('console', m=>{ if(m.type() === 'error' && !/404 \(Not Found\)/.test(m.text())) problems.push(m.text()); });
+  p.on('pageerror', e=>problems.push(String(e)));
+  await p.goto(base + '/oauth/authorize?' + q);
+  assert.match(await p.textContent('h1'), /Ligar ao Planeador de Férias/);
+  await p.fill('#user', USER);
+  await p.fill('#password', PASS);
+  const [req] = await Promise.all([p.waitForRequest(r=>r.url().startsWith(redirect)), p.click('button[value=allow]')]);
+  const back = new URL(req.url());
+  await p.close();
+  assert.equal(back.searchParams.get('state'), 'st-1');
+  assert.equal(back.searchParams.get('iss'), base);
+
+  const tok = await fetch(base + '/oauth/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ grant_type: 'authorization_code', code: back.searchParams.get('code'), redirect_uri: redirect, client_id, code_verifier: verifier }) });
+  assert.equal(tok.status, 200);
+  const { access_token } = await tok.json();
+  const r = await fetch(base + '/mcp', { method: 'POST', headers: { Authorization: 'Bearer ' + access_token, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }) });
+  assert.equal(r.status, 200);
+  assert.ok((await r.json()).result.tools.some(t=>t.name === 'list_trips'));
 });
 
 test('sem erros na consola nem exceções (inclui violações da CSP)', ()=>{
