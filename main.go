@@ -10,6 +10,9 @@
 //	auth.go    login, sessões e limite de tentativas
 //	trips.go   leitura, gravação e cópias de segurança das viagens
 //	static.go  ficheiros da página (embutidos no binário)
+//	mcp.go     servidor MCP em /mcp (JSON-RPC), para um assistente de IA ler e editar as viagens
+//	mcptools.go as ferramentas MCP: o que a IA pode ler e mudar
+//	tripedit.go regras das alterações feitas pela IA (o espelho de clean.js e trip.js de que precisam)
 package main
 
 import (
@@ -22,6 +25,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -29,6 +33,8 @@ import (
 type config struct {
 	user, password, dataDir, addr string
 	homeTz                        string // segundo fuso mostrado na grelha (opcional)
+	mcpToken                      string // PLANNER_MCP_TOKEN: sem ele o /mcp fica desligado
+	mcpReadOnly                   bool   // PLANNER_MCP_MODE=read: a IA só pode ler
 }
 
 // server guarda o estado do servidor. Os ficheiros, a cache e as falhas de login são partilhados por todos os
@@ -50,12 +56,15 @@ type server struct {
 	failuresMu sync.Mutex
 	failures   map[string][]time.Time
 
+	idSeq atomic.Uint64 // contador dos ids criados pela IA (ver newID)
+
 	// Efeitos externos. newServer preenche-os com os valores reais; os testes trocam-nos
 	// (relógio fixo, sem espera, cache pequena, disco que falha, log para um buffer).
 	now       func() time.Time           // sessões, tentativas de login, updatedAt e nomes das cópias
 	failDelay time.Duration              // espera depois de um login falhado
 	maxCache  int64                      // bytes de viagens guardados em memória (ver remember)
 	writeFile func(string, []byte) error // gravação das viagens e das cópias
+	idRand    func() int64               // parte aleatória dos ids criados pela IA (ver newID)
 	log       *log.Logger                // avisos de ficheiros ilegíveis e gravações falhadas
 }
 
@@ -73,6 +82,7 @@ func newServer(cfg config) (*server, error) {
 		failDelay: loginFailDelay,
 		maxCache:  16 << 20, // o contentor tem 64 MB
 		writeFile: writeAtomic,
+		idRand:    randomID4,
 		log:       log.Default(),
 	}
 	if err := s.loadKey(); err != nil {
@@ -89,6 +99,10 @@ func newServer(cfg config) (*server, error) {
 // (ver tooManyFailures) só abranda quem a tenta adivinhar. Uma palavra-passe curta não aguentava muito tempo.
 const minPasswordLen = 10
 
+// minMCPTokenLen: o token do MCP dá acesso às viagens sem login e não passa pelo limite de tentativas
+// por endereço de forma tão lenta como a palavra-passe (não há espera depois de uma falha), por isso tem de ser longo.
+const minMCPTokenLen = 32
+
 // loadConfig lê e valida a configuração do ambiente (getenv é os.Getenv; os testes passam um mapa).
 func loadConfig(getenv func(string) string) (config, error) {
 	// env: a variável k, ou def se estiver vazia ou não existir.
@@ -104,12 +118,23 @@ func loadConfig(getenv func(string) string) (config, error) {
 		dataDir:  env("DATA_DIR", "./data"),
 		addr:     ":" + env("PORT", "8080"),
 		homeTz:   strings.TrimSpace(getenv("PLANNER_HOME_TZ")),
+		mcpToken: strings.TrimSpace(getenv("PLANNER_MCP_TOKEN")),
 	}
 	if cfg.user == "" || cfg.password == "" {
 		return cfg, errors.New("define PLANNER_USER e PLANNER_PASSWORD antes de arrancar (ver .env.example)")
 	}
 	if len(cfg.password) < minPasswordLen {
 		return cfg, fmt.Errorf("PLANNER_PASSWORD tem de ter pelo menos %d caracteres", minPasswordLen)
+	}
+	if cfg.mcpToken != "" && len(cfg.mcpToken) < minMCPTokenLen {
+		return cfg, fmt.Errorf("PLANNER_MCP_TOKEN tem de ter pelo menos %d caracteres", minMCPTokenLen)
+	}
+	switch getenv("PLANNER_MCP_MODE") {
+	case "", "write":
+	case "read":
+		cfg.mcpReadOnly = true
+	default:
+		return cfg, errors.New("PLANNER_MCP_MODE tem de ser read ou write")
 	}
 	return cfg, nil
 }
@@ -162,6 +187,6 @@ func main() {
 		WriteTimeout:      60 * time.Second,
 		IdleTimeout:       120 * time.Second,
 	}
-	log.Printf("Planeador de Férias a ouvir em %s · dados em %s · utilizador %q", cfg.addr, cfg.dataDir, cfg.user)
+	log.Printf("Planeador de Férias a ouvir em %s · dados em %s · utilizador %q · MCP %s", cfg.addr, cfg.dataDir, cfg.user, mcpState(cfg))
 	log.Fatal(srv.ListenAndServe())
 }

@@ -26,6 +26,9 @@ func (s *server) routes() http.Handler {
 	mux.Handle("GET /api/trips", s.requireSession(s.listTrips))
 	mux.Handle("PUT /api/trips/{id}", s.requireSession(tripHandler(s.putTrip)))
 	mux.Handle("DELETE /api/trips/{id}", s.requireSession(tripHandler(s.deleteTrip)))
+	mux.Handle("POST /api/trips/{id}/undo-ai", s.requireSession(tripHandler(s.undoAITrip)))
+	mux.HandleFunc("POST /mcp", s.mcp)
+	mux.HandleFunc("GET /mcp", s.mcpGet)
 	mux.HandleFunc("GET /", s.serveStatic)
 	return secHeaders(csrfGuard(mux))
 }
@@ -49,9 +52,10 @@ func secHeaders(next http.Handler) http.Handler {
 
 // csrfGuard recusa os pedidos que alteram dados sem o cabeçalho X-Requested-With da própria página
 // (defesa extra contra CSRF, além do cookie SameSite=Strict): um formulário noutro site não o consegue enviar.
+// O /mcp fica de fora: autentica-se com um token em Authorization, que um browser não envia sozinho.
 func csrfGuard(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Header.Get("X-Requested-With") != "planner" {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead && r.URL.Path != "/mcp" && r.Header.Get("X-Requested-With") != "planner" {
 			writeError(w, http.StatusForbidden, "pedido recusado")
 			return
 		}

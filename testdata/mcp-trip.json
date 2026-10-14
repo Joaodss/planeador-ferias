@@ -1,0 +1,98 @@
+{
+  "ai": "2026-10-13T09:00:00Z",
+  "blocks": [
+    {
+      "ai": "2026-10-13T09:00:00Z",
+      "cat": "transport",
+      "date": "2026-11-01",
+      "id": "amv6ga00010000",
+      "len": 600,
+      "ref": "TP123",
+      "start": 1410,
+      "status": "reservar",
+      "title": "Voo",
+      "tz": "Europe/Lisbon"
+    },
+    {
+      "ai": "2026-10-13T09:00:00Z",
+      "cat": "tour",
+      "ccat": "atividades",
+      "date": "2026-11-02",
+      "id": "amv6ga00020000",
+      "len": 90,
+      "place": "pmv6ga00030000",
+      "pp": 1500,
+      "start": 540,
+      "status": "pago",
+      "title": "Templo",
+      "weekdays": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    }
+  ],
+  "budget": 300000,
+  "costs": [
+    {
+      "ai": "2026-10-13T09:00:00Z",
+      "amount": 60000,
+      "cat": "alojamento",
+      "date": "2026-11-02",
+      "id": "cmv6ga00060000",
+      "label": "Hotel",
+      "per": "total"
+    },
+    {
+      "ai": "2026-10-13T09:00:00Z",
+      "amount": 40,
+      "id": "cmv6ga00070000",
+      "label": "Seguro",
+      "paid": true,
+      "per": "pp"
+    }
+  ],
+  "currency": "¥",
+  "dayEnd": 2,
+  "dayPlaces": {
+    "2026-11-02": [
+      "pmv6ga00050000",
+      "pmv6ga00030000"
+    ]
+  },
+  "dayStart": 7,
+  "end": "2026-11-05",
+  "id": "tmv6ga00000000",
+  "name": "Japão",
+  "people": 3,
+  "places": [
+    {
+      "c": 1,
+      "id": "pmv6ga00030000",
+      "name": "Quioto"
+    },
+    {
+      "c": 2,
+      "id": "pmv6ga00050000",
+      "name": "Tóquio"
+    }
+  ],
+  "start": "2026-11-01",
+  "tray": [
+    {
+      "address": "Shibuya",
+      "ai": "2026-10-13T09:00:00Z",
+      "cat": "party",
+      "id": "amv6ga00040000",
+      "len": 60,
+      "link": "https://example.com",
+      "note": "duas\nlinhas",
+      "status": "ideia",
+      "title": "Karaoke",
+      "total": 9000
+    }
+  ],
+  "tz": "Asia/Tokyo"
+}

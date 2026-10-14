@@ -67,6 +67,37 @@ func TestLoadConfig(t *testing.T) {
 	if _, err := loadConfig(env(map[string]string{"PLANNER_USER": "eu", "PLANNER_PASSWORD": strings.Repeat("x", minPasswordLen)})); err != nil {
 		t.Errorf("palavra-passe com %d caracteres: %v", minPasswordLen, err)
 	}
+
+	// MCP: desligado sem token; com token, leitura e escrita, ou só leitura com PLANNER_MCP_MODE=read
+	with := func(extra map[string]string) map[string]string {
+		m := map[string]string{"PLANNER_USER": "eu", "PLANNER_PASSWORD": testPass}
+		for k, v := range extra {
+			m[k] = v
+		}
+		return m
+	}
+	tok := strings.Repeat("t", minMCPTokenLen)
+	for name, tc := range map[string]struct {
+		env      map[string]string
+		readOnly bool
+	}{
+		"token":             {map[string]string{"PLANNER_MCP_TOKEN": " " + tok + " "}, false},
+		"token e write":     {map[string]string{"PLANNER_MCP_TOKEN": tok, "PLANNER_MCP_MODE": "write"}, false},
+		"token e modo read": {map[string]string{"PLANNER_MCP_TOKEN": tok, "PLANNER_MCP_MODE": "read"}, true},
+	} {
+		cfg, err := loadConfig(env(with(tc.env)))
+		if err != nil || cfg.mcpToken != tok || cfg.mcpReadOnly != tc.readOnly {
+			t.Errorf("%s: %+v, %v", name, cfg, err)
+		}
+	}
+	for name, extra := range map[string]map[string]string{
+		"token curto":       {"PLANNER_MCP_TOKEN": strings.Repeat("t", minMCPTokenLen-1)},
+		"modo desconhecido": {"PLANNER_MCP_TOKEN": tok, "PLANNER_MCP_MODE": "admin"},
+	} {
+		if _, err := loadConfig(env(with(extra))); err == nil {
+			t.Errorf("%s: devia dar erro", name)
+		}
+	}
 }
 
 func TestHealthcheck(t *testing.T) {
